@@ -7,6 +7,9 @@
 - Work from an issue in this repository and preserve its milestone outcome,
   acceptance criteria, dependencies, and licensing constraints. Do not use a
   tooling change to redesign established game content or gameplay decisions.
+- Treat [atrinik/atrinik#168](https://github.com/atrinik/atrinik/issues/168) as
+  the authoritative cross-repository implementation plan. Local issues own
+  toolkit delivery units; reflect dependency or exit-gate changes in that plan.
 - Pull-request titles and commits use Conventional Commits style. Squash merges
   are released by semantic-release, so treat public crate, CLI, schema,
   diagnostic, fixture, and artifact compatibility as versioned API.
@@ -105,7 +108,8 @@
   contracts are stable.
 - M5 supports reviewed authored-content migrations and complete gameplay/world
   parity without moving server runtime scripting into this repository or
-  changing product design.
+  changing product design. M5 closure must not hide unowned, silently skipped,
+  unclassified, or unsupported content behavior behind aggregate success.
 - M6 hardens releases, compatibility, migration, rollback, and cutover. Remove
   an old production workflow only after its replacement and corpus evidence
   meet the coordinated roadmap gate.
@@ -133,3 +137,8 @@
   copy-pasteable component commands and, when integration is relevant, exact
   wrapper profile and build commands. Runtime topology steps are not applicable
   to a headless toolkit-only change.
+- Publish component conformance, whole-corpus coverage, determinism,
+  compatibility, exclusion, and skipped-path reports as evidence for
+  [atrinik/atrinik#279](https://github.com/atrinik/atrinik/issues/279) and
+  [atrinik/atrinik#280](https://github.com/atrinik/atrinik/issues/280). Every
+  exception needs an owning issue, milestone, and explicit effect on cutover.
