@@ -1,0 +1,44 @@
+name: Release content toolkit
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  packages: read
+
+jobs:
+  release:
+    name: Release content toolkit
+    runs-on: ubuntu-24.04
+    container: ghcr.io/atrinik/linux-build:ubuntu-26.04
+    timeout-minutes: 30
+    env:
+      CARGO_HOME: /tmp/atrinik-content-toolkit-cargo
+      CARGO_TARGET_DIR: /tmp/atrinik-content-toolkit-target
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out release revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Validate release tag
+        run: |
+          if [[ ! ${GITHUB_REF_NAME} =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tag must be vMAJOR.MINOR.PATCH." >&2
+            exit 1
+          fi
+
+      - name: Validate and package
+        run: |
+          tools/validate.sh
+          tools/package-release.sh dist
+
+      - name: Publish immutable GitHub release
+        run: |
+          mapfile -d '' artifacts < <(find dist -type f -print0 | sort -z)
+          gh release create "${GITHUB_REF_NAME}" "${artifacts[@]}" \
+            --verify-tag --generate-notes

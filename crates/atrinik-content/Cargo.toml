@@ -1,0 +1,17 @@
+[package]
+name = "atrinik-content"
+description = "Headless Atrinik authored content library and CLI"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+atrinik-artifact.workspace = true
+atrinik-catalog.workspace = true
+atrinik-diagnostics.workspace = true
+atrinik-schema.workspace = true
+atrinik-source.workspace = true
+atrinik-transaction.workspace = true

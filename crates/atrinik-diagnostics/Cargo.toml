@@ -1,0 +1,9 @@
+[package]
+name = "atrinik-diagnostics"
+description = "Bounded deterministic diagnostics for Atrinik authored content"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true

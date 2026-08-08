@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://atrinik.org/schemas/content/foundation-artifact-v1.json",
+  "title": "Atrinik content foundation artifact metadata",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "version", "sha256", "payload_bytes"],
+  "properties": {
+    "format": {"const": "ATF1"},
+    "version": {"const": 1},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "payload_bytes": {"type": "integer", "minimum": 0, "maximum": 8388608}
+  }
+}

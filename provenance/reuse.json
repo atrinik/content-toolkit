@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "audit": {
+    "source_repository": "atrinik/content",
+    "source_revision": "01b1fdb65c2243df4bafe9c8109fc93229df0121",
+    "source_scope": "tools",
+    "complete_history": true,
+    "shallow_repository": false,
+    "path_count": 50,
+    "touch_count": 105,
+    "author_committer_identities": [
+      "Alex Tokar <admin@atokar.net>\tAlex Tokar <admin@atokar.net>",
+      "Edwin Miltenburg <mamoru@edwinmiltenburg.nl>\tEdwin Miltenburg <mamoru@edwinmiltenburg.nl>",
+      "Zoey Rose <3865595+zoeyrose@users.noreply.github.com>\tGitHub <noreply@github.com>",
+      "Zoey Rose <zoey@zoeysr.com>\tZoey Rose <zoey@zoeysr.com>"
+    ],
+    "root_registry_repository": "atrinik/atrinik",
+    "root_registry_revision": "d64a8e958ca2adad783ad8912493d468a805f3fd",
+    "root_registry_path": "AGENTS.md"
+  },
+  "records": [
+    {
+      "id": "lossless-core-model",
+      "decision": "admitted",
+      "grantor": "Zoey Rose",
+      "grant": "Copy, migrate, translate, or relicense solely authored original past Atrinik contributions to MIT",
+      "source_paths": [
+        "tools/content_core/contracts.py",
+        "tools/content_core/errors.py",
+        "tools/content_core/model.py",
+        "tools/content_core/parser.py",
+        "tools/syntax_evaluation/limits.py",
+        "tools/syntax_evaluation/model.py"
+      ],
+      "source_introduction_revisions": [
+        "4aa4aebc5c88dffdf57657a34ae20306a57fbebd",
+        "96073eeff1854fc29347fdafd32e622394f24c07"
+      ],
+      "source_blob_ids": {
+        "tools/content_core/contracts.py": "e956f05845e7e8cb92d54097abb5f27a30fbf558",
+        "tools/content_core/errors.py": "0cad51baea80467237c9bec68bc15981c1b0b6c1",
+        "tools/content_core/model.py": "4a16da41059f09133b30c3922e7a9e2fe4f88edd",
+        "tools/content_core/parser.py": "a773c39e7dd0bdc9c3d03eaeac5242154b2c62df",
+        "tools/syntax_evaluation/limits.py": "e759948e33057ece44252a483cb0299a46cc3b87",
+        "tools/syntax_evaluation/model.py": "e52362d006732135bf23f901e2b66f8678075a52"
+      },
+      "history_evidence": "Each path has exactly one complete-history touch through the audited revision; --follow finds only Zoey Rose <3865595+zoeyrose@users.noreply.github.com>.",
+      "identity_evidence": "GitHub API maps both immutable commits to zoeyrose and reports a valid GitHub signature by web-flow.",
+      "third_party_review": "Candidate imports are Python standard-library or other in-repository modules. No vendored/generated input, authored fixture, schema text, content byte, or dependency code was carried into the destination.",
+      "destination_paths": [
+        "crates/atrinik-source/src/lib.rs"
+      ],
+      "method": "Translate the bounded byte/span, immutable revision, lossless record, diagnostic, and edit-plan concepts into a new Rust API with new tests and synthetic fixtures.",
+      "retained_attribution": "Zoey Rose; source and evidence retained in this manifest and PROVENANCE.md",
+      "destination_license": "MIT"
+    },
+    {
+      "id": "remaining-content-tools",
+      "decision": "excluded",
+      "source_paths": [
+        "tools/COPYING",
+        "tools/atrinik-content",
+        "tools/build-release-assets.sh",
+        "tools/build_runtime.py",
+        "tools/collect.py",
+        "tools/compilers/__init__.py",
+        "tools/compilers/interface_compiler.py",
+        "tools/content_catalog/__init__.py",
+        "tools/content_catalog/__main__.py",
+        "tools/content_catalog/loaders.py",
+        "tools/content_catalog/model.py",
+        "tools/content_contracts/__init__.py",
+        "tools/content_contracts/__main__.py",
+        "tools/content_contracts/contracts.py",
+        "tools/content_contracts/corpus.py",
+        "tools/content_core/__init__.py",
+        "tools/content_core/__main__.py",
+        "tools/content_core/authority.py",
+        "tools/content_core/cli.py",
+        "tools/content_core/operations.py",
+        "tools/content_core/project.py",
+        "tools/content_core/transaction.py",
+        "tools/content_schema/__init__.py",
+        "tools/content_schema/__main__.py",
+        "tools/content_schema/audit.py",
+        "tools/content_schema/generate.py",
+        "tools/content_schema/logical.py",
+        "tools/content_schema/model.py",
+        "tools/package-release.sh",
+        "tools/syntax_evaluation/__init__.py",
+        "tools/syntax_evaluation/__main__.py",
+        "tools/syntax_evaluation/benchmark.py",
+        "tools/syntax_evaluation/evaluation.py",
+        "tools/syntax_evaluation/jsonc.py",
+        "tools/syntax_evaluation/yaml12.py",
+        "tools/tests/test_content_catalog.py",
+        "tools/tests/test_content_contracts.py",
+        "tools/tests/test_content_core.py",
+        "tools/tests/test_content_schema.py",
+        "tools/tests/test_syntax_evaluation.py",
+        "tools/tests/test_world_content_audit.py",
+        "tools/utils.py",
+        "tools/validate.py",
+        "tools/world_content_audit.py"
+      ],
+      "history_evidence": "The complete tools history includes Alex Tokar, Edwin Miltenburg, and two verified Zoey Rose identities across 105 touches; tools/COPYING is GPL-2.0 text.",
+      "reason": "Not needed for the admitted M1 translation, mixed historical provenance, content/fixture licensing, or insufficient independently separable benefit. No source or fixture is imported.",
+      "method": "Exclude. Other toolkit crates are independently implemented from public issue contracts; later reuse requires a new path-by-path record and re-audit.",
+      "destination_paths": []
+    }
+  ]
+}
