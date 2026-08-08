@@ -4,6 +4,8 @@ set -euo pipefail
 test -n "${RUNNER_TEMP:-}"
 test -n "${GITHUB_PATH:-}"
 install -d "${RUNNER_TEMP}/bin"
+sudo apt-get update
+sudo apt-get install --no-install-recommends --yes ripgrep
 rustup toolchain install 1.97.1 --profile minimal --component clippy,rustfmt
 
 curl --fail --silent --show-error --location \
