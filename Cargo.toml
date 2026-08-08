@@ -27,4 +27,4 @@ atrinik-schema = { path = "crates/atrinik-schema", version = "=0.1.0" }
 atrinik-source = { path = "crates/atrinik-source", version = "=0.1.0" }
 atrinik-testkit = { path = "crates/atrinik-testkit", version = "=0.1.0" }
 atrinik-transaction = { path = "crates/atrinik-transaction", version = "=0.1.0" }
-sha2 = "=0.10.9"
+sha2 = "=0.11.0"
