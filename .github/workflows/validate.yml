@@ -8,7 +8,6 @@ on:
 
 permissions:
   contents: read
-  packages: read
 
 concurrency:
   group: content-toolkit-validation-${{ github.event.pull_request.number || github.ref }}
@@ -18,7 +17,6 @@ jobs:
   validate:
     name: Content toolkit validation
     runs-on: ubuntu-24.04
-    container: ghcr.io/atrinik/linux-build:ubuntu-26.04@sha256:ab467b9573f7727a6ded9e6e0518fa87af68c340f73f03be41c192a98a34a633
     timeout-minutes: 30
     env:
       CARGO_HOME: /tmp/atrinik-content-toolkit-cargo
@@ -29,6 +27,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+
+      - name: Install pinned validation dependencies
+        run: tools/install-ci-dependencies.sh
 
       - name: Validate headless workspace and release
         run: tools/validate.sh
@@ -41,7 +42,6 @@ jobs:
   corpus:
     name: Content toolkit corpus
     runs-on: ubuntu-24.04
-    container: ghcr.io/atrinik/linux-build:ubuntu-26.04@sha256:ab467b9573f7727a6ded9e6e0518fa87af68c340f73f03be41c192a98a34a633
     timeout-minutes: 20
     env:
       CARGO_HOME: /tmp/atrinik-content-toolkit-corpus-cargo
@@ -51,6 +51,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: toolkit
+
+      - name: Install pinned corpus dependencies
+        run: toolkit/tools/install-ci-dependencies.sh
 
       - name: Check out immutable authored corpus
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

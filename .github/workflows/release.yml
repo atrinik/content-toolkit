@@ -7,13 +7,11 @@ on:
 
 permissions:
   contents: write
-  packages: read
 
 jobs:
   release:
     name: Release content toolkit
     runs-on: ubuntu-24.04
-    container: ghcr.io/atrinik/linux-build:ubuntu-26.04@sha256:ab467b9573f7727a6ded9e6e0518fa87af68c340f73f03be41c192a98a34a633
     timeout-minutes: 30
     env:
       CARGO_HOME: /tmp/atrinik-content-toolkit-cargo
@@ -24,6 +22,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+
+      - name: Install pinned release dependencies
+        run: tools/install-ci-dependencies.sh
 
       - name: Validate release tag
         run: |

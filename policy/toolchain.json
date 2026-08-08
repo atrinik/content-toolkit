@@ -6,7 +6,9 @@
   "devcontainer_contract": "atrinik/devcontainer:toolchains.json",
   "required_tools": {
     "syft": "1.50.0",
-    "trivy": "0.73.0"
+    "syft_linux_amd64_sha256": "bf7b29ff57f06da30918266a0e1c2885a8f99784798d1bdb1628886aa015d788",
+    "trivy": "0.73.0",
+    "trivy_linux_amd64_sha256": "2edd39da482bb4e9831962487b68f68e3928ec3137794757f54d00383d79547b"
   },
   "headless": true,
   "forbidden_native_dependencies": [
