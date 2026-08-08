@@ -1,0 +1,10 @@
+{
+  "branches": ["main"],
+  "tagFormat": "v${version}",
+  "plugins": [
+    ["@semantic-release/commit-analyzer", {"preset": "conventionalcommits", "releaseRules": [{"breaking": true, "release": "major"}, {"type": "feat", "release": "minor"}, {"type": "*", "release": "patch"}]}],
+    ["@semantic-release/release-notes-generator", {"preset": "conventionalcommits"}],
+    ["@semantic-release/exec", {"publishCmd": "tools/package-release.sh build/release ${nextRelease.version}"}],
+    ["@semantic-release/github", {"assets": [{"path": "build/release/*"}]}]
+  ]
+}
