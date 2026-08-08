@@ -17,7 +17,7 @@ cargo run --locked --quiet --package atrinik-content -- \
 
 tools/check-provenance.sh
 tools/check-dependencies.sh
-jq empty crates/atrinik-schema/schemas/*.json policy/*.json provenance/*.json
+jq empty crates/atrinik-schema/schemas/*.json policy/*.json provenance/*.json schemas/*.json
 
 release_output=$(mktemp -d /tmp/atrinik-content-toolkit-release.XXXXXX)
 rmdir "${release_output}"

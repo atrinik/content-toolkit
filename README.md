@@ -61,3 +61,9 @@ rm /tmp/atrinik-minimal-round-trip.arc
 
 See [architecture and bounds](docs/ARCHITECTURE.md),
 [provenance evidence](PROVENANCE.md), and [contribution policy](CONTRIBUTING.md).
+
+Released language-neutral compatibility material includes the bounded classic
+authoring policy at `policy/classic-authored-limits.json` and diagnostic schema
+at `schemas/classic-diagnostic.schema.json`. Their exact historical MIT grant,
+identity, source, unchanged 1.x copy, destination, and attribution evidence is
+in `provenance/linked-content-materials.json`.

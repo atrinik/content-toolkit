@@ -8,7 +8,8 @@ this repository does not maintain a second grantor list.
 
 The audit used the complete, non-shallow `atrinik/content` history through
 `01b1fdb65c2243df4bafe9c8109fc93229df0121`. Its `tools` tree has 50 paths and
-105 commits touching the scope. Complete history contains these author and
+97 commits reachable from the audited revision touching the scope. Complete
+history contains these author and
 committer identities:
 
 - Alex Tokar `<admin@atokar.net>`
@@ -44,8 +45,8 @@ From a complete `atrinik/content` checkout at the audited revision:
 ```sh
 git rev-parse --is-shallow-repository
 git rev-parse 01b1fdb65c2243df4bafe9c8109fc93229df0121
-git log --all --format='%an <%ae>%x09%cn <%ce>' -- tools | sort -u
-git log --all --format='%H' -- tools | wc -l
+git log 01b1fdb65c2243df4bafe9c8109fc93229df0121 --format='%an <%ae>%x09%cn <%ce>' -- tools | sort -u
+git log 01b1fdb65c2243df4bafe9c8109fc93229df0121 --format='%H' -- tools | wc -l
 git ls-tree -r --name-only 01b1fdb65c2243df4bafe9c8109fc93229df0121 tools | sort
 git log --follow --format='%H%x09%an <%ae>' 01b1fdb65c2243df4bafe9c8109fc93229df0121 -- tools/content_core/parser.py
 git rev-parse 01b1fdb65c2243df4bafe9c8109fc93229df0121:tools/content_core/parser.py
@@ -63,3 +64,13 @@ GitHub signature and identity evidence is reproducible with:
 gh api repos/atrinik/content/commits/96073eeff1854fc29347fdafd32e622394f24c07 --jq '{sha,author:.author.login,committer:.committer.login,verification:.commit.verification}'
 gh api repos/atrinik/content/commits/4aa4aebc5c88dffdf57657a34ae20306a57fbebd --jq '{sha,author:.author.login,committer:.committer.login,verification:.commit.verification}'
 ```
+
+## Linked machine contracts
+
+`provenance/linked-content-materials.json` records two additional independently
+separable machine contracts from the same complete content revision: the
+authored JSONC limits and classic diagnostic schema. Each has one solely Zoey
+Rose change, verified GitHub identity/signature evidence, no embedded or
+derived third-party material, an unchanged `content@1.x` copy, and an exact
+byte-identical destination. The grant permits their copies here under MIT; it
+does not change their historical content-repository terms.
