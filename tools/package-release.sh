@@ -5,6 +5,11 @@ repository=$(git rev-parse --show-toplevel)
 cd "${repository}"
 
 output=${1:-dist}
+version=${2:-$(git describe --tags --always --dirty)}
+if [[ ! ${version} =~ ^[0-9A-Za-z][0-9A-Za-z.+-]*$ ]]; then
+  echo "invalid release version: ${version}" >&2
+  exit 2
+fi
 if [[ -e ${output} ]]; then
   echo "release output already exists: ${output}" >&2
   exit 1
@@ -13,13 +18,13 @@ install -d "${output}/crates"
 target_directory=$(cargo metadata --locked --offline --no-deps --format-version 1 \
   | jq -r '.target_directory')
 
-version=$(git describe --tags --always --dirty)
 source_archive="atrinik-content-toolkit-${version}.tar.gz"
 git archive --format=tar --prefix="atrinik-content-toolkit-${version}/" HEAD \
   | gzip -n >"${output}/${source_archive}"
 
-cargo package --locked --offline --workspace --allow-dirty
+cargo package --locked --offline --workspace --allow-dirty --no-verify
 cp "${target_directory}"/package/*.crate "${output}/crates/"
+tools/verify-packages.sh "${output}/crates"
 cargo build --locked --release --package atrinik-content
 cp "${target_directory}/release/atrinik-content" "${output}/"
 cp -R crates/atrinik-testkit/fixtures "${output}/"
