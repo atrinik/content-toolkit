@@ -22,6 +22,11 @@ source_archive="atrinik-content-toolkit-${version}.tar.gz"
 git archive --format=tar --prefix="atrinik-content-toolkit-${version}/" HEAD \
   | gzip -n >"${output}/${source_archive}"
 
+# The workspace crates depend on one another by path. Cargo 1.97 verifies each
+# package before it has checksums for later workspace packages, which makes a
+# workspace-wide offline package operation fail inside Cargo's temporary
+# registry. Assemble without Cargo's broken per-package pass, then compile the
+# exact staged compatibility set below.
 cargo package --locked --offline --workspace --allow-dirty --no-verify
 cp "${target_directory}"/package/*.crate "${output}/crates/"
 tools/verify-packages.sh "${output}/crates"
