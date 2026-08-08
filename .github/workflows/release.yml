@@ -31,6 +31,8 @@ jobs:
           node-version: 24.18.1
       - name: Install pinned release dependencies
         run: tools/install-ci-dependencies.sh
+      - name: Fetch the complete locked cross-target graph
+        run: cargo fetch --locked
       - name: Revalidate exact release revision
         run: tools/validate.sh
       - name: Analyze commits, package, and publish

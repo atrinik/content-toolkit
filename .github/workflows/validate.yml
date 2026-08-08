@@ -31,6 +31,9 @@ jobs:
       - name: Install pinned validation dependencies
         run: tools/install-ci-dependencies.sh
 
+      - name: Fetch the complete locked cross-target graph
+        run: cargo fetch --locked
+
       - name: Validate headless workspace and release
         run: tools/validate.sh
 
