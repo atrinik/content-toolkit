@@ -116,9 +116,10 @@
 
 ## Validation and handoff
 
-- During the seed stage, commands beyond `git diff --check` do not exist. Issue
-  #1 owns the Cargo workspace and the required aggregate `Content toolkit
-  validation` check; do not invent success for absent tooling.
+- `tools/validate.sh` is the local aggregate validation entry point and the
+  required GitHub check is `Content toolkit validation`. Keep the CLI fixture
+  round trip, dependency/provenance gates, release dry run, and exact pinned
+  Rust/toolchain policy in that aggregate.
 - Once bootstrap commands exist, run the repository-documented pinned toolchain
   equivalents of formatting checks, Clippy with warnings denied, workspace
   unit/doc/property tests, relevant fuzz targets, dependency/license/audit

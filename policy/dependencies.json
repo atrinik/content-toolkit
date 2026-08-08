@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "allowed_spdx": ["Apache-2.0", "MIT"],
+  "forbidden_spdx": [
+    "AGPL-1.0-only",
+    "AGPL-1.0-or-later",
+    "AGPL-3.0-only",
+    "AGPL-3.0-or-later",
+    "GPL-1.0-only",
+    "GPL-1.0-or-later",
+    "GPL-2.0-only",
+    "GPL-2.0-or-later",
+    "GPL-3.0-only",
+    "GPL-3.0-or-later"
+  ],
+  "direct_dependencies": [
+    {
+      "ecosystem": "cargo",
+      "name": "sha2",
+      "version": "0.10.9",
+      "license": "MIT OR Apache-2.0",
+      "source": "https://crates.io/crates/sha2",
+      "owner": "content-toolkit maintainers",
+      "review_cadence": "monthly and on every dependency update",
+      "eol_response": "upgrade, replace, or remove before the unsupported release ships",
+      "validation": "Cargo.lock, cargo metadata, Clippy, tests, Trivy, Syft SBOM"
+    }
+  ]
+}

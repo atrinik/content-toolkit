@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "rust": "1.97.1",
+  "edition": "2024",
+  "target": "x86_64-unknown-linux-gnu",
+  "devcontainer_contract": "atrinik/devcontainer:toolchains.json",
+  "required_tools": {
+    "syft": "1.50.0",
+    "trivy": "0.73.0"
+  },
+  "headless": true,
+  "forbidden_native_dependencies": [
+    "SDL",
+    "Vulkan",
+    "D3D12",
+    "renderer",
+    "client",
+    "editor",
+    "server"
+  ],
+  "forbidden_packages": [
+    "ash",
+    "quinn",
+    "reqwest",
+    "sdl2",
+    "sdl3",
+    "tokio",
+    "vulkano",
+    "wgpu"
+  ]
+}

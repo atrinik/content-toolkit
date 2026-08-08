@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "corpus_revision": "01b1fdb65c2243df4bafe9c8109fc93229df0121",
+  "files": 5590,
+  "bytes": 61379370,
+  "clean": 5590,
+  "diagnosed": 0,
+  "diagnostics_truncated": 0,
+  "digest": "8cc6a362dcf20ed7760ec2b9813fff9dbdb7803017247c4530e5575a20ffa5e3",
+  "diagnosed_paths": [],
+  "excluded_paths": [
+    {
+      "path": "maps/COPYING",
+      "reason": "repository license text, not authored game syntax",
+      "owner": "atrinik/content-toolkit#3",
+      "milestone": "M1 - Clean-room foundations",
+      "effect": "no authored coverage effect"
+    },
+    {
+      "path": "maps/Doxyfile",
+      "reason": "documentation build configuration, not authored game syntax",
+      "owner": "atrinik/content-toolkit#3",
+      "milestone": "M1 - Clean-room foundations",
+      "effect": "no authored coverage effect"
+    },
+    {
+      "path": "maps/dev/editor/scripts/WorldMaker",
+      "reason": "legacy editor script, not authored game syntax",
+      "owner": "atrinik/content-toolkit#3",
+      "milestone": "M1 - Clean-room foundations",
+      "effect": "no authored coverage effect"
+    }
+  ]
+}

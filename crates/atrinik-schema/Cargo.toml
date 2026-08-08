@@ -1,0 +1,13 @@
+[package]
+name = "atrinik-schema"
+description = "Typed schema rules over lossless Atrinik authored documents"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+atrinik-diagnostics.workspace = true
+atrinik-source.workspace = true

@@ -1,0 +1,12 @@
+[package]
+name = "atrinik-transaction"
+description = "Revisioned immutable Atrinik authored content transactions"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+atrinik-source.workspace = true

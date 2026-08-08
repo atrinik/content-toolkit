@@ -1,0 +1,76 @@
+name: Content toolkit validation
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: content-toolkit-validation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Content toolkit validation
+    runs-on: ubuntu-24.04
+    container: ghcr.io/atrinik/linux-build:ubuntu-26.04@sha256:6e128d58125dfa0f4553c112ba76616f84aa448728dfc0fc235eb52a1024a53d
+    timeout-minutes: 30
+    env:
+      CARGO_HOME: /tmp/atrinik-content-toolkit-cargo
+      CARGO_TARGET_DIR: /tmp/atrinik-content-toolkit-target
+      TRIVY_CACHE_DIR: /tmp/atrinik-content-toolkit-trivy
+    steps:
+      - name: Check out complete history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Validate headless workspace and release
+        run: tools/validate.sh
+
+      - name: Scan locked dependencies
+        run: >-
+          trivy fs --scanners vuln --severity HIGH,CRITICAL
+          --exit-code 1 --ignore-unfixed .
+
+  corpus:
+    name: Content toolkit corpus
+    runs-on: ubuntu-24.04
+    container: ghcr.io/atrinik/linux-build:ubuntu-26.04@sha256:6e128d58125dfa0f4553c112ba76616f84aa448728dfc0fc235eb52a1024a53d
+    timeout-minutes: 20
+    env:
+      CARGO_HOME: /tmp/atrinik-content-toolkit-corpus-cargo
+      CARGO_TARGET_DIR: /tmp/atrinik-content-toolkit-corpus-target
+    steps:
+      - name: Check out toolkit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: toolkit
+
+      - name: Check out immutable authored corpus
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: atrinik/content
+          ref: 01b1fdb65c2243df4bafe9c8109fc93229df0121
+          path: corpus
+          sparse-checkout: |
+            arch
+            maps
+
+      - name: Measure lossless whole-corpus behavior
+        working-directory: toolkit
+        run: |
+          install -d build
+          cargo run --locked --package atrinik-source --example corpus -- \
+            --root ../corpus \
+            --revision 01b1fdb65c2243df4bafe9c8109fc93229df0121 \
+            >build/m1-corpus-report.json
+          diff -u \
+            <(jq -S . compatibility/m1-corpus-baseline.json) \
+            <(jq -S . build/m1-corpus-report.json)
+          jq . build/m1-corpus-report.json | tee -a "${GITHUB_STEP_SUMMARY}"
