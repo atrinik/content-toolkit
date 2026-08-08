@@ -23,9 +23,9 @@ jq -r '[.records[].source_paths[]] | sort[]' "${manifest}" \
   >"${temporary}/expected-paths"
 cmp "${temporary}/expected-paths" "${temporary}/actual-paths"
 
-test "$(git -C "${source_repository}" log --all --format='%H' -- tools | wc -l)" \
+test "$(git -C "${source_repository}" log "${audit_revision}" --format='%H' -- tools | wc -l)" \
   -eq "$(jq -r '.audit.touch_count' "${manifest}")"
-git -C "${source_repository}" log --all \
+git -C "${source_repository}" log "${audit_revision}" \
   --format='%an <%ae>%x09%cn <%ce>' -- tools | sort -u \
   >"${temporary}/actual-identities"
 jq -r '.audit.author_committer_identities[]' "${manifest}" | sort \
@@ -54,6 +54,26 @@ done < <(jq -r '
   .records[] | select(.decision == "admitted")
   | .source_paths[] as $path | [$path, .source_blob_ids[$path]] | @tsv
 ' "${manifest}")
+
+linked_manifest=${repository}/provenance/linked-content-materials.json
+jq -r '.records[] |
+  [.source_path, .source_blob_id, .complete_history[0].revision,
+   .complete_history[0].author, .destination_path, .source_sha256] | @tsv' \
+  "${linked_manifest}" >"${temporary}/linked-materials"
+while IFS=$'\t' read -r path blob revision author destination expected_sha; do
+  test "$(git -C "${source_repository}" rev-parse "${audit_revision}:${path}")" = "${blob}"
+  history=$(git -C "${source_repository}" log --follow \
+    --format='%H%x09%an <%ae>' "${audit_revision}" -- "${path}")
+  test "${history}" = "${revision}"$'\t'"${author}"
+  test "$(git -C "${source_repository}" show "${audit_revision}:${path}" | sha256sum | cut -d' ' -f1)" \
+    = "${expected_sha}"
+  test "$(sha256sum "${repository}/${destination}" | cut -d' ' -f1)" = "${expected_sha}"
+  if ! git -C "${source_repository}" diff --quiet \
+    "${audit_revision}" HEAD -- "${path}"; then
+    echo "linked source changed after audit: ${path}" >&2
+    exit 1
+  fi
+done <"${temporary}/linked-materials"
 
 if ! git -C "${source_repository}" diff --quiet \
   "${audit_revision}" HEAD -- tools; then

@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "source_repository": "atrinik/content",
+  "source_branch": "main",
+  "source_tag": "v1.8.1",
+  "source_revision": "01b1fdb65c2243df4bafe9c8109fc93229df0121",
+  "classic_copy": {
+    "branch": "1.x",
+    "revision": "01b1fdb65c2243df4bafe9c8109fc93229df0121",
+    "terms_changed": false
+  },
+  "grant_registry": {
+    "repository": "atrinik/atrinik",
+    "revision": "d64a8e958ca2adad783ad8912493d468a805f3fd",
+    "path": "AGENTS.md"
+  },
+  "records": [
+    {
+      "id": "authored-jsonc-limits-v1",
+      "decision": "admitted",
+      "source_path": "prototypes/authored-syntax-v1/limits.json",
+      "source_blob_id": "e767156e369cff2e700c2e65fae57387959757d8",
+      "source_sha256": "d87ef7a7c3b9c0462fa86a3b4d2be93bd4a63df47be5c8f01f2026d1fc58896c",
+      "complete_history": [
+        {
+          "revision": "4aa4aebc5c88dffdf57657a34ae20306a57fbebd",
+          "author": "Zoey Rose <3865595+zoeyrose@users.noreply.github.com>",
+          "change": "A prototypes/authored-syntax-v1/limits.json"
+        }
+      ],
+      "identity_evidence": {
+        "github_login": "zoeyrose",
+        "github_user_id": 3865595,
+        "signature_verified": true
+      },
+      "originality_review": "Solely authored machine limits with no copied prose, code, art, generated input, or embedded third-party material.",
+      "grantor": "Zoey Rose",
+      "grant_operation": "copy and relicense",
+      "destination_license": "MIT",
+      "destination_path": "policy/classic-authored-limits.json",
+      "destination_sha256": "d87ef7a7c3b9c0462fa86a3b4d2be93bd4a63df47be5c8f01f2026d1fc58896c",
+      "transformation": "byte-identical copy into the toolkit policy boundary",
+      "attribution": "Copyright Zoey Rose; historical MIT provenance grant recorded above"
+    },
+    {
+      "id": "legacy-diagnostic-schema-v1",
+      "decision": "admitted",
+      "source_path": "contracts/content-v1/schemas/diagnostic.schema.json",
+      "source_blob_id": "80ebcb2e296a6af7a760f188a1c5bb050e5c21fe",
+      "source_sha256": "161c35caed2f143c3ceeb9b155eb9cb530b0450432255bf44bf6af319534e758",
+      "complete_history": [
+        {
+          "revision": "66c73ba9d8bfc7c42aa58593372acf977adf7541",
+          "author": "Zoey Rose <3865595+zoeyrose@users.noreply.github.com>",
+          "change": "A contracts/content-v1/schemas/diagnostic.schema.json"
+        }
+      ],
+      "identity_evidence": {
+        "github_login": "zoeyrose",
+        "github_user_id": 3865595,
+        "signature_verified": true
+      },
+      "originality_review": "Solely authored structural schema with no copied prose, code, art, generated input, or embedded third-party material; the JSON Schema URI names only the public standard dialect.",
+      "grantor": "Zoey Rose",
+      "grant_operation": "copy and relicense",
+      "destination_license": "MIT",
+      "destination_path": "schemas/classic-diagnostic.schema.json",
+      "destination_sha256": "161c35caed2f143c3ceeb9b155eb9cb530b0450432255bf44bf6af319534e758",
+      "transformation": "byte-identical copy into the toolkit language-neutral schema boundary",
+      "attribution": "Copyright Zoey Rose; historical MIT provenance grant recorded above"
+    }
+  ]
+}
