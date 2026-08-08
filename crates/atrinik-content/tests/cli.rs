@@ -11,7 +11,7 @@ use std::{
 fn validates_and_round_trips_the_public_fixture() {
     let binary = env!("CARGO_BIN_EXE_atrinik-content");
     let input = format!(
-        "{}/../../fixtures/corpus/minimal.arc",
+        "{}/../atrinik-testkit/fixtures/minimal.arc",
         env!("CARGO_MANIFEST_DIR")
     );
     let output = std::env::temp_dir().join(format!(

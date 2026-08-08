@@ -49,11 +49,13 @@ Inputs, source identity, and output are always explicit. Output must not exist.
 
 ```sh
 cargo run --locked --package atrinik-content -- \
-  validate --input fixtures/corpus/minimal.arc --source-id fixture:minimal
+  validate --input crates/atrinik-testkit/fixtures/minimal.arc \
+  --source-id fixture:minimal
 cargo run --locked --package atrinik-content -- \
-  round-trip --input fixtures/corpus/minimal.arc \
+  round-trip --input crates/atrinik-testkit/fixtures/minimal.arc \
   --output /tmp/atrinik-minimal-round-trip.arc --source-id fixture:minimal
-cmp fixtures/corpus/minimal.arc /tmp/atrinik-minimal-round-trip.arc
+cmp crates/atrinik-testkit/fixtures/minimal.arc \
+  /tmp/atrinik-minimal-round-trip.arc
 rm /tmp/atrinik-minimal-round-trip.arc
 ```
 

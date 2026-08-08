@@ -16,6 +16,7 @@ use atrinik_source::{Document, Limits, SourceId};
 use sha2::{Digest, Sha256};
 
 const MAXIMUM_FILES: usize = 10_000;
+const MAXIMUM_ENTRIES: usize = 25_000;
 const MAXIMUM_CORPUS_BYTES: u64 = 512 * 1024 * 1024;
 const MAXIMUM_DIAGNOSED_PATHS: usize = 256;
 const EXCLUDED_PATHS: &[(&str, &str, &str)] = &[
@@ -81,21 +82,21 @@ fn run() -> Result<(), Box<dyn Error>> {
         if !metadata.file_type().is_file() {
             return Err(format!("corpus entry is not a regular file: {}", path.display()).into());
         }
+        let relative = path.strip_prefix(&root)?;
+        let identity = normalized_relative(relative)?;
+        let source = Arc::<[u8]>::from(read_bounded(path, limits.maximum_file_bytes)?);
         bytes = bytes
-            .checked_add(metadata.len())
+            .checked_add(source.len() as u64)
             .ok_or("corpus byte count overflow")?;
         if bytes > MAXIMUM_CORPUS_BYTES {
             return Err("corpus byte limit exceeded".into());
         }
-        let relative = path.strip_prefix(&root)?;
-        let identity = normalized_relative(relative)?;
-        let source = read_bounded(path, limits.maximum_file_bytes)?;
         let document = Document::parse(
             SourceId::new(format!("content:{identity}"))?,
-            Arc::<[u8]>::from(source.clone()),
+            source.clone(),
             limits,
         )?;
-        if document.source_bytes() != source {
+        if document.source_bytes() != source.as_ref() {
             return Err(format!("round-trip drift for {identity}").into());
         }
         if document.diagnostics().values().is_empty() {
@@ -185,8 +186,18 @@ fn json_escape(value: &str) -> String {
 fn authored_paths(root: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
     let mut directories = vec![root.join("arch"), root.join("maps")];
     let mut paths = Vec::new();
+    let mut entries_seen = 0_usize;
     while let Some(directory) = directories.pop() {
-        let mut entries: Vec<_> = fs::read_dir(&directory)?.collect::<Result<_, _>>()?;
+        let mut entries = Vec::new();
+        for entry in fs::read_dir(&directory)? {
+            entries_seen = entries_seen
+                .checked_add(1)
+                .ok_or("corpus entry count overflow")?;
+            if entries_seen > MAXIMUM_ENTRIES {
+                return Err("corpus entry limit exceeded".into());
+            }
+            entries.push(entry?);
+        }
         entries.sort_by_key(std::fs::DirEntry::file_name);
         for entry in entries {
             let file_type = entry.file_type()?;
@@ -198,6 +209,9 @@ fn authored_paths(root: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
             if file_type.is_dir() {
                 directories.push(entry.path());
             } else if file_type.is_file() && is_authored(&entry.path(), root) {
+                if paths.len() >= MAXIMUM_FILES {
+                    return Err("corpus file limit exceeded".into());
+                }
                 paths.push(entry.path());
             }
         }

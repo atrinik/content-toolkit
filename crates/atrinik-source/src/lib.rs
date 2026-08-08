@@ -16,6 +16,7 @@ pub struct Limits {
     pub maximum_records: usize,
     pub maximum_tokens: usize,
     pub maximum_value_bytes: usize,
+    pub maximum_edits: usize,
     pub maximum_nesting: usize,
     pub maximum_diagnostics: usize,
 }
@@ -28,6 +29,7 @@ impl Default for Limits {
             maximum_records: 250_000,
             maximum_tokens: 1_000_000,
             maximum_value_bytes: 1024 * 1024,
+            maximum_edits: 4096,
             maximum_nesting: 64,
             maximum_diagnostics: 256,
         }
@@ -38,12 +40,12 @@ impl Default for Limits {
 pub struct SourceId(String);
 
 impl SourceId {
-    pub fn new(value: impl Into<String>) -> Result<Self, Error> {
-        let value = value.into();
+    pub fn new(value: impl AsRef<str>) -> Result<Self, Error> {
+        let value = value.as_ref();
         if value.is_empty() || value.len() > 256 || value.contains('\0') {
             return Err(Error::InvalidSourceId);
         }
-        Ok(Self(value))
+        Ok(Self(value.to_owned()))
     }
 
     #[must_use]
@@ -289,6 +291,12 @@ impl EditPlan {
         record: usize,
         replacement: &[u8],
     ) -> Result<(), Error> {
+        if document.revision != self.expected_revision {
+            return Err(Error::RevisionMismatch);
+        }
+        if self.edits.len() >= document.limits.maximum_edits {
+            return Err(Error::LimitExceeded("edits"));
+        }
         if replacement.len() > document.limits.maximum_value_bytes
             || replacement
                 .iter()
@@ -300,6 +308,11 @@ impl EditPlan {
         let RecordKind::Field { value, .. } = record.kind else {
             return Err(Error::InvalidEdit);
         };
+        if self.edits.iter().any(|edit| {
+            edit.span == value || (edit.span.start < value.end && value.start < edit.span.end)
+        }) {
+            return Err(Error::OverlappingEdits);
+        }
         self.edits.push(Edit {
             span: value,
             replacement: replacement.to_vec(),
@@ -666,11 +679,10 @@ mod tests {
         let mut plan = EditPlan::new(document.revision());
         plan.replace_value(&document, 0, b"new").unwrap();
         assert!(matches!(plan.apply(&stale), Err(Error::RevisionMismatch)));
-        plan.replace_value(&document, 0, b"again").unwrap();
-        assert!(matches!(
-            plan.apply(&document),
+        assert_eq!(
+            plan.replace_value(&document, 0, b"again"),
             Err(Error::OverlappingEdits)
-        ));
+        );
     }
 
     #[test]
@@ -700,6 +712,62 @@ mod tests {
             ),
             Err(Error::LimitExceeded("nesting"))
         ));
+
+        let limits = Limits {
+            maximum_line_bytes: 3,
+            ..Limits::default()
+        };
+        assert!(matches!(
+            Document::parse(
+                SourceId::new("fixture:long-line").unwrap(),
+                Arc::<[u8]>::from(&b"1234\n"[..]),
+                limits,
+            ),
+            Err(Error::LimitExceeded("line bytes"))
+        ));
+
+        let limits = Limits {
+            maximum_records: 1,
+            ..Limits::default()
+        };
+        assert!(matches!(
+            Document::parse(
+                SourceId::new("fixture:records").unwrap(),
+                Arc::<[u8]>::from(&b"name one\nname two"[..]),
+                limits,
+            ),
+            Err(Error::LimitExceeded("records"))
+        ));
+    }
+
+    #[test]
+    fn bounds_recovery_and_edit_sequences() {
+        let limits = Limits {
+            maximum_diagnostics: 1,
+            maximum_edits: 1,
+            ..Limits::default()
+        };
+        let invalid = Document::parse(
+            SourceId::new("fixture:recovery").unwrap(),
+            Arc::<[u8]>::from(&b"endmsg\nendmsg\n"[..]),
+            limits,
+        )
+        .unwrap();
+        assert_eq!(invalid.diagnostics().values().len(), 1);
+        assert!(invalid.diagnostics().truncated());
+
+        let document = Document::parse(
+            SourceId::new("fixture:edits").unwrap(),
+            Arc::<[u8]>::from(&b"name one\ntype two\n"[..]),
+            limits,
+        )
+        .unwrap();
+        let mut plan = EditPlan::new(document.revision());
+        plan.replace_value(&document, 0, b"first").unwrap();
+        assert_eq!(
+            plan.replace_value(&document, 1, b"second"),
+            Err(Error::LimitExceeded("edits"))
+        );
     }
 
     #[test]

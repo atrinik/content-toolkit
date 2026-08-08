@@ -18,11 +18,12 @@ source_archive="atrinik-content-toolkit-${version}.tar.gz"
 git archive --format=tar --prefix="atrinik-content-toolkit-${version}/" HEAD \
   | gzip -n >"${output}/${source_archive}"
 
-cargo package --locked --offline --workspace --allow-dirty --no-verify
+cargo package --locked --offline --workspace --allow-dirty
 cp "${target_directory}"/package/*.crate "${output}/crates/"
 cargo build --locked --release --package atrinik-content
 cp "${target_directory}/release/atrinik-content" "${output}/"
-cp -R fixtures schemas "${output}/"
+cp -R crates/atrinik-testkit/fixtures "${output}/"
+cp -R crates/atrinik-schema/schemas "${output}/"
 cp LICENSE PROVENANCE.md THIRD_PARTY_NOTICES.md "${output}/"
 
 SYFT_CHECK_FOR_APP_UPDATE=false syft dir:. \
@@ -46,3 +47,9 @@ trap 'rm -f -- "${checksums}"' EXIT
     | xargs -0 sha256sum
 ) >"${checksums}"
 mv "${checksums}" "${output}/SHA256SUMS"
+
+tar -tf "${output}/crates/atrinik-testkit-0.1.0.crate" \
+  | grep -Fx 'atrinik-testkit-0.1.0/fixtures/minimal.arc' >/dev/null
+tar -tf "${output}/crates/atrinik-schema-0.1.0.crate" \
+  | grep -Fx \
+    'atrinik-schema-0.1.0/schemas/foundation-artifact.schema.json' >/dev/null

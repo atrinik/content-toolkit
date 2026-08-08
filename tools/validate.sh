@@ -12,11 +12,12 @@ cargo test --locked --workspace --doc
 cargo build --locked --release --package atrinik-content
 cargo run --locked --quiet --package atrinik-content -- --version
 cargo run --locked --quiet --package atrinik-content -- \
-  validate --input fixtures/corpus/minimal.arc --source-id fixture:minimal
+  validate --input crates/atrinik-testkit/fixtures/minimal.arc \
+  --source-id fixture:minimal
 
 tools/check-provenance.sh
 tools/check-dependencies.sh
-jq empty schemas/*.json policy/*.json provenance/*.json
+jq empty crates/atrinik-schema/schemas/*.json policy/*.json provenance/*.json
 
 release_output=$(mktemp -d /tmp/atrinik-content-toolkit-release.XXXXXX)
 rmdir "${release_output}"

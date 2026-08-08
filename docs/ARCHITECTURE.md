@@ -15,10 +15,11 @@ a new immutable document. The small `ATF1` envelope proves deterministic,
 bounded compiler/decoder plumbing; it is not the future ABIN/AMAP contract.
 
 Default source limits are 8 MiB per file, 64 KiB per line, 250,000 records,
-1,000,000 tokens, 1 MiB per replacement value, nesting depth 64, and 256
-diagnostics. Limits are checked before accepting work or allocating based on a
-declared size. Parsing is linear in input bytes; edits sort explicit spans and
-copy at most the bounded output once. No library reads or writes a path.
+1,000,000 tokens, 1 MiB per replacement value, 4,096 nonoverlapping edits,
+nesting depth 64, and 256 diagnostics. Limits are checked before accepting work
+or allocating based on a declared size. Parsing is linear in input bytes; edits
+sort explicit spans and copy at most the bounded output once. No library reads
+or writes a path.
 
 The M1 authored syntax is a byte-preserving line model: blank/comment lines,
 ASCII keys, separated opaque byte values, `Object` starts, and `end` records.

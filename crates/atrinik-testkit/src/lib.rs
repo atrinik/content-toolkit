@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use atrinik_source::{Document, Error, Limits, SourceId};
 
-pub const MINIMAL_AUTHORED_DOCUMENT: &[u8] = include_bytes!("../../../fixtures/corpus/minimal.arc");
+pub const MINIMAL_AUTHORED_DOCUMENT: &[u8] = include_bytes!("../fixtures/minimal.arc");
 
 pub fn minimal_document() -> Result<Document, Error> {
     Document::parse(
