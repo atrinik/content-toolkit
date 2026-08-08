@@ -18,7 +18,7 @@ jobs:
   validate:
     name: Content toolkit validation
     runs-on: ubuntu-24.04
-    container: ghcr.io/atrinik/linux-build:ubuntu-26.04@sha256:6e128d58125dfa0f4553c112ba76616f84aa448728dfc0fc235eb52a1024a53d
+    container: ghcr.io/atrinik/linux-build:ubuntu-26.04@sha256:ab467b9573f7727a6ded9e6e0518fa87af68c340f73f03be41c192a98a34a633
     timeout-minutes: 30
     env:
       CARGO_HOME: /tmp/atrinik-content-toolkit-cargo
@@ -41,7 +41,7 @@ jobs:
   corpus:
     name: Content toolkit corpus
     runs-on: ubuntu-24.04
-    container: ghcr.io/atrinik/linux-build:ubuntu-26.04@sha256:6e128d58125dfa0f4553c112ba76616f84aa448728dfc0fc235eb52a1024a53d
+    container: ghcr.io/atrinik/linux-build:ubuntu-26.04@sha256:ab467b9573f7727a6ded9e6e0518fa87af68c340f73f03be41c192a98a34a633
     timeout-minutes: 20
     env:
       CARGO_HOME: /tmp/atrinik-content-toolkit-corpus-cargo
