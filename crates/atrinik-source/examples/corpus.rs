@@ -121,9 +121,12 @@ fn run() -> Result<(), Box<dyn Error>> {
         digest.update(identity.as_bytes());
         digest.update(document.revision().bytes());
     }
-    let digest = format!("{:x}", digest.finalize());
+    let mut digest_hex = String::with_capacity(64);
+    for byte in digest.finalize() {
+        write!(&mut digest_hex, "{byte:02x}")?;
+    }
     let mut report = format!(
-        "{{\"schema_version\":1,\"corpus_revision\":\"{revision}\",\"files\":{},\"bytes\":{bytes},\"clean\":{clean},\"diagnosed\":{diagnosed},\"diagnostics_truncated\":{truncated},\"digest\":\"{digest}\",\"diagnosed_paths\":[",
+        "{{\"schema_version\":1,\"corpus_revision\":\"{revision}\",\"files\":{},\"bytes\":{bytes},\"clean\":{clean},\"diagnosed\":{diagnosed},\"diagnostics_truncated\":{truncated},\"digest\":\"{digest_hex}\",\"diagnosed_paths\":[",
         paths.len()
     );
     for (index, (path, codes, path_truncated)) in diagnosed_paths.iter().enumerate() {
