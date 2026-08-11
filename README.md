@@ -7,6 +7,29 @@ testkit, and `atrinik-content` CLI. It has no server, client, editor, renderer,
 SDL, GPU, network-service, sibling-checkout, or classic implementation
 dependency.
 
+## Development model
+
+This toolkit is part of Atrinik's agentic next-generation reimplementation. Its
+fresh MIT-licensed Rust code is developed primarily through Codex-driven
+workflows under maintainer direction, review, clean-room provenance controls,
+tests, and repository validation. “Agentic” describes the project's primary
+current software-development workflow; it does not mean every line or commit is
+agent-written or every contributor uses an agent. Direct human-written code
+contributions are welcome under the same controls.
+
+The toolkit reimplements and improves Classic content tooling; it is not a
+mechanical Python or C translation or source port. See the
+[replacement roadmap](https://github.com/atrinik/atrinik/issues/168) and
+[canonical project authorship statement](https://github.com/atrinik/atrinik/issues/331)
+for the project-wide direction and authorship boundaries.
+
+Maps, quests, lore, dialogue, archetypes, pixel art, and other creative game
+content are human-authored inputs with their own exact provenance and licenses.
+Deterministic parsing, compilation, schema generation, migration, validation,
+and their generated artifacts remain distinct from both those creative inputs
+and the toolkit's code authorship. These operations must not become a path for
+generating creative content.
+
 ## Build and validate
 
 The pinned baseline is Rust 1.97.1, edition 2024. The reusable Atrinik Linux
