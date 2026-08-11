@@ -13,9 +13,9 @@ This toolkit is part of Atrinik's agentic next-generation reimplementation. Its
 fresh MIT-licensed Rust code is developed primarily through Codex-driven
 workflows under maintainer direction, review, clean-room provenance controls,
 tests, and repository validation. “Agentic” describes the project's primary
-current software-development workflow; it does not mean every line, commit, or
-contributor is agent-written. Direct human-written code contributions are
-welcome under the same controls.
+current software-development workflow; it does not mean every line or commit is
+agent-written or every contributor uses an agent. Direct human-written code
+contributions are welcome under the same controls.
 
 The toolkit reimplements and improves Classic content tooling; it is not a
 mechanical Python or C translation or source port. See the
