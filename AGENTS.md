@@ -2,8 +2,8 @@
 
 ## Ownership and architecture
 
-- This repository owns the clean-room MIT Rust content model, lossless parser,
-  compiler, validator, catalog, transaction engine, fixtures, and
+- This repository owns the evidence-gated MIT Rust content model, lossless
+  parser, compiler, validator, catalog, transaction engine, fixtures, and
   `atrinik-content` CLI. Keep it headless, independently buildable/releasable,
   and free of server/client/editor/renderer/GPU/network dependencies.
 - Separate lossless authored syntax, typed schema semantics, catalogs/indexes,
@@ -37,10 +37,18 @@
 ## Licensing, roadmap, and validation
 
 - New code is MIT; authored maps/media/scripts and imported fixtures/packages
-  retain their actual licenses. Do not add GPL/AGPL implementation or
-  incompatible dependencies. Historical reuse follows local `PROVENANCE.md`
-  and canonical `atrinik/atrinik/docs/PROVENANCE.md`, failing closed on
-  incomplete, mixed, or uncertain evidence.
+  retain their actual licenses. Do not link, bundle, or depend on GPL/AGPL
+  source as MIT. Historical Classic destination reuse follows the
+  [local provenance record](PROVENANCE.md) and
+  [canonical grant registry](https://github.com/atrinik/atrinik/blob/main/docs/PROVENANCE.md).
+  At an exact source revision, prove every copyrightable portion is separable,
+  within a recorded grant's past-contribution scope, and original work solely
+  authored by its grantor. Present-day blame, majority authorship, a later
+  edit, or an agent-assisted commit cannot fill a coverage gap. Admitted
+  material may be inspected as implementation reference, copied, adapted,
+  ported, translated, and MIT-relicensed in this destination. Record the exact
+  source, destination, transformation, and registry revision; uncovered
+  material fails closed. The Classic repository remains GPL-distributed.
 - `atrinik/atrinik#168` is the program roadmap. Local issues own toolkit
   acceptance criteria; content equivalence evidence routes to wrapper issues
   #279/#280. Do not copy the M1-M6 schedule here.
@@ -57,8 +65,8 @@
   tests and keep them independent of sibling repositories.
 - Wrapper replacement build/runtime adapters are not available yet. Use
   repository validation and explicit conformance/corpus commands; do not route
-  toolkit work through classic code. Update the wrapper supply-chain inventory
-  whenever dependency inputs or validation paths change.
+  toolkit builds or runtime through Classic code. Update the wrapper
+  supply-chain inventory whenever dependency inputs or validation paths change.
 - Commits/PR titles use Conventional Commits and semantic-release owns versioned
   crates, CLI, schemas, fixtures, and artifacts. Every handoff states exact
   validation and any unavailable integration; runtime topology is not
