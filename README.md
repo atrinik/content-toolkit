@@ -90,6 +90,15 @@ cargo run --locked --package atrinik-source --example corpus -- \
   --revision 01b1fdb65c2243df4bafe9c8109fc93229df0121
 ```
 
+The same CI job builds the cross-file catalog from every supported archetype
+and map document, resolves its supported references, and emits a bounded count
+for every owned diagnostic code:
+
+```sh
+cargo run --locked --package atrinik-catalog --example corpus -- \
+  --root /absolute/content/checkout
+```
+
 The M1 baseline is 5,590 authored files, 61,379,370 bytes, zero diagnostics or
 truncation, and digest
 `8cc6a362dcf20ed7760ec2b9813fff9dbdb7803017247c4530e5575a20ffa5e3`.

@@ -228,6 +228,64 @@ fn incremental_rename_invalidates_only_changed_ids_and_dependents() {
 }
 
 #[test]
+fn incremental_edit_excludes_unchanged_siblings_and_enforces_bounds() {
+    let document = source("multi", b"name multi\n");
+    let original = build(vec![input(
+        &document,
+        vec![
+            definition(&document, Domain::Quest, "changed"),
+            definition(&document, Domain::Quest, "untouched"),
+        ],
+    )]);
+    let replacement = input(
+        &source("multi", b"name changed revision\n"),
+        vec![
+            definition(&document, Domain::Quest, "changed").with_preview(PreviewMetadata {
+                summary: Some("changed semantics".to_owned()),
+                ..PreviewMetadata::default()
+            }),
+            definition(&document, Domain::Quest, "untouched"),
+        ],
+    );
+    let update = original.update_document(replacement).unwrap();
+    assert_eq!(
+        update.invalidation.changed,
+        BTreeSet::from([id(Domain::Quest, "changed")])
+    );
+    assert!(
+        !update
+            .invalidation
+            .affected
+            .contains(&id(Domain::Quest, "untouched"))
+    );
+
+    let limits = CatalogLimits {
+        maximum_documents: 1,
+        maximum_invalidation: 0,
+        ..CatalogLimits::default()
+    };
+    let bounded = Catalog::build(
+        [input(
+            &document,
+            vec![definition(&document, Domain::Quest, "one")],
+        )],
+        limits,
+        SuppressionPolicy::default(),
+    )
+    .unwrap();
+    let added = source("added", b"name added\n");
+    assert!(
+        bounded
+            .update_document(input(
+                &added,
+                vec![definition(&added, Domain::Quest, "two")]
+            ))
+            .is_err()
+    );
+    assert!(bounded.remove_document(document.source_id()).is_err());
+}
+
+#[test]
 fn same_digest_and_semantics_are_an_incremental_noop() {
     let document = source("noop", b"name noop\n");
     let input = input(
@@ -261,6 +319,42 @@ fn schema_evolution_and_semantics_change_generation() {
 }
 
 #[test]
+fn generation_is_canonical_for_tied_definitions_and_references() {
+    let document = source("canonical", b"name canonical\n");
+    let reference = |path: &str, optional: bool| {
+        Reference::new(
+            id(Domain::Resource, "target"),
+            ReferenceKind::Resource,
+            Location::new(document.source_id().as_str(), Span::new(0, 1)),
+        )
+        .with_semantic_path([path])
+        .optional(optional)
+    };
+    let first_definition = definition(&document, Domain::Resource, "duplicate")
+        .with_reference(reference("one", false))
+        .with_reference(reference("two", true));
+    let second_definition =
+        definition(&document, Domain::Resource, "duplicate").with_preview(PreviewMetadata {
+            label: Some("different".to_owned()),
+            ..PreviewMetadata::default()
+        });
+    let target = definition(&document, Domain::Resource, "target");
+    let first = build(vec![input(
+        &document,
+        vec![
+            first_definition.clone(),
+            second_definition.clone(),
+            target.clone(),
+        ],
+    )]);
+    let second = build(vec![input(
+        &document,
+        vec![second_definition, first_definition, target],
+    )]);
+    assert_eq!(first.generation(), second.generation());
+}
+
+#[test]
 fn query_filter_and_preview_do_not_require_payload_access() {
     let document = source("query", b"opaque payload\n");
     let mut preview = PreviewMetadata {
@@ -285,6 +379,78 @@ fn query_filter_and_preview_do_not_require_payload_access() {
     assert_eq!(
         catalog.preview(&results[0].id).unwrap().label.as_deref(),
         Some("Localized Silver Sword")
+    );
+}
+
+#[test]
+fn media_references_are_resolved_diagnosed_and_invalidate_consumers() {
+    let document = source("media", b"name media\n");
+    let target = id(Domain::Face, "portrait");
+    let mut preview = PreviewMetadata::default();
+    preview.media.insert(
+        "portrait".to_owned(),
+        Reference::new(
+            target.clone(),
+            ReferenceKind::Face,
+            Location::new(document.source_id().as_str(), Span::new(0, 1)),
+        )
+        .with_semantic_path(["preview", "media", "portrait"]),
+    );
+    let consumer = definition(&document, Domain::Quest, "consumer").with_preview(preview);
+    let missing = build(vec![input(&document, vec![consumer.clone()])]);
+    assert_eq!(
+        missing.diagnostics().values()[0].code,
+        "catalog.missing_reference"
+    );
+
+    let face = source("face-media", b"name face\n");
+    let catalog = build(vec![
+        input(&document, vec![consumer]),
+        input(&face, vec![definition(&face, Domain::Face, "portrait")]),
+    ]);
+    assert_eq!(
+        catalog.dependents(&target).next(),
+        Some(&id(Domain::Quest, "consumer"))
+    );
+    let update = catalog.remove_document(face.source_id()).unwrap();
+    assert!(
+        update
+            .invalidation
+            .affected
+            .contains(&id(Domain::Quest, "consumer"))
+    );
+    assert_eq!(
+        update.catalog.diagnostics().values()[0].code,
+        "catalog.missing_reference"
+    );
+}
+
+#[test]
+fn rejects_cross_domain_aliases_inheritance_and_typed_references() {
+    let document = source("types", b"name types\n");
+    let invalid_alias =
+        definition(&document, Domain::Archetype, "value").with_alias(id(Domain::Map, "alias"));
+    assert!(
+        Catalog::build(
+            [input(&document, vec![invalid_alias])],
+            CatalogLimits::default(),
+            SuppressionPolicy::default(),
+        )
+        .is_err()
+    );
+    let invalid_reference =
+        definition(&document, Domain::Archetype, "value").with_reference(Reference::new(
+            id(Domain::Map, "target"),
+            ReferenceKind::Face,
+            Location::new(document.source_id().as_str(), Span::new(0, 1)),
+        ));
+    assert!(
+        Catalog::build(
+            [input(&document, vec![invalid_reference])],
+            CatalogLimits::default(),
+            SuppressionPolicy::default(),
+        )
+        .is_err()
     );
 }
 

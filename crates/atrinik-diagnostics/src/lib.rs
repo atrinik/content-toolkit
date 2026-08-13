@@ -233,9 +233,16 @@ impl DiagnosticSet {
     }
 
     pub fn push_with_policy(&mut self, mut diagnostic: Diagnostic, policy: &SuppressionPolicy) {
+        diagnostic.suppressed = diagnostic.suppressible && policy.is_suppressed(diagnostic.code);
         if self.values.len() >= self.limits.maximum_diagnostics {
             self.truncated = true;
-            return;
+            if diagnostic.suppressed {
+                return;
+            }
+            let Some(position) = self.values.iter().rposition(|value| value.suppressed) else {
+                return;
+            };
+            self.values.remove(position);
         }
         if diagnostic.related.len() > self.limits.maximum_related {
             diagnostic.related.truncate(self.limits.maximum_related);
@@ -271,8 +278,11 @@ impl DiagnosticSet {
         {
             self.truncated = true;
         }
-        diagnostic.suppressed = diagnostic.suppressible && policy.is_suppressed(diagnostic.code);
         self.values.push(diagnostic);
+    }
+
+    pub fn mark_truncated(&mut self) {
+        self.truncated = true;
     }
 
     #[must_use]
@@ -415,6 +425,17 @@ mod tests {
         assert!(!diagnostics.values()[1].suppressed);
         assert!(diagnostics.has_errors());
         assert_eq!(diagnostics.active_values().count(), 1);
+    }
+
+    #[test]
+    fn active_error_displaces_a_suppressed_warning_at_capacity() {
+        let policy = SuppressionPolicy::new(["catalog.optional"], 4, 64).unwrap();
+        let mut diagnostics = DiagnosticSet::new(1);
+        diagnostics.push_with_policy(value("catalog.optional").suppressible(true), &policy);
+        diagnostics.push_with_policy(value("catalog.required"), &policy);
+        assert_eq!(diagnostics.values()[0].code, "catalog.required");
+        assert!(diagnostics.has_errors());
+        assert!(diagnostics.truncated());
     }
 
     #[test]

@@ -80,3 +80,11 @@ jobs:
             <(jq -S . compatibility/m1-corpus-baseline.json) \
             <(jq -S . build/m1-corpus-report.json)
           jq . build/m1-corpus-report.json | tee -a "${GITHUB_STEP_SUMMARY}"
+
+      - name: Audit whole-corpus catalog references
+        working-directory: toolkit
+        run: |
+          cargo run --locked --package atrinik-catalog --example corpus -- \
+            --root ../corpus \
+            >build/m2-catalog-corpus-report.json
+          jq . build/m2-catalog-corpus-report.json | tee -a "${GITHUB_STEP_SUMMARY}"
