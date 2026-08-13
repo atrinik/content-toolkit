@@ -834,8 +834,18 @@ impl Catalog {
         {
             validate_text(value, self.limits)?;
         }
+        let query_bytes = query
+            .namespace
+            .iter()
+            .chain(query.text.iter())
+            .chain(query.tags.iter())
+            .try_fold(0_usize, |total, term| total.checked_add(term.len()))
+            .ok_or(Error::LimitExceeded("query work"))?;
+        if query_bytes > self.limits.maximum_query_work {
+            return Err(Error::LimitExceeded("query work"));
+        }
         let needle = query.text.as_ref().map(|value| value.to_lowercase());
-        let mut work = 0_usize;
+        let mut work = query_bytes;
         let mut results = Vec::with_capacity(maximum.min(64));
         for definition in self.definitions() {
             let searchable_bytes = definition
@@ -850,6 +860,7 @@ impl Catalog {
                         .label
                         .iter()
                         .chain(definition.preview.summary.iter())
+                        .chain(definition.preview.tags.iter())
                         .chain(definition.preview.keywords.iter())
                         .try_fold(value, |total, term| total.checked_add(term.len()))
                 })
@@ -1175,6 +1186,7 @@ pub struct LineDocumentLoader {
     namespace: String,
     schema_version: u32,
     rules: BTreeMap<Vec<u8>, FieldRule>,
+    limits: CatalogLimits,
 }
 
 impl LineDocumentLoader {
@@ -1189,8 +1201,17 @@ impl LineDocumentLoader {
             return Err(Error::InvalidDocument);
         }
         let mut accepted = BTreeMap::new();
+        let limits = CatalogLimits::default();
+        let maximum_rules = limits
+            .maximum_aliases_per_definition
+            .checked_add(limits.maximum_references_per_definition)
+            .and_then(|value| value.checked_add(limits.maximum_preview_values))
+            .and_then(|value| value.checked_add(2))
+            .ok_or(Error::LimitExceeded("loader rules"))?;
         for (field, rule) in rules {
-            if field.is_empty()
+            if accepted.len() >= maximum_rules
+                || field.len() > limits.maximum_string_bytes
+                || field.is_empty()
                 || !field.iter().all(u8::is_ascii)
                 || accepted.insert(field, rule).is_some()
             {
@@ -1202,7 +1223,27 @@ impl LineDocumentLoader {
             namespace,
             schema_version,
             rules: accepted,
+            limits,
         })
+    }
+
+    pub fn with_limits(mut self, limits: CatalogLimits) -> Result<Self, Error> {
+        let maximum_rules = limits
+            .maximum_aliases_per_definition
+            .checked_add(limits.maximum_references_per_definition)
+            .and_then(|value| value.checked_add(limits.maximum_preview_values))
+            .and_then(|value| value.checked_add(2))
+            .ok_or(Error::LimitExceeded("loader rules"))?;
+        if self.rules.len() > maximum_rules
+            || self
+                .rules
+                .keys()
+                .any(|field| field.len() > limits.maximum_string_bytes)
+        {
+            return Err(Error::LimitExceeded("loader rules"));
+        }
+        self.limits = limits;
+        Ok(self)
     }
 
     pub fn load_objects(
@@ -1210,12 +1251,20 @@ impl LineDocumentLoader {
         document: &Document,
         evidence: EvidenceReferences,
     ) -> Result<CatalogDocument, Error> {
+        validate_evidence(&evidence, self.limits)?;
         let mut stack: Vec<Definition> = Vec::new();
         let mut definitions = Vec::new();
         for record in document.records() {
             match &record.kind {
                 RecordKind::ObjectStart { name } => {
-                    let name_text = text(document, *name)?;
+                    let definition_count = definitions
+                        .len()
+                        .checked_add(stack.len())
+                        .ok_or(Error::LimitExceeded("definitions per document"))?;
+                    if definition_count >= self.limits.maximum_definitions_per_document {
+                        return Err(Error::LimitExceeded("definitions per document"));
+                    }
+                    let name_text = text(document, *name, self.limits)?;
                     let id = CatalogId::new(self.domain, self.namespace.clone(), name_text)?;
                     stack.push(
                         Definition::new(id, Location::new(document.source_id().as_str(), *name))
@@ -1232,9 +1281,16 @@ impl LineDocumentLoader {
                     else {
                         continue;
                     };
-                    let value_text = text(document, *value)?;
+                    let value_text = text(document, *value, self.limits)?;
                     let location = Location::new(document.source_id().as_str(), *value);
-                    apply_rule(definition, rule, &self.namespace, value_text, location)?;
+                    apply_rule(
+                        definition,
+                        rule,
+                        &self.namespace,
+                        value_text,
+                        location,
+                        self.limits,
+                    )?;
                 }
                 RecordKind::ObjectEnd => {
                     if let Some(definition) = stack.pop() {
@@ -1259,6 +1315,10 @@ impl LineDocumentLoader {
         local_id: impl Into<String>,
         evidence: EvidenceReferences,
     ) -> Result<CatalogDocument, Error> {
+        if self.limits.maximum_definitions_per_document == 0 {
+            return Err(Error::LimitExceeded("definitions per document"));
+        }
+        validate_evidence(&evidence, self.limits)?;
         let id = CatalogId::new(self.domain, self.namespace.clone(), local_id)?;
         let mut definition = Definition::new(
             id,
@@ -1282,8 +1342,9 @@ impl LineDocumentLoader {
                 &mut definition,
                 rule,
                 &self.namespace,
-                text(document, *value)?,
+                text(document, *value, self.limits)?,
                 Location::new(document.source_id().as_str(), *value),
+                self.limits,
             )?;
         }
         Ok(CatalogDocument::new(
@@ -1301,14 +1362,24 @@ fn apply_rule(
     namespace: &str,
     value: String,
     location: Location,
+    limits: CatalogLimits,
 ) -> Result<(), Error> {
+    validate_text(&value, limits)?;
     match rule {
         FieldRule::Alias => {
+            if definition.aliases.len() >= limits.maximum_aliases_per_definition {
+                return Err(Error::LimitExceeded("aliases per definition"));
+            }
             definition
                 .aliases
                 .insert(CatalogId::new(definition.id.domain(), namespace, value)?);
         }
         FieldRule::Inherits => {
+            if definition.inherits.is_none()
+                && definition.all_references().count() >= limits.maximum_references_per_definition
+            {
+                return Err(Error::LimitExceeded("references per definition"));
+            }
             definition.inherits = Some(
                 Reference::new(
                     CatalogId::new(definition.id.domain(), namespace, value)?,
@@ -1330,6 +1401,9 @@ fn apply_rule(
             {
                 return Err(Error::InvalidDocument);
             }
+            if definition.all_references().count() >= limits.maximum_references_per_definition {
+                return Err(Error::LimitExceeded("references per definition"));
+            }
             definition.references.push(
                 Reference::new(CatalogId::new(*domain, namespace, value)?, *kind, location)
                     .with_semantic_path(["references", kind.as_str()])
@@ -1339,19 +1413,39 @@ fn apply_rule(
         FieldRule::Label => definition.preview.label = Some(value),
         FieldRule::Summary => definition.preview.summary = Some(value),
         FieldRule::Tag => {
+            if definition.preview.tags.len() + definition.preview.keywords.len()
+                >= limits.maximum_preview_values
+            {
+                return Err(Error::LimitExceeded("preview values"));
+            }
             definition.preview.tags.insert(value);
         }
         FieldRule::Keyword => {
+            if definition.preview.tags.len() + definition.preview.keywords.len()
+                >= limits.maximum_preview_values
+            {
+                return Err(Error::LimitExceeded("preview values"));
+            }
             definition.preview.keywords.insert(value);
         }
     }
     Ok(())
 }
 
-fn text(document: &Document, span: Span) -> Result<String, Error> {
+fn text(document: &Document, span: Span, limits: CatalogLimits) -> Result<String, Error> {
+    if span.len() > limits.maximum_string_bytes {
+        return Err(Error::LimitExceeded("string bytes"));
+    }
     std::str::from_utf8(document.bytes(span).map_err(|_| Error::InvalidDocument)?)
         .map(str::to_owned)
         .map_err(|_| Error::InvalidDocument)
+}
+
+fn validate_evidence(evidence: &EvidenceReferences, limits: CatalogLimits) -> Result<(), Error> {
+    for value in evidence.provenance.iter().chain(evidence.license.iter()) {
+        validate_text(value, limits)?;
+    }
+    Ok(())
 }
 
 fn validate_document(document: &CatalogDocument, limits: CatalogLimits) -> Result<(), Error> {

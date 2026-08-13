@@ -209,6 +209,8 @@ pub struct DiagnosticSet {
     values: Vec<Diagnostic>,
     truncated: bool,
     omitted_error: bool,
+    suppressed_slots: BTreeSet<usize>,
+    warning_slots: BTreeSet<usize>,
 }
 
 impl DiagnosticSet {
@@ -227,6 +229,8 @@ impl DiagnosticSet {
             values: Vec::with_capacity(limits.maximum_diagnostics.min(64)),
             truncated: false,
             omitted_error: false,
+            suppressed_slots: BTreeSet::new(),
+            warning_slots: BTreeSet::new(),
         }
     }
 
@@ -236,23 +240,6 @@ impl DiagnosticSet {
 
     pub fn push_with_policy(&mut self, mut diagnostic: Diagnostic, policy: &SuppressionPolicy) {
         diagnostic.suppressed = diagnostic.suppressible && policy.is_suppressed(diagnostic.code);
-        if self.values.len() >= self.limits.maximum_diagnostics {
-            self.truncated = true;
-            if diagnostic.suppressed {
-                return;
-            }
-            let replacement = self.values.iter().rposition(|value| {
-                value.suppressed
-                    || (diagnostic.severity == Severity::Error && value.severity != Severity::Error)
-            });
-            let Some(position) = replacement else {
-                if diagnostic.severity == Severity::Error {
-                    self.omitted_error = true;
-                }
-                return;
-            };
-            self.values.remove(position);
-        }
         if diagnostic.related.len() > self.limits.maximum_related {
             diagnostic.related.truncate(self.limits.maximum_related);
             self.truncated = true;
@@ -287,7 +274,40 @@ impl DiagnosticSet {
         {
             self.truncated = true;
         }
+        if self.values.len() >= self.limits.maximum_diagnostics {
+            self.truncated = true;
+            if diagnostic.suppressed {
+                return;
+            }
+            let replacement = self.suppressed_slots.last().copied().or_else(|| {
+                (diagnostic.severity == Severity::Error)
+                    .then(|| self.warning_slots.last().copied())
+                    .flatten()
+            });
+            let Some(position) = replacement else {
+                if diagnostic.severity == Severity::Error {
+                    self.omitted_error = true;
+                }
+                return;
+            };
+            self.suppressed_slots.remove(&position);
+            self.warning_slots.remove(&position);
+            self.values[position] = diagnostic;
+            self.record_slot(position);
+            return;
+        }
+        let position = self.values.len();
         self.values.push(diagnostic);
+        self.record_slot(position);
+    }
+
+    fn record_slot(&mut self, position: usize) {
+        let value = &self.values[position];
+        if value.suppressed {
+            self.suppressed_slots.insert(position);
+        } else if value.severity != Severity::Error {
+            self.warning_slots.insert(position);
+        }
     }
 
     pub fn mark_truncated(&mut self) {
@@ -464,6 +484,17 @@ mod tests {
         assert!(zero.values().is_empty());
         assert!(zero.has_errors());
         assert!(zero.truncated());
+    }
+
+    #[test]
+    fn sustained_error_overflow_remains_bounded_and_fails_closed() {
+        let mut diagnostics = DiagnosticSet::new(2);
+        for _ in 0..10_000 {
+            diagnostics.push(value("catalog.required"));
+        }
+        assert_eq!(diagnostics.values().len(), 2);
+        assert!(diagnostics.has_errors());
+        assert!(diagnostics.truncated());
     }
 
     #[test]

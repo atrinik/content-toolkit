@@ -484,6 +484,32 @@ fn query_input_and_scan_work_are_bounded() {
     .unwrap();
     assert!(catalog.search(&Query::default(), 2).is_err());
     assert!(catalog.search(&Query::default(), 1).is_err());
+
+    let mut preview = PreviewMetadata::default();
+    preview.tags.insert("large-tag".repeat(20));
+    let tagged = Catalog::build(
+        [input(
+            &document,
+            vec![definition(&document, Domain::Resource, "tiny").with_preview(preview)],
+        )],
+        CatalogLimits {
+            maximum_query_work: 32,
+            ..CatalogLimits::default()
+        },
+        SuppressionPolicy::default(),
+    )
+    .unwrap();
+    assert!(
+        tagged
+            .search(
+                &Query {
+                    tags: BTreeSet::from(["missing".to_owned()]),
+                    ..Query::default()
+                },
+                1,
+            )
+            .is_err()
+    );
 }
 
 #[test]
@@ -695,6 +721,53 @@ fn line_loader_exposes_one_shared_domain_loading_boundary() {
         Resolution::Found(value) if value.id.local() == "child"
     ));
     assert!(catalog.diagnostics().values().is_empty());
+}
+
+#[test]
+fn line_loader_rejects_values_before_exceeding_catalog_limits() {
+    let document = source(
+        "loader-bounds",
+        b"Object value\ntag one\ntag two\nface one.101\nend\n",
+    );
+    let loader = LineDocumentLoader::new(
+        Domain::Archetype,
+        "core",
+        1,
+        [
+            (b"tag".to_vec(), FieldRule::Tag),
+            (
+                b"face".to_vec(),
+                FieldRule::Reference {
+                    domain: Domain::Face,
+                    kind: ReferenceKind::Face,
+                    optional: true,
+                },
+            ),
+        ],
+    )
+    .unwrap()
+    .with_limits(CatalogLimits {
+        maximum_preview_values: 1,
+        maximum_references_per_definition: 1,
+        ..CatalogLimits::default()
+    })
+    .unwrap();
+    assert!(
+        loader
+            .load_objects(&document, EvidenceReferences::default())
+            .is_err()
+    );
+
+    let zero = LineDocumentLoader::new(Domain::Map, "core", 1, []).unwrap();
+    assert!(
+        zero.with_limits(CatalogLimits {
+            maximum_definitions_per_document: 0,
+            ..CatalogLimits::default()
+        })
+        .unwrap()
+        .load_single(&document, "map", EvidenceReferences::default())
+        .is_err()
+    );
 }
 
 #[test]
