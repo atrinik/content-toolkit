@@ -3,67 +3,1273 @@
 
 #![forbid(unsafe_code)]
 
-use std::{collections::BTreeMap, fmt, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet, VecDeque},
+    fmt,
+};
 
-use atrinik_source::{Document, SourceId};
+use atrinik_diagnostics::{
+    Diagnostic, DiagnosticLimits, DiagnosticSet, Location, RelatedLocation, Severity, Span,
+    SuppressionPolicy,
+};
+use atrinik_source::{Document, RecordKind, Revision, SourceId};
+use sha2::{Digest, Sha256};
 
-#[derive(Clone, Debug, Default)]
-pub struct Catalog {
-    documents: BTreeMap<SourceId, Arc<Document>>,
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum Domain {
+    Archetype,
+    Map,
+    Face,
+    Animation,
+    Treasure,
+    Faction,
+    Interface,
+    Quest,
+    Resource,
 }
 
-impl Catalog {
-    pub fn build(
-        documents: impl IntoIterator<Item = Arc<Document>>,
-        maximum_documents: usize,
-    ) -> Result<Self, Error> {
-        let mut catalog = Self::default();
-        for document in documents {
-            if catalog.documents.len() >= maximum_documents {
-                return Err(Error::LimitExceeded);
-            }
-            if catalog
-                .documents
-                .insert(document.source_id().clone(), document)
-                .is_some()
-            {
-                return Err(Error::DuplicateSource);
-            }
+impl Domain {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Archetype => "archetype",
+            Self::Map => "map",
+            Self::Face => "face",
+            Self::Animation => "animation",
+            Self::Treasure => "treasure",
+            Self::Faction => "faction",
+            Self::Interface => "interface",
+            Self::Quest => "quest",
+            Self::Resource => "resource",
         }
-        Ok(catalog)
+    }
+
+    pub const ALL: [Self; 9] = [
+        Self::Archetype,
+        Self::Map,
+        Self::Face,
+        Self::Animation,
+        Self::Treasure,
+        Self::Faction,
+        Self::Interface,
+        Self::Quest,
+        Self::Resource,
+    ];
+}
+
+impl fmt::Display for Domain {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct CatalogId {
+    domain: Domain,
+    namespace: String,
+    local: String,
+}
+
+impl CatalogId {
+    pub fn new(
+        domain: Domain,
+        namespace: impl Into<String>,
+        local: impl Into<String>,
+    ) -> Result<Self, Error> {
+        let namespace = namespace.into();
+        let local = local.into();
+        if !valid_namespace(&namespace) || !valid_local_id(&local) {
+            return Err(Error::InvalidIdentifier);
+        }
+        Ok(Self {
+            domain,
+            namespace,
+            local,
+        })
     }
 
     #[must_use]
-    pub fn get(&self, source: &SourceId) -> Option<&Arc<Document>> {
-        self.documents.get(source)
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = (&SourceId, &Arc<Document>)> {
-        self.documents.iter()
+    pub const fn domain(&self) -> Domain {
+        self.domain
     }
 
     #[must_use]
-    pub fn len(&self) -> usize {
-        self.documents.len()
+    pub fn namespace(&self) -> &str {
+        &self.namespace
     }
 
     #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.documents.is_empty()
+    pub fn local(&self) -> &str {
+        &self.local
+    }
+}
+
+impl fmt::Display for CatalogId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "{}:{}/{}",
+            self.domain, self.namespace, self.local
+        )
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum ReferenceKind {
+    Generic,
+    Inherits,
+    Map,
+    Face,
+    Animation,
+    Treasure,
+    Faction,
+    Interface,
+    Quest,
+    Resource,
+}
+
+impl ReferenceKind {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Generic => "generic",
+            Self::Inherits => "inherits",
+            Self::Map => "map",
+            Self::Face => "face",
+            Self::Animation => "animation",
+            Self::Treasure => "treasure",
+            Self::Faction => "faction",
+            Self::Interface => "interface",
+            Self::Quest => "quest",
+            Self::Resource => "resource",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Reference {
+    pub target: CatalogId,
+    pub kind: ReferenceKind,
+    pub location: Location,
+    pub semantic_path: Vec<String>,
+    pub optional: bool,
+}
+
+impl Reference {
+    #[must_use]
+    pub fn new(target: CatalogId, kind: ReferenceKind, location: Location) -> Self {
+        Self {
+            target,
+            kind,
+            location,
+            semantic_path: Vec::new(),
+            optional: false,
+        }
+    }
+
+    #[must_use]
+    pub fn with_semantic_path(mut self, path: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.semantic_path = path.into_iter().map(Into::into).collect();
+        self
+    }
+
+    #[must_use]
+    pub const fn optional(mut self, optional: bool) -> Self {
+        self.optional = optional;
+        self
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct PreviewMetadata {
+    pub label: Option<String>,
+    pub summary: Option<String>,
+    pub tags: BTreeSet<String>,
+    pub keywords: BTreeSet<String>,
+    pub media: BTreeMap<String, CatalogId>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct EvidenceReferences {
+    pub provenance: Option<String>,
+    pub license: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Definition {
+    pub id: CatalogId,
+    pub location: Location,
+    pub aliases: BTreeSet<CatalogId>,
+    pub inherits: Option<Reference>,
+    pub references: Vec<Reference>,
+    pub preview: PreviewMetadata,
+    pub evidence: EvidenceReferences,
+}
+
+impl Definition {
+    #[must_use]
+    pub fn new(id: CatalogId, location: Location) -> Self {
+        Self {
+            id,
+            location,
+            aliases: BTreeSet::new(),
+            inherits: None,
+            references: Vec::new(),
+            preview: PreviewMetadata::default(),
+            evidence: EvidenceReferences::default(),
+        }
+    }
+
+    #[must_use]
+    pub fn with_alias(mut self, alias: CatalogId) -> Self {
+        self.aliases.insert(alias);
+        self
+    }
+
+    #[must_use]
+    pub fn with_inheritance(mut self, inheritance: Reference) -> Self {
+        self.inherits = Some(inheritance);
+        self
+    }
+
+    #[must_use]
+    pub fn with_reference(mut self, reference: Reference) -> Self {
+        self.references.push(reference);
+        self
+    }
+
+    #[must_use]
+    pub fn with_preview(mut self, preview: PreviewMetadata) -> Self {
+        self.preview = preview;
+        self
+    }
+
+    #[must_use]
+    pub fn with_evidence(mut self, evidence: EvidenceReferences) -> Self {
+        self.evidence = evidence;
+        self
+    }
+
+    fn all_references(&self) -> impl Iterator<Item = &Reference> {
+        self.inherits.iter().chain(&self.references)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CatalogDocument {
+    source_id: SourceId,
+    revision: Revision,
+    schema_version: u32,
+    definitions: Vec<Definition>,
+}
+
+impl CatalogDocument {
+    #[must_use]
+    pub fn new(
+        source_id: SourceId,
+        revision: Revision,
+        schema_version: u32,
+        definitions: Vec<Definition>,
+    ) -> Self {
+        Self {
+            source_id,
+            revision,
+            schema_version,
+            definitions,
+        }
+    }
+
+    #[must_use]
+    pub fn source_id(&self) -> &SourceId {
+        &self.source_id
+    }
+
+    #[must_use]
+    pub const fn revision(&self) -> Revision {
+        self.revision
+    }
+
+    #[must_use]
+    pub const fn schema_version(&self) -> u32 {
+        self.schema_version
+    }
+
+    #[must_use]
+    pub fn definitions(&self) -> &[Definition] {
+        &self.definitions
     }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CatalogLimits {
+    pub maximum_documents: usize,
+    pub maximum_definitions_per_document: usize,
+    pub maximum_definitions: usize,
+    pub maximum_aliases_per_definition: usize,
+    pub maximum_references_per_definition: usize,
+    pub maximum_preview_values: usize,
+    pub maximum_string_bytes: usize,
+    pub maximum_semantic_depth: usize,
+    pub maximum_graph_work: usize,
+    pub maximum_invalidation: usize,
+    pub diagnostic_limits: DiagnosticLimits,
+}
+
+impl Default for CatalogLimits {
+    fn default() -> Self {
+        Self {
+            maximum_documents: 100_000,
+            maximum_definitions_per_document: 250_000,
+            maximum_definitions: 1_000_000,
+            maximum_aliases_per_definition: 64,
+            maximum_references_per_definition: 4096,
+            maximum_preview_values: 256,
+            maximum_string_bytes: 4096,
+            maximum_semantic_depth: 32,
+            maximum_graph_work: 8_000_000,
+            maximum_invalidation: 1_000_000,
+            diagnostic_limits: DiagnosticLimits::default(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct Generation([u8; 32]);
+
+impl Generation {
+    #[must_use]
+    pub const fn bytes(self) -> [u8; 32] {
+        self.0
+    }
+}
+
+impl fmt::Display for Generation {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for byte in self.0 {
+            write!(formatter, "{byte:02x}")?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Catalog {
+    documents: BTreeMap<SourceId, CatalogDocument>,
+    candidates: BTreeMap<CatalogId, Vec<Definition>>,
+    aliases: BTreeMap<CatalogId, BTreeSet<CatalogId>>,
+    dependents: BTreeMap<CatalogId, BTreeSet<CatalogId>>,
+    diagnostics: DiagnosticSet,
+    generation: Generation,
+    limits: CatalogLimits,
+    suppressions: SuppressionPolicy,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Resolution<'a> {
+    Found(&'a Definition),
+    Missing,
+    Ambiguous,
+}
+
+impl Catalog {
+    pub fn build(
+        documents: impl IntoIterator<Item = CatalogDocument>,
+        limits: CatalogLimits,
+        suppressions: SuppressionPolicy,
+    ) -> Result<Self, Error> {
+        let mut document_index = BTreeMap::new();
+        for document in documents {
+            if document_index.contains_key(document.source_id()) {
+                return Err(Error::DuplicateSource);
+            }
+            if document_index.len() >= limits.maximum_documents {
+                return Err(Error::LimitExceeded("documents"));
+            }
+            document_index.insert(document.source_id().clone(), document);
+        }
+        Self::from_index(document_index, limits, suppressions)
+    }
+
+    fn from_index(
+        documents: BTreeMap<SourceId, CatalogDocument>,
+        limits: CatalogLimits,
+        suppressions: SuppressionPolicy,
+    ) -> Result<Self, Error> {
+        let mut candidates: BTreeMap<CatalogId, Vec<Definition>> = BTreeMap::new();
+        let mut aliases: BTreeMap<CatalogId, BTreeSet<CatalogId>> = BTreeMap::new();
+        let mut total_definitions = 0_usize;
+        for document in documents.values() {
+            validate_document(document, limits)?;
+            total_definitions = total_definitions
+                .checked_add(document.definitions.len())
+                .ok_or(Error::LimitExceeded("definitions"))?;
+            if total_definitions > limits.maximum_definitions {
+                return Err(Error::LimitExceeded("definitions"));
+            }
+            for definition in &document.definitions {
+                candidates
+                    .entry(definition.id.clone())
+                    .or_default()
+                    .push(definition.clone());
+                for alias in &definition.aliases {
+                    aliases
+                        .entry(alias.clone())
+                        .or_default()
+                        .insert(definition.id.clone());
+                }
+            }
+        }
+        for values in candidates.values_mut() {
+            values.sort_by(|left, right| left.location.cmp(&right.location));
+        }
+
+        let mut catalog = Self {
+            generation: generation(&documents),
+            documents,
+            candidates,
+            aliases,
+            dependents: BTreeMap::new(),
+            diagnostics: DiagnosticSet::with_limits(limits.diagnostic_limits),
+            limits,
+            suppressions,
+        };
+        catalog.index_conflicts();
+        catalog.index_references()?;
+        catalog.index_cycles()?;
+        Ok(catalog)
+    }
+
+    fn index_conflicts(&mut self) {
+        for (id, definitions) in &self.candidates {
+            if definitions.len() > 1 {
+                let mut diagnostic = Diagnostic::new(
+                    "catalog.duplicate_id",
+                    Severity::Error,
+                    definitions[0].location.clone(),
+                    format!("catalog ID `{id}` has multiple definitions"),
+                )
+                .with_semantic_path(["definitions".to_owned(), id.to_string()])
+                .with_fix_hint("rename or remove every conflicting definition");
+                for definition in definitions.iter().skip(1) {
+                    diagnostic = diagnostic.with_related(RelatedLocation::new(
+                        definition.location.clone(),
+                        "conflicting definition",
+                    ));
+                }
+                self.diagnostics
+                    .push_with_policy(diagnostic, &self.suppressions);
+            }
+        }
+        for (alias, targets) in &self.aliases {
+            let shadows = self.candidates.contains_key(alias) && !targets.contains(alias);
+            if targets.len() > 1 || shadows {
+                let locations: Vec<Location> = targets
+                    .iter()
+                    .filter_map(|target| self.candidates.get(target))
+                    .flat_map(|definitions| definitions.iter())
+                    .map(|definition| definition.location.clone())
+                    .collect();
+                let primary = locations
+                    .first()
+                    .cloned()
+                    .or_else(|| {
+                        self.candidates
+                            .get(alias)
+                            .and_then(|values| values.first())
+                            .map(|definition| definition.location.clone())
+                    })
+                    .unwrap_or_else(|| Location::new("catalog", Span::new(0, 0)));
+                let mut diagnostic = Diagnostic::new(
+                    "catalog.ambiguous_alias",
+                    Severity::Error,
+                    primary,
+                    format!("catalog alias `{alias}` resolves ambiguously"),
+                )
+                .with_semantic_path(["aliases".to_owned(), alias.to_string()])
+                .with_fix_hint("assign each alias to exactly one non-conflicting catalog ID");
+                for location in locations.into_iter().skip(1) {
+                    diagnostic = diagnostic
+                        .with_related(RelatedLocation::new(location, "other alias target"));
+                }
+                self.diagnostics
+                    .push_with_policy(diagnostic, &self.suppressions);
+            }
+        }
+    }
+
+    fn index_references(&mut self) -> Result<(), Error> {
+        let definitions: Vec<Definition> = self
+            .candidates
+            .values()
+            .filter(|values| values.len() == 1)
+            .map(|values| values[0].clone())
+            .collect();
+        let mut graph_work = 0_usize;
+        for definition in definitions {
+            let mut references = definition.all_references().collect::<Vec<_>>();
+            references.sort_by(|left, right| {
+                left.target
+                    .cmp(&right.target)
+                    .then_with(|| left.kind.cmp(&right.kind))
+                    .then_with(|| left.location.cmp(&right.location))
+                    .then_with(|| left.semantic_path.cmp(&right.semantic_path))
+                    .then_with(|| left.optional.cmp(&right.optional))
+            });
+            for reference in references {
+                graph_work = graph_work
+                    .checked_add(1)
+                    .ok_or(Error::LimitExceeded("graph work"))?;
+                if graph_work > self.limits.maximum_graph_work {
+                    return Err(Error::LimitExceeded("graph work"));
+                }
+                self.dependents
+                    .entry(reference.target.clone())
+                    .or_default()
+                    .insert(definition.id.clone());
+                match self.resolve(&reference.target) {
+                    Resolution::Found(_) => {}
+                    Resolution::Missing => {
+                        let severity = if reference.optional {
+                            Severity::Warning
+                        } else {
+                            Severity::Error
+                        };
+                        let diagnostic = Diagnostic::new(
+                            "catalog.missing_reference",
+                            severity,
+                            reference.location.clone(),
+                            format!(
+                                "{} reference `{}` does not resolve",
+                                reference.kind.as_str(),
+                                reference.target
+                            ),
+                        )
+                        .with_semantic_path(reference.semantic_path.clone())
+                        .with_fix_hint("define the target or update the stable catalog ID")
+                        .suppressible(reference.optional);
+                        self.diagnostics
+                            .push_with_policy(diagnostic, &self.suppressions);
+                    }
+                    Resolution::Ambiguous => {
+                        let diagnostic = Diagnostic::new(
+                            "catalog.ambiguous_reference",
+                            Severity::Error,
+                            reference.location.clone(),
+                            format!(
+                                "{} reference `{}` has multiple targets",
+                                reference.kind.as_str(),
+                                reference.target
+                            ),
+                        )
+                        .with_semantic_path(reference.semantic_path.clone())
+                        .with_fix_hint("remove the duplicate ID or conflicting alias");
+                        self.diagnostics
+                            .push_with_policy(diagnostic, &self.suppressions);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn index_cycles(&mut self) -> Result<(), Error> {
+        let ids: Vec<CatalogId> = self
+            .candidates
+            .iter()
+            .filter(|(_, values)| values.len() == 1)
+            .map(|(id, _)| id.clone())
+            .collect();
+        let mut state: BTreeMap<CatalogId, u8> = BTreeMap::new();
+        let mut graph_work = 0_usize;
+        for start in ids {
+            if state.get(&start).copied().unwrap_or(0) != 0 {
+                continue;
+            }
+            let mut path = Vec::new();
+            let mut positions = BTreeMap::new();
+            let mut current = start;
+            loop {
+                graph_work = graph_work
+                    .checked_add(1)
+                    .ok_or(Error::LimitExceeded("graph work"))?;
+                if graph_work > self.limits.maximum_graph_work {
+                    return Err(Error::LimitExceeded("graph work"));
+                }
+                match state.get(&current).copied().unwrap_or(0) {
+                    2 => break,
+                    1 => {
+                        if let Some(position) = positions.get(&current).copied() {
+                            self.push_cycle(&path[position..]);
+                        }
+                        break;
+                    }
+                    _ => {}
+                }
+                state.insert(current.clone(), 1);
+                positions.insert(current.clone(), path.len());
+                path.push(current.clone());
+                let Some(definition) = self.unique_definition(&current) else {
+                    break;
+                };
+                let Some(inheritance) = &definition.inherits else {
+                    break;
+                };
+                let Resolution::Found(target) = self.resolve(&inheritance.target) else {
+                    break;
+                };
+                current = target.id.clone();
+            }
+            for id in path {
+                state.insert(id, 2);
+            }
+        }
+        Ok(())
+    }
+
+    fn push_cycle(&mut self, cycle: &[CatalogId]) {
+        let Some(first) = cycle.first() else {
+            return;
+        };
+        let Some(definition) = self.unique_definition(first) else {
+            return;
+        };
+        let mut diagnostic = Diagnostic::new(
+            "catalog.inheritance_cycle",
+            Severity::Error,
+            definition.location.clone(),
+            format!("inheritance cycle contains `{first}`"),
+        )
+        .with_semantic_path(["inherits"])
+        .with_fix_hint("remove an inheritance edge from the cycle");
+        for id in cycle.iter().skip(1) {
+            if let Some(definition) = self.unique_definition(id) {
+                diagnostic = diagnostic.with_related(RelatedLocation::new(
+                    definition.location.clone(),
+                    format!("cycle member `{id}`"),
+                ));
+            }
+        }
+        self.diagnostics
+            .push_with_policy(diagnostic, &self.suppressions);
+    }
+
+    #[must_use]
+    pub fn resolve(&self, id: &CatalogId) -> Resolution<'_> {
+        let direct = self.candidates.get(id);
+        let aliases = self.aliases.get(id);
+        match direct {
+            Some(values) if values.len() > 1 => Resolution::Ambiguous,
+            Some(values) => {
+                let conflicting_alias = aliases
+                    .is_some_and(|targets| targets.iter().any(|target| target != &values[0].id));
+                if conflicting_alias {
+                    Resolution::Ambiguous
+                } else {
+                    Resolution::Found(&values[0])
+                }
+            }
+            None => {
+                let Some(targets) = aliases else {
+                    return Resolution::Missing;
+                };
+                if targets.len() != 1 {
+                    return Resolution::Ambiguous;
+                }
+                let target = targets.first().expect("one alias target");
+                match self.candidates.get(target) {
+                    Some(values) if values.len() == 1 => Resolution::Found(&values[0]),
+                    Some(_) => Resolution::Ambiguous,
+                    None => Resolution::Missing,
+                }
+            }
+        }
+    }
+
+    fn unique_definition(&self, id: &CatalogId) -> Option<&Definition> {
+        self.candidates
+            .get(id)
+            .filter(|values| values.len() == 1)
+            .map(|values| &values[0])
+    }
+
+    pub fn definitions(&self) -> impl Iterator<Item = &Definition> {
+        self.candidates
+            .values()
+            .filter(|values| values.len() == 1)
+            .map(|values| &values[0])
+    }
+
+    pub fn documents(&self) -> impl Iterator<Item = &CatalogDocument> {
+        self.documents.values()
+    }
+
+    #[must_use]
+    pub fn diagnostics(&self) -> &DiagnosticSet {
+        &self.diagnostics
+    }
+
+    #[must_use]
+    pub const fn generation(&self) -> Generation {
+        self.generation
+    }
+
+    #[must_use]
+    pub fn preview(&self, id: &CatalogId) -> Option<&PreviewMetadata> {
+        match self.resolve(id) {
+            Resolution::Found(definition) => Some(&definition.preview),
+            Resolution::Missing | Resolution::Ambiguous => None,
+        }
+    }
+
+    pub fn dependents(&self, id: &CatalogId) -> impl Iterator<Item = &CatalogId> {
+        self.dependents.get(id).into_iter().flatten()
+    }
+
+    pub fn search<'a>(&'a self, query: &Query, maximum: usize) -> Vec<&'a Definition> {
+        if maximum == 0 {
+            return Vec::new();
+        }
+        let needle = query.text.as_ref().map(|value| value.to_lowercase());
+        self.definitions()
+            .filter(|definition| {
+                query
+                    .domain
+                    .is_none_or(|domain| definition.id.domain() == domain)
+                    && query
+                        .namespace
+                        .as_ref()
+                        .is_none_or(|namespace| definition.id.namespace() == namespace)
+                    && query.tags.is_subset(&definition.preview.tags)
+                    && needle.as_ref().is_none_or(|needle| {
+                        definition.id.to_string().to_lowercase().contains(needle)
+                            || definition
+                                .preview
+                                .label
+                                .as_ref()
+                                .is_some_and(|value| value.to_lowercase().contains(needle))
+                            || definition
+                                .preview
+                                .summary
+                                .as_ref()
+                                .is_some_and(|value| value.to_lowercase().contains(needle))
+                            || definition
+                                .preview
+                                .keywords
+                                .iter()
+                                .any(|value| value.to_lowercase().contains(needle))
+                    })
+            })
+            .take(maximum)
+            .collect()
+    }
+
+    pub fn update_document(&self, document: CatalogDocument) -> Result<CatalogUpdate, Error> {
+        if self.documents.get(document.source_id()) == Some(&document) {
+            return Ok(CatalogUpdate {
+                catalog: self.clone(),
+                invalidation: Invalidation {
+                    source: document.source_id().clone(),
+                    changed: BTreeSet::new(),
+                    affected: BTreeSet::new(),
+                },
+            });
+        }
+        let source = document.source_id().clone();
+        let old = self.documents.get(&source);
+        let mut changed = identities(old).collect::<BTreeSet<_>>();
+        changed.extend(identities(std::iter::once(&document)));
+        let mut documents = self.documents.clone();
+        documents.insert(source.clone(), document);
+        let catalog = Self::from_index(documents, self.limits, self.suppressions.clone())?;
+        let affected = self.collect_invalidation(&catalog, &changed)?;
+        Ok(CatalogUpdate {
+            catalog,
+            invalidation: Invalidation {
+                source,
+                changed,
+                affected,
+            },
+        })
+    }
+
+    pub fn remove_document(&self, source: &SourceId) -> Result<CatalogUpdate, Error> {
+        let Some(old) = self.documents.get(source) else {
+            return Err(Error::MissingSource);
+        };
+        let changed = identities(std::iter::once(old)).collect::<BTreeSet<_>>();
+        let mut documents = self.documents.clone();
+        documents.remove(source);
+        let catalog = Self::from_index(documents, self.limits, self.suppressions.clone())?;
+        let affected = self.collect_invalidation(&catalog, &changed)?;
+        Ok(CatalogUpdate {
+            catalog,
+            invalidation: Invalidation {
+                source: source.clone(),
+                changed,
+                affected,
+            },
+        })
+    }
+
+    fn collect_invalidation(
+        &self,
+        next: &Self,
+        changed: &BTreeSet<CatalogId>,
+    ) -> Result<BTreeSet<CatalogId>, Error> {
+        let mut affected = changed.clone();
+        let mut queue = VecDeque::from_iter(changed.iter().cloned());
+        while let Some(target) = queue.pop_front() {
+            for dependent in self.dependents(&target).chain(next.dependents(&target)) {
+                if affected.insert(dependent.clone()) {
+                    if affected.len() > self.limits.maximum_invalidation {
+                        return Err(Error::LimitExceeded("invalidation"));
+                    }
+                    queue.push_back(dependent.clone());
+                }
+            }
+        }
+        Ok(affected)
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct Query {
+    pub domain: Option<Domain>,
+    pub namespace: Option<String>,
+    pub text: Option<String>,
+    pub tags: BTreeSet<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Invalidation {
+    pub source: SourceId,
+    pub changed: BTreeSet<CatalogId>,
+    pub affected: BTreeSet<CatalogId>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CatalogUpdate {
+    pub catalog: Catalog,
+    pub invalidation: Invalidation,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum FieldRule {
+    Alias,
+    Inherits,
+    Reference {
+        domain: Domain,
+        kind: ReferenceKind,
+        optional: bool,
+    },
+    Label,
+    Summary,
+    Tag,
+    Keyword,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LineDocumentLoader {
+    domain: Domain,
+    namespace: String,
+    schema_version: u32,
+    rules: BTreeMap<Vec<u8>, FieldRule>,
+}
+
+impl LineDocumentLoader {
+    pub fn new(
+        domain: Domain,
+        namespace: impl Into<String>,
+        schema_version: u32,
+        rules: impl IntoIterator<Item = (Vec<u8>, FieldRule)>,
+    ) -> Result<Self, Error> {
+        let namespace = namespace.into();
+        if !valid_namespace(&namespace) || schema_version == 0 {
+            return Err(Error::InvalidDocument);
+        }
+        let mut accepted = BTreeMap::new();
+        for (field, rule) in rules {
+            if field.is_empty()
+                || !field.iter().all(u8::is_ascii)
+                || accepted.insert(field, rule).is_some()
+            {
+                return Err(Error::InvalidDocument);
+            }
+        }
+        Ok(Self {
+            domain,
+            namespace,
+            schema_version,
+            rules: accepted,
+        })
+    }
+
+    pub fn load_objects(
+        &self,
+        document: &Document,
+        evidence: EvidenceReferences,
+    ) -> Result<CatalogDocument, Error> {
+        let mut stack: Vec<Definition> = Vec::new();
+        let mut definitions = Vec::new();
+        for record in document.records() {
+            match &record.kind {
+                RecordKind::ObjectStart { name } => {
+                    let name_text = text(document, *name)?;
+                    let id = CatalogId::new(self.domain, self.namespace.clone(), name_text)?;
+                    stack.push(
+                        Definition::new(id, Location::new(document.source_id().as_str(), *name))
+                            .with_evidence(evidence.clone()),
+                    );
+                }
+                RecordKind::Field { key, value } => {
+                    let Some(definition) = stack.last_mut() else {
+                        continue;
+                    };
+                    let Some(rule) = self
+                        .rules
+                        .get(document.bytes(*key).map_err(|_| Error::InvalidDocument)?)
+                    else {
+                        continue;
+                    };
+                    let value_text = text(document, *value)?;
+                    let location = Location::new(document.source_id().as_str(), *value);
+                    apply_rule(definition, rule, &self.namespace, value_text, location)?;
+                }
+                RecordKind::ObjectEnd => {
+                    if let Some(definition) = stack.pop() {
+                        definitions.push(definition);
+                    }
+                }
+                _ => {}
+            }
+        }
+        definitions.extend(stack.into_iter().rev());
+        Ok(CatalogDocument::new(
+            document.source_id().clone(),
+            document.revision(),
+            self.schema_version,
+            definitions,
+        ))
+    }
+
+    pub fn load_single(
+        &self,
+        document: &Document,
+        local_id: impl Into<String>,
+        evidence: EvidenceReferences,
+    ) -> Result<CatalogDocument, Error> {
+        let id = CatalogId::new(self.domain, self.namespace.clone(), local_id)?;
+        let mut definition = Definition::new(
+            id,
+            Location::new(
+                document.source_id().as_str(),
+                Span::new(0, document.source_bytes().len()),
+            ),
+        )
+        .with_evidence(evidence);
+        for record in document.records() {
+            let RecordKind::Field { key, value } = &record.kind else {
+                continue;
+            };
+            let Some(rule) = self
+                .rules
+                .get(document.bytes(*key).map_err(|_| Error::InvalidDocument)?)
+            else {
+                continue;
+            };
+            apply_rule(
+                &mut definition,
+                rule,
+                &self.namespace,
+                text(document, *value)?,
+                Location::new(document.source_id().as_str(), *value),
+            )?;
+        }
+        Ok(CatalogDocument::new(
+            document.source_id().clone(),
+            document.revision(),
+            self.schema_version,
+            vec![definition],
+        ))
+    }
+}
+
+fn apply_rule(
+    definition: &mut Definition,
+    rule: &FieldRule,
+    namespace: &str,
+    value: String,
+    location: Location,
+) -> Result<(), Error> {
+    match rule {
+        FieldRule::Alias => {
+            definition
+                .aliases
+                .insert(CatalogId::new(definition.id.domain(), namespace, value)?);
+        }
+        FieldRule::Inherits => {
+            definition.inherits = Some(
+                Reference::new(
+                    CatalogId::new(definition.id.domain(), namespace, value)?,
+                    ReferenceKind::Inherits,
+                    location,
+                )
+                .with_semantic_path(["inherits"]),
+            );
+        }
+        FieldRule::Reference {
+            domain,
+            kind,
+            optional,
+        } => definition.references.push(
+            Reference::new(CatalogId::new(*domain, namespace, value)?, *kind, location)
+                .with_semantic_path(["references", kind.as_str()])
+                .optional(*optional),
+        ),
+        FieldRule::Label => definition.preview.label = Some(value),
+        FieldRule::Summary => definition.preview.summary = Some(value),
+        FieldRule::Tag => {
+            definition.preview.tags.insert(value);
+        }
+        FieldRule::Keyword => {
+            definition.preview.keywords.insert(value);
+        }
+    }
+    Ok(())
+}
+
+fn text(document: &Document, span: Span) -> Result<String, Error> {
+    std::str::from_utf8(document.bytes(span).map_err(|_| Error::InvalidDocument)?)
+        .map(str::to_owned)
+        .map_err(|_| Error::InvalidDocument)
+}
+
+fn validate_document(document: &CatalogDocument, limits: CatalogLimits) -> Result<(), Error> {
+    if document.schema_version == 0 {
+        return Err(Error::InvalidDocument);
+    }
+    if document.definitions.len() > limits.maximum_definitions_per_document {
+        return Err(Error::LimitExceeded("definitions per document"));
+    }
+    for definition in &document.definitions {
+        let reference_count = definition
+            .references
+            .len()
+            .checked_add(usize::from(definition.inherits.is_some()))
+            .ok_or(Error::LimitExceeded("references per definition"))?;
+        let preview_count = definition
+            .preview
+            .tags
+            .len()
+            .checked_add(definition.preview.keywords.len())
+            .and_then(|value| value.checked_add(definition.preview.media.len()))
+            .ok_or(Error::LimitExceeded("preview values"))?;
+        if definition.location.source != document.source_id.as_str()
+            || definition.aliases.len() > limits.maximum_aliases_per_definition
+            || reference_count > limits.maximum_references_per_definition
+            || preview_count > limits.maximum_preview_values
+        {
+            return Err(Error::InvalidDocument);
+        }
+        validate_text(definition.id.namespace(), limits)?;
+        validate_text(definition.id.local(), limits)?;
+        for alias in &definition.aliases {
+            validate_text(alias.namespace(), limits)?;
+            validate_text(alias.local(), limits)?;
+        }
+        for reference in definition.all_references() {
+            if reference.location.source != document.source_id.as_str()
+                || reference.semantic_path.len() > limits.maximum_semantic_depth
+            {
+                return Err(Error::InvalidDocument);
+            }
+            validate_text(reference.target.namespace(), limits)?;
+            validate_text(reference.target.local(), limits)?;
+            for segment in &reference.semantic_path {
+                validate_text(segment, limits)?;
+            }
+        }
+        for value in definition
+            .preview
+            .label
+            .iter()
+            .chain(definition.preview.summary.iter())
+            .chain(definition.preview.tags.iter())
+            .chain(definition.preview.keywords.iter())
+            .chain(definition.preview.media.keys())
+            .chain(definition.evidence.provenance.iter())
+            .chain(definition.evidence.license.iter())
+        {
+            validate_text(value, limits)?;
+        }
+        for id in definition.preview.media.values() {
+            validate_text(id.namespace(), limits)?;
+            validate_text(id.local(), limits)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_text(value: &str, limits: CatalogLimits) -> Result<(), Error> {
+    if value.len() > limits.maximum_string_bytes || value.contains('\0') {
+        Err(Error::LimitExceeded("string bytes"))
+    } else {
+        Ok(())
+    }
+}
+
+fn identities<'a>(
+    documents: impl IntoIterator<Item = &'a CatalogDocument>,
+) -> impl Iterator<Item = CatalogId> {
+    documents.into_iter().flat_map(|document| {
+        document.definitions.iter().flat_map(|definition| {
+            std::iter::once(definition.id.clone()).chain(definition.aliases.iter().cloned())
+        })
+    })
+}
+
+fn generation(documents: &BTreeMap<SourceId, CatalogDocument>) -> Generation {
+    let mut digest = Sha256::new();
+    digest.update(b"atrinik-catalog-generation-v1\0");
+    digest_usize(&mut digest, documents.len());
+    for document in documents.values() {
+        digest_str(&mut digest, document.source_id.as_str());
+        digest.update(document.revision.bytes());
+        digest.update(document.schema_version.to_be_bytes());
+        let mut definitions = document.definitions.clone();
+        definitions.sort_by(|left, right| {
+            left.id
+                .cmp(&right.id)
+                .then_with(|| left.location.cmp(&right.location))
+        });
+        digest_usize(&mut digest, definitions.len());
+        for definition in definitions {
+            digest_id(&mut digest, &definition.id);
+            digest_location(&mut digest, &definition.location);
+            digest_usize(&mut digest, definition.aliases.len());
+            for alias in definition.aliases {
+                digest_id(&mut digest, &alias);
+            }
+            digest_reference(&mut digest, definition.inherits.as_ref());
+            let mut references = definition.references;
+            references.sort_by(|left, right| {
+                left.target
+                    .cmp(&right.target)
+                    .then_with(|| left.kind.cmp(&right.kind))
+                    .then_with(|| left.location.cmp(&right.location))
+            });
+            digest_usize(&mut digest, references.len());
+            for reference in &references {
+                digest_reference(&mut digest, Some(reference));
+            }
+            digest_option(&mut digest, definition.preview.label.as_deref());
+            digest_option(&mut digest, definition.preview.summary.as_deref());
+            for values in [&definition.preview.tags, &definition.preview.keywords] {
+                digest_usize(&mut digest, values.len());
+                for value in values {
+                    digest_str(&mut digest, value);
+                }
+            }
+            digest_usize(&mut digest, definition.preview.media.len());
+            for (name, id) in definition.preview.media {
+                digest_str(&mut digest, &name);
+                digest_id(&mut digest, &id);
+            }
+            digest_option(&mut digest, definition.evidence.provenance.as_deref());
+            digest_option(&mut digest, definition.evidence.license.as_deref());
+        }
+    }
+    Generation(digest.finalize().into())
+}
+
+fn digest_reference(digest: &mut Sha256, reference: Option<&Reference>) {
+    let Some(reference) = reference else {
+        digest.update([0]);
+        return;
+    };
+    digest.update([1]);
+    digest_id(digest, &reference.target);
+    digest_str(digest, reference.kind.as_str());
+    digest_location(digest, &reference.location);
+    digest.update([u8::from(reference.optional)]);
+    digest_usize(digest, reference.semantic_path.len());
+    for segment in &reference.semantic_path {
+        digest_str(digest, segment);
+    }
+}
+
+fn digest_location(digest: &mut Sha256, location: &Location) {
+    digest_str(digest, &location.source);
+    digest.update((location.span.start as u64).to_be_bytes());
+    digest.update((location.span.end as u64).to_be_bytes());
+}
+
+fn digest_id(digest: &mut Sha256, id: &CatalogId) {
+    digest_str(digest, id.domain().as_str());
+    digest_str(digest, id.namespace());
+    digest_str(digest, id.local());
+}
+
+fn digest_option(digest: &mut Sha256, value: Option<&str>) {
+    match value {
+        Some(value) => {
+            digest.update([1]);
+            digest_str(digest, value);
+        }
+        None => {
+            digest.update([0]);
+        }
+    }
+}
+
+fn digest_str(digest: &mut Sha256, value: &str) {
+    digest.update((value.len() as u64).to_be_bytes());
+    digest.update(value.as_bytes());
+}
+
+fn digest_usize(digest: &mut Sha256, value: usize) {
+    digest.update((value as u64).to_be_bytes());
+}
+
+fn valid_namespace(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value.as_bytes()[0].is_ascii_lowercase()
+        && value.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'_' | b'-' | b'.')
+        })
+}
+
+fn valid_local_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 512
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.' | b'/'))
+        && !value.starts_with('/')
+        && !value.ends_with('/')
+        && !value
+            .split('/')
+            .any(|segment| segment.is_empty() || segment == "." || segment == "..")
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Error {
+    InvalidIdentifier,
+    InvalidDocument,
     DuplicateSource,
-    LimitExceeded,
+    MissingSource,
+    LimitExceeded(&'static str),
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::InvalidIdentifier => write!(formatter, "catalog identifier is invalid"),
+            Self::InvalidDocument => write!(formatter, "catalog document is invalid"),
             Self::DuplicateSource => write!(formatter, "catalog source identity is duplicated"),
-            Self::LimitExceeded => write!(formatter, "catalog document limit is exceeded"),
+            Self::MissingSource => write!(formatter, "catalog source identity is not indexed"),
+            Self::LimitExceeded(limit) => write!(formatter, "catalog {limit} limit is exceeded"),
         }
     }
 }
@@ -71,27 +1277,4 @@ impl fmt::Display for Error {
 impl std::error::Error for Error {}
 
 #[cfg(test)]
-mod tests {
-    use std::sync::Arc;
-
-    use atrinik_source::{Document, Limits, SourceId};
-
-    use super::{Catalog, Error};
-
-    #[test]
-    fn orders_sources_and_rejects_duplicates() {
-        let source = SourceId::new("fixture:a").unwrap();
-        let document = Arc::new(
-            Document::parse(
-                source,
-                Arc::<[u8]>::from(&b"name a\n"[..]),
-                Limits::default(),
-            )
-            .unwrap(),
-        );
-        assert_eq!(
-            Catalog::build([document.clone(), document], 2).unwrap_err(),
-            Error::DuplicateSource
-        );
-    }
-}
+mod tests;

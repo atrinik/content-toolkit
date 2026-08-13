@@ -54,6 +54,30 @@ Clippy-as-errors, unit/doc/property/adversarial tests, dependency/license and
 vulnerability checks, provenance validation, public fixture/CLI conformance,
 release builds, and a release dry run.
 
+## Stable catalog and diagnostics
+
+`atrinik-catalog` exposes the shared headless catalog API used by CI, CLI, and
+editor integrations. `CatalogId` combines an explicit domain, namespace, and
+locale-independent local ID for archetypes, maps, faces, animations, treasures,
+factions, interfaces, quests, and resources. Ordered indexes resolve canonical
+IDs, aliases, inheritance, and typed references. `Query` and `preview` return
+bounded metadata without retaining or reparsing resource payloads.
+
+Catalog inputs carry their source revision and schema version. A generation is
+derived deterministically from those inputs, while `update_document` and
+`remove_document` report the exact changed identities and their transitive
+dependents. An unchanged document is a no-op, and an incremental result is
+identical to a clean build over the same documents.
+
+`atrinik-diagnostics` is the single structured diagnostic representation. Each
+diagnostic has a stable code, severity, source span, related locations,
+semantic path, message, optional fix hint, and explicit suppression state.
+Catalog conflicts use `catalog.duplicate_id`, `catalog.ambiguous_alias`,
+`catalog.missing_reference`, `catalog.ambiguous_reference`, and
+`catalog.inheritance_cycle`. Only diagnostics explicitly marked suppressible
+can be suppressed, and diagnostic count, related-location count, text size, and
+semantic-path depth are bounded.
+
 `Content toolkit corpus` checks out the authored `arch`/`maps` corpus at the
 immutable revision recorded in `provenance/reuse.json`, byte-round-trips every
 selected authored file or returns a bounded classified failure, and publishes

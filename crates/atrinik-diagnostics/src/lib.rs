@@ -3,7 +3,7 @@
 
 #![forbid(unsafe_code)]
 
-use std::fmt;
+use std::{collections::BTreeSet, fmt};
 
 #[derive(Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Span {
@@ -30,21 +30,182 @@ impl Span {
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum Severity {
+    Info,
     Warning,
     Error,
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct Location {
+    pub source: String,
+    pub span: Span,
+}
+
+impl Location {
+    #[must_use]
+    pub fn new(source: impl Into<String>, span: Span) -> Self {
+        Self {
+            source: source.into(),
+            span,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct RelatedLocation {
+    pub location: Location,
+    pub message: String,
+}
+
+impl RelatedLocation {
+    #[must_use]
+    pub fn new(location: Location, message: impl Into<String>) -> Self {
+        Self {
+            location,
+            message: message.into(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Diagnostic {
     pub code: &'static str,
     pub severity: Severity,
-    pub span: Span,
-    pub message: &'static str,
+    pub location: Location,
+    pub related: Vec<RelatedLocation>,
+    pub semantic_path: Vec<String>,
+    pub message: String,
+    pub fix_hint: Option<String>,
+    pub suppressible: bool,
+    pub suppressed: bool,
 }
+
+impl Diagnostic {
+    #[must_use]
+    pub fn new(
+        code: &'static str,
+        severity: Severity,
+        location: Location,
+        message: impl Into<String>,
+    ) -> Self {
+        debug_assert!(valid_code(code));
+        Self {
+            code,
+            severity,
+            location,
+            related: Vec::new(),
+            semantic_path: Vec::new(),
+            message: message.into(),
+            fix_hint: None,
+            suppressible: false,
+            suppressed: false,
+        }
+    }
+
+    #[must_use]
+    pub fn with_related(mut self, related: RelatedLocation) -> Self {
+        self.related.push(related);
+        self
+    }
+
+    #[must_use]
+    pub fn with_semantic_path(mut self, path: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.semantic_path = path.into_iter().map(Into::into).collect();
+        self
+    }
+
+    #[must_use]
+    pub fn with_fix_hint(mut self, hint: impl Into<String>) -> Self {
+        self.fix_hint = Some(hint.into());
+        self
+    }
+
+    #[must_use]
+    pub const fn suppressible(mut self, suppressible: bool) -> Self {
+        self.suppressible = suppressible;
+        self
+    }
+
+    #[must_use]
+    pub const fn is_active(&self) -> bool {
+        !self.suppressed
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DiagnosticLimits {
+    pub maximum_diagnostics: usize,
+    pub maximum_related: usize,
+    pub maximum_semantic_depth: usize,
+    pub maximum_text_bytes: usize,
+}
+
+impl Default for DiagnosticLimits {
+    fn default() -> Self {
+        Self {
+            maximum_diagnostics: 256,
+            maximum_related: 16,
+            maximum_semantic_depth: 32,
+            maximum_text_bytes: 4096,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct SuppressionPolicy {
+    codes: BTreeSet<String>,
+}
+
+impl SuppressionPolicy {
+    pub fn new(
+        codes: impl IntoIterator<Item = impl Into<String>>,
+        maximum_codes: usize,
+        maximum_code_bytes: usize,
+    ) -> Result<Self, SuppressionError> {
+        let mut accepted = BTreeSet::new();
+        for code in codes {
+            let code = code.into();
+            if code.len() > maximum_code_bytes || !valid_code(&code) {
+                return Err(SuppressionError::InvalidCode);
+            }
+            if !accepted.contains(&code) && accepted.len() >= maximum_codes {
+                return Err(SuppressionError::LimitExceeded);
+            }
+            accepted.insert(code);
+        }
+        Ok(Self { codes: accepted })
+    }
+
+    #[must_use]
+    pub fn is_suppressed(&self, code: &str) -> bool {
+        self.codes.contains(code)
+    }
+
+    pub fn codes(&self) -> impl Iterator<Item = &str> {
+        self.codes.iter().map(String::as_str)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SuppressionError {
+    InvalidCode,
+    LimitExceeded,
+}
+
+impl fmt::Display for SuppressionError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidCode => write!(formatter, "suppression code is invalid"),
+            Self::LimitExceeded => write!(formatter, "suppression code limit is exceeded"),
+        }
+    }
+}
+
+impl std::error::Error for SuppressionError {}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DiagnosticSet {
-    maximum: usize,
+    limits: DiagnosticLimits,
     values: Vec<Diagnostic>,
     truncated: bool,
 }
@@ -52,24 +213,77 @@ pub struct DiagnosticSet {
 impl DiagnosticSet {
     #[must_use]
     pub fn new(maximum: usize) -> Self {
+        Self::with_limits(DiagnosticLimits {
+            maximum_diagnostics: maximum,
+            ..DiagnosticLimits::default()
+        })
+    }
+
+    #[must_use]
+    pub fn with_limits(limits: DiagnosticLimits) -> Self {
         Self {
-            maximum,
-            values: Vec::with_capacity(maximum.min(64)),
+            limits,
+            values: Vec::with_capacity(limits.maximum_diagnostics.min(64)),
             truncated: false,
         }
     }
 
     pub fn push(&mut self, diagnostic: Diagnostic) {
-        if self.values.len() < self.maximum {
-            self.values.push(diagnostic);
-        } else {
+        self.push_with_policy(diagnostic, &SuppressionPolicy::default());
+    }
+
+    pub fn push_with_policy(&mut self, mut diagnostic: Diagnostic, policy: &SuppressionPolicy) {
+        if self.values.len() >= self.limits.maximum_diagnostics {
+            self.truncated = true;
+            return;
+        }
+        if diagnostic.related.len() > self.limits.maximum_related {
+            diagnostic.related.truncate(self.limits.maximum_related);
             self.truncated = true;
         }
+        if diagnostic.semantic_path.len() > self.limits.maximum_semantic_depth {
+            diagnostic
+                .semantic_path
+                .truncate(self.limits.maximum_semantic_depth);
+            self.truncated = true;
+        }
+        if truncate_utf8(
+            &mut diagnostic.location.source,
+            self.limits.maximum_text_bytes,
+        ) | truncate_utf8(&mut diagnostic.message, self.limits.maximum_text_bytes)
+        {
+            self.truncated = true;
+        }
+        for related in &mut diagnostic.related {
+            if truncate_utf8(&mut related.location.source, self.limits.maximum_text_bytes)
+                | truncate_utf8(&mut related.message, self.limits.maximum_text_bytes)
+            {
+                self.truncated = true;
+            }
+        }
+        for segment in &mut diagnostic.semantic_path {
+            if truncate_utf8(segment, self.limits.maximum_text_bytes) {
+                self.truncated = true;
+            }
+        }
+        if let Some(hint) = diagnostic.fix_hint.as_mut()
+            && truncate_utf8(hint, self.limits.maximum_text_bytes)
+        {
+            self.truncated = true;
+        }
+        diagnostic.suppressed = diagnostic.suppressible && policy.is_suppressed(diagnostic.code);
+        self.values.push(diagnostic);
     }
 
     #[must_use]
     pub fn values(&self) -> &[Diagnostic] {
         &self.values
+    }
+
+    pub fn active_values(&self) -> impl Iterator<Item = &Diagnostic> {
+        self.values
+            .iter()
+            .filter(|diagnostic| diagnostic.is_active())
     }
 
     #[must_use]
@@ -79,8 +293,7 @@ impl DiagnosticSet {
 
     #[must_use]
     pub fn has_errors(&self) -> bool {
-        self.values
-            .iter()
+        self.active_values()
             .any(|diagnostic| diagnostic.severity == Severity::Error)
     }
 }
@@ -89,29 +302,130 @@ impl fmt::Display for Diagnostic {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
-            "{} {:?} at {}..{}: {}",
-            self.code, self.severity, self.span.start, self.span.end, self.message
-        )
+            "{} {:?} at {}:{}..{}: {}",
+            self.code,
+            self.severity,
+            self.location.source,
+            self.location.span.start,
+            self.location.span.end,
+            self.message
+        )?;
+        if let Some(hint) = &self.fix_hint {
+            write!(formatter, " (hint: {hint})")?;
+        }
+        if self.suppressed {
+            write!(formatter, " [suppressed]")?;
+        }
+        Ok(())
     }
+}
+
+fn valid_code(code: &str) -> bool {
+    let mut segments = code.split('.');
+    let Some(first) = segments.next() else {
+        return false;
+    };
+    valid_code_segment(first) && segments.all(valid_code_segment)
+}
+
+fn valid_code_segment(segment: &str) -> bool {
+    !segment.is_empty()
+        && segment.as_bytes()[0].is_ascii_lowercase()
+        && segment
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+}
+
+fn truncate_utf8(value: &mut String, maximum: usize) -> bool {
+    if value.len() <= maximum {
+        return false;
+    }
+    let mut boundary = maximum;
+    while !value.is_char_boundary(boundary) {
+        boundary -= 1;
+    }
+    value.truncate(boundary);
+    true
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Diagnostic, DiagnosticSet, Severity, Span};
+    use super::{
+        Diagnostic, DiagnosticLimits, DiagnosticSet, Location, RelatedLocation, Severity, Span,
+        SuppressionError, SuppressionPolicy,
+    };
+
+    fn value(code: &'static str) -> Diagnostic {
+        Diagnostic::new(
+            code,
+            Severity::Error,
+            Location::new("fixture:test", Span::new(1, 2)),
+            "test diagnostic",
+        )
+    }
 
     #[test]
     fn bounds_diagnostics_without_reordering() {
         let mut diagnostics = DiagnosticSet::new(1);
-        let value = Diagnostic {
-            code: "test",
-            severity: Severity::Error,
-            span: Span::new(1, 2),
-            message: "test diagnostic",
-        };
+        let value = value("test.error");
         diagnostics.push(value.clone());
         diagnostics.push(value.clone());
         assert_eq!(diagnostics.values(), &[value]);
         assert!(diagnostics.truncated());
         assert!(diagnostics.has_errors());
+    }
+
+    #[test]
+    fn preserves_structured_context_with_deterministic_bounds() {
+        let mut diagnostics = DiagnosticSet::with_limits(DiagnosticLimits {
+            maximum_diagnostics: 2,
+            maximum_related: 1,
+            maximum_semantic_depth: 1,
+            maximum_text_bytes: 8,
+        });
+        diagnostics.push(
+            value("catalog.missing")
+                .with_related(RelatedLocation::new(
+                    Location::new("fixture:related-long", Span::new(3, 4)),
+                    "first related message",
+                ))
+                .with_related(RelatedLocation::new(
+                    Location::new("fixture:second", Span::new(5, 6)),
+                    "second",
+                ))
+                .with_semantic_path(["references", "target"])
+                .with_fix_hint("define the target"),
+        );
+        let value = &diagnostics.values()[0];
+        assert_eq!(value.location.source, "fixture:");
+        assert_eq!(value.related.len(), 1);
+        assert_eq!(value.related[0].location.source, "fixture:");
+        assert_eq!(value.semantic_path, ["referenc"]);
+        assert_eq!(value.fix_hint.as_deref(), Some("define t"));
+        assert!(diagnostics.truncated());
+    }
+
+    #[test]
+    fn suppresses_only_diagnostics_that_explicitly_allow_it() {
+        let policy = SuppressionPolicy::new(["catalog.missing"], 4, 64).unwrap();
+        let mut diagnostics = DiagnosticSet::new(4);
+        diagnostics.push_with_policy(value("catalog.missing").suppressible(true), &policy);
+        diagnostics.push_with_policy(value("catalog.conflict"), &policy);
+        assert!(diagnostics.values()[0].suppressed);
+        assert!(!diagnostics.values()[1].suppressed);
+        assert!(diagnostics.has_errors());
+        assert_eq!(diagnostics.active_values().count(), 1);
+    }
+
+    #[test]
+    fn rejects_unbounded_or_malformed_suppression_input() {
+        assert_eq!(
+            SuppressionPolicy::new(["Bad Code"], 1, 64),
+            Err(SuppressionError::InvalidCode)
+        );
+        assert_eq!(
+            SuppressionPolicy::new(["one.code", "two.code"], 1, 64),
+            Err(SuppressionError::LimitExceeded)
+        );
     }
 }

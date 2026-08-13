@@ -6,7 +6,7 @@
 
 use std::{fmt, sync::Arc};
 
-use atrinik_diagnostics::{Diagnostic, DiagnosticSet, Severity, Span};
+use atrinik_diagnostics::{Diagnostic, DiagnosticSet, Location, Severity, Span};
 use sha2::{Digest, Sha256};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -166,9 +166,12 @@ impl Document {
                 start,
                 content_end,
                 newline,
-                &mut nesting,
-                &mut raw_block,
-                &mut diagnostics,
+                &mut ParseState {
+                    source_id: source_id.as_str(),
+                    nesting: &mut nesting,
+                    raw_block: &mut raw_block,
+                    diagnostics: &mut diagnostics,
+                },
             );
             let value_bytes = match record.kind {
                 RecordKind::Field { value, .. } => value.len(),
@@ -192,12 +195,12 @@ impl Document {
         }
 
         if raw_block {
-            diagnostics.push(Diagnostic {
-                code: "source.unclosed_raw_block",
-                severity: Severity::Error,
-                span: Span::new(source.len(), source.len()),
-                message: "msg block has no matching endmsg record",
-            });
+            diagnostics.push(Diagnostic::new(
+                "source.unclosed_raw_block",
+                Severity::Error,
+                Location::new(source_id.as_str(), Span::new(source.len(), source.len())),
+                "msg block has no matching endmsg record",
+            ));
         }
 
         let revision = Revision(Sha256::digest(&source).into());
@@ -400,6 +403,13 @@ struct Preflight {
     newline_style: NewlineStyle,
 }
 
+struct ParseState<'a> {
+    source_id: &'a str,
+    nesting: &'a mut usize,
+    raw_block: &'a mut bool,
+    diagnostics: &'a mut DiagnosticSet,
+}
+
 fn preflight(source: &[u8], limits: Limits) -> Result<Preflight, Error> {
     if source.len() > limits.maximum_file_bytes {
         return Err(Error::LimitExceeded("file bytes"));
@@ -462,15 +472,13 @@ fn parse_record(
     start: usize,
     content_end: usize,
     end: usize,
-    nesting: &mut usize,
-    raw_block: &mut bool,
-    diagnostics: &mut DiagnosticSet,
+    state: &mut ParseState<'_>,
 ) -> Record {
     let content = Span::new(start, content_end);
     let span = Span::new(start, end);
-    if *raw_block {
+    if *state.raw_block {
         if &source[start..content_end] == b"endmsg" {
-            *raw_block = false;
+            *state.raw_block = false;
             return Record {
                 span,
                 content,
@@ -516,8 +524,8 @@ fn parse_record(
         };
     }
     if &source[first..content_end] == b"end" {
-        if *nesting != 0 {
-            *nesting -= 1;
+        if *state.nesting != 0 {
+            *state.nesting -= 1;
         }
         return Record {
             span,
@@ -540,12 +548,12 @@ fn parse_record(
         .count()
         + key_end;
     if !valid_key(&source[first..key_end]) {
-        diagnostics.push(Diagnostic {
-            code: "source.invalid_record",
-            severity: Severity::Error,
-            span: content,
-            message: "record must contain an ASCII key and a separated value",
-        });
+        state.diagnostics.push(Diagnostic::new(
+            "source.invalid_record",
+            Severity::Error,
+            Location::new(state.source_id, content),
+            "record must contain an ASCII key and a separated value",
+        ));
         return Record {
             span,
             content,
@@ -560,20 +568,20 @@ fn parse_record(
     if key_end == content_end {
         let key = Span::new(first, key_end);
         let kind = if &source[first..key_end] == b"msg" {
-            *raw_block = true;
+            *state.raw_block = true;
             RecordKind::RawBlockStart
         } else if &source[first..key_end] == b"Object" {
-            *nesting += 1;
+            *state.nesting += 1;
             RecordKind::ObjectStart {
                 name: Span::new(content_end, content_end),
             }
         } else if &source[first..key_end] == b"endmsg" {
-            diagnostics.push(Diagnostic {
-                code: "source.unexpected_endmsg",
-                severity: Severity::Error,
-                span: key,
-                message: "endmsg has no matching msg record",
-            });
+            state.diagnostics.push(Diagnostic::new(
+                "source.unexpected_endmsg",
+                Severity::Error,
+                Location::new(state.source_id, key),
+                "endmsg has no matching msg record",
+            ));
             RecordKind::RawBlockEnd
         } else {
             RecordKind::Directive
@@ -606,7 +614,7 @@ fn parse_record(
         },
     ];
     let kind = if &source[first..key_end] == b"Object" {
-        *nesting += 1;
+        *state.nesting += 1;
         tokens[0].kind = TokenKind::ObjectStart;
         RecordKind::ObjectStart { name: value }
     } else {

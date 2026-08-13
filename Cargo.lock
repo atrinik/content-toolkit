@@ -13,7 +13,9 @@ dependencies = [
 name = "atrinik-catalog"
 version = "0.1.0"
 dependencies = [
+ "atrinik-diagnostics",
  "atrinik-source",
+ "sha2",
 ]
 
 [[package]]
