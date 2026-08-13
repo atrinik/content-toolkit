@@ -208,6 +208,7 @@ pub struct DiagnosticSet {
     limits: DiagnosticLimits,
     values: Vec<Diagnostic>,
     truncated: bool,
+    omitted_error: bool,
 }
 
 impl DiagnosticSet {
@@ -225,6 +226,7 @@ impl DiagnosticSet {
             limits,
             values: Vec::with_capacity(limits.maximum_diagnostics.min(64)),
             truncated: false,
+            omitted_error: false,
         }
     }
 
@@ -239,7 +241,14 @@ impl DiagnosticSet {
             if diagnostic.suppressed {
                 return;
             }
-            let Some(position) = self.values.iter().rposition(|value| value.suppressed) else {
+            let replacement = self.values.iter().rposition(|value| {
+                value.suppressed
+                    || (diagnostic.severity == Severity::Error && value.severity != Severity::Error)
+            });
+            let Some(position) = replacement else {
+                if diagnostic.severity == Severity::Error {
+                    self.omitted_error = true;
+                }
                 return;
             };
             self.values.remove(position);
@@ -303,8 +312,10 @@ impl DiagnosticSet {
 
     #[must_use]
     pub fn has_errors(&self) -> bool {
-        self.active_values()
-            .any(|diagnostic| diagnostic.severity == Severity::Error)
+        self.omitted_error
+            || self
+                .active_values()
+                .any(|diagnostic| diagnostic.severity == Severity::Error)
     }
 }
 
@@ -436,6 +447,23 @@ mod tests {
         assert_eq!(diagnostics.values()[0].code, "catalog.required");
         assert!(diagnostics.has_errors());
         assert!(diagnostics.truncated());
+    }
+
+    #[test]
+    fn active_error_displaces_warning_or_fails_closed_at_zero_capacity() {
+        let mut diagnostics = DiagnosticSet::new(1);
+        let mut warning = value("catalog.warning");
+        warning.severity = Severity::Warning;
+        diagnostics.push(warning);
+        diagnostics.push(value("catalog.required"));
+        assert_eq!(diagnostics.values()[0].code, "catalog.required");
+        assert!(diagnostics.has_errors());
+
+        let mut zero = DiagnosticSet::new(0);
+        zero.push(value("catalog.required"));
+        assert!(zero.values().is_empty());
+        assert!(zero.has_errors());
+        assert!(zero.truncated());
     }
 
     #[test]

@@ -283,6 +283,71 @@ fn incremental_edit_excludes_unchanged_siblings_and_enforces_bounds() {
             .is_err()
     );
     assert!(bounded.remove_document(document.source_id()).is_err());
+
+    let oversized = CatalogDocument::new(
+        document.source_id().clone(),
+        document.revision(),
+        1,
+        vec![
+            definition(&document, Domain::Quest, "one"),
+            definition(&document, Domain::Quest, "two"),
+        ],
+    );
+    let strict = Catalog::build(
+        std::iter::empty(),
+        CatalogLimits {
+            maximum_definitions_per_document: 1,
+            ..CatalogLimits::default()
+        },
+        SuppressionPolicy::default(),
+    )
+    .unwrap();
+    assert!(strict.update_document(oversized).is_err());
+}
+
+#[test]
+fn invalidation_traverses_aliases_of_transitive_dependents() {
+    let document = source("alias-chain", b"name chain\n");
+    let a = id(Domain::Archetype, "a");
+    let b_alias = id(Domain::Archetype, "old-b");
+    let c = id(Domain::Quest, "c");
+    let values = vec![
+        definition(&document, Domain::Archetype, "a"),
+        definition(&document, Domain::Archetype, "b")
+            .with_alias(b_alias.clone())
+            .with_reference(Reference::new(
+                a,
+                ReferenceKind::Archetype,
+                Location::new(document.source_id().as_str(), Span::new(0, 1)),
+            )),
+        definition(&document, Domain::Quest, "c").with_reference(Reference::new(
+            b_alias,
+            ReferenceKind::Archetype,
+            Location::new(document.source_id().as_str(), Span::new(0, 1)),
+        )),
+    ];
+    let catalog = build(vec![input(&document, values)]);
+    let edited = source("alias-chain", b"name changed chain\n");
+    let replacement = input(
+        &edited,
+        vec![
+            definition(&edited, Domain::Archetype, "renamed-a"),
+            definition(&edited, Domain::Archetype, "b")
+                .with_alias(id(Domain::Archetype, "old-b"))
+                .with_reference(Reference::new(
+                    id(Domain::Archetype, "a"),
+                    ReferenceKind::Archetype,
+                    Location::new(edited.source_id().as_str(), Span::new(0, 1)),
+                )),
+            definition(&edited, Domain::Quest, "c").with_reference(Reference::new(
+                id(Domain::Archetype, "old-b"),
+                ReferenceKind::Archetype,
+                Location::new(edited.source_id().as_str(), Span::new(0, 1)),
+            )),
+        ],
+    );
+    let update = catalog.update_document(replacement).unwrap();
+    assert!(update.invalidation.affected.contains(&c));
 }
 
 #[test]
@@ -352,6 +417,24 @@ fn generation_is_canonical_for_tied_definitions_and_references() {
         vec![second_definition, first_definition, target],
     )]);
     assert_eq!(first.generation(), second.generation());
+
+    let reordered = definition(&document, Domain::Resource, "duplicate")
+        .with_reference(reference("two", true))
+        .with_reference(reference("one", false));
+    let other =
+        definition(&document, Domain::Resource, "duplicate").with_preview(PreviewMetadata {
+            label: Some("different".to_owned()),
+            ..PreviewMetadata::default()
+        });
+    let third = build(vec![input(
+        &document,
+        vec![
+            reordered,
+            other,
+            definition(&document, Domain::Resource, "target"),
+        ],
+    )]);
+    assert_eq!(first.generation(), third.generation());
 }
 
 #[test]

@@ -382,6 +382,7 @@ pub struct Catalog {
     documents: BTreeMap<SourceId, CatalogDocument>,
     candidates: BTreeMap<CatalogId, Vec<Definition>>,
     aliases: BTreeMap<CatalogId, BTreeSet<CatalogId>>,
+    aliases_by_target: BTreeMap<CatalogId, BTreeSet<CatalogId>>,
     dependents: BTreeMap<CatalogId, BTreeSet<CatalogId>>,
     diagnostics: DiagnosticSet,
     generation: Generation,
@@ -450,12 +451,14 @@ impl Catalog {
         for values in candidates.values_mut() {
             values.sort();
         }
+        let aliases_by_target = reverse_aliases(&aliases);
 
         let mut catalog = Self {
             generation: generation(&documents),
             documents,
             candidates,
             aliases,
+            aliases_by_target,
             dependents: BTreeMap::new(),
             diagnostics: DiagnosticSet::with_limits(limits.diagnostic_limits),
             limits,
@@ -835,8 +838,24 @@ impl Catalog {
         let mut work = 0_usize;
         let mut results = Vec::with_capacity(maximum.min(64));
         for definition in self.definitions() {
+            let searchable_bytes = definition
+                .id
+                .namespace()
+                .len()
+                .checked_add(definition.id.local().len())
+                .and_then(|value| value.checked_add(definition.id.domain().as_str().len()))
+                .and_then(|value| {
+                    definition
+                        .preview
+                        .label
+                        .iter()
+                        .chain(definition.preview.summary.iter())
+                        .chain(definition.preview.keywords.iter())
+                        .try_fold(value, |total, term| total.checked_add(term.len()))
+                })
+                .ok_or(Error::LimitExceeded("query work"))?;
             work = work
-                .checked_add(1)
+                .checked_add(searchable_bytes.max(1))
                 .ok_or(Error::LimitExceeded("query work"))?;
             if work > self.limits.maximum_query_work {
                 return Err(Error::LimitExceeded("query work"));
@@ -888,6 +907,7 @@ impl Catalog {
                 },
             });
         }
+        validate_document(&document, self.limits)?;
         let source = document.source_id().clone();
         let old = self.documents.get(&source);
         let (changed_canonical, mut changed) =
@@ -943,7 +963,12 @@ impl Catalog {
         let mut affected = changed.clone();
         let mut queue = VecDeque::from_iter(changed.iter().cloned());
         while let Some(target) = queue.pop_front() {
-            for dependent in self.dependents(&target).chain(next.dependents(&target)) {
+            for dependent in self
+                .dependents(&target)
+                .chain(next.dependents(&target))
+                .chain(self.aliases_for(&target))
+                .chain(next.aliases_for(&target))
+            {
                 if affected.insert(dependent.clone()) {
                     if affected.len() > self.limits.maximum_invalidation {
                         return Err(Error::LimitExceeded("invalidation"));
@@ -953,6 +978,10 @@ impl Catalog {
             }
         }
         Ok(affected)
+    }
+
+    fn aliases_for(&self, id: &CatalogId) -> impl Iterator<Item = &CatalogId> {
+        self.aliases_by_target.get(id).into_iter().flatten()
     }
 
     fn validate_invalidation_seed(&self, changed: &BTreeSet<CatalogId>) -> Result<(), Error> {
@@ -1054,6 +1083,14 @@ impl Catalog {
             .collect::<BTreeSet<_>>();
         for alias in impacted_aliases {
             let mut targets = self.aliases.remove(&alias).unwrap_or_default();
+            for target in &targets {
+                if let Some(values) = self.aliases_by_target.get_mut(target) {
+                    values.remove(&alias);
+                    if values.is_empty() {
+                        self.aliases_by_target.remove(target);
+                    }
+                }
+            }
             targets.retain(|target| !impacted_ids.contains(target));
             for id in impacted_ids {
                 if self
@@ -1065,6 +1102,12 @@ impl Catalog {
                 }
             }
             if !targets.is_empty() {
+                for target in &targets {
+                    self.aliases_by_target
+                        .entry(target.clone())
+                        .or_default()
+                        .insert(alias.clone());
+                }
                 self.aliases.insert(alias, targets);
             }
         }
@@ -1411,6 +1454,21 @@ fn unique_edges(
         .collect()
 }
 
+fn reverse_aliases(
+    aliases: &BTreeMap<CatalogId, BTreeSet<CatalogId>>,
+) -> BTreeMap<CatalogId, BTreeSet<CatalogId>> {
+    let mut reverse = BTreeMap::<CatalogId, BTreeSet<CatalogId>>::new();
+    for (alias, targets) in aliases {
+        for target in targets {
+            reverse
+                .entry(target.clone())
+                .or_default()
+                .insert(alias.clone());
+        }
+    }
+    reverse
+}
+
 fn changed_identities(
     old: Option<&CatalogDocument>,
     new: Option<&CatalogDocument>,
@@ -1498,6 +1556,9 @@ fn generation(documents: &BTreeMap<SourceId, CatalogDocument>) -> Generation {
         digest.update(document.revision.bytes());
         digest.update(document.schema_version.to_be_bytes());
         let mut definitions = document.definitions.clone();
+        for definition in &mut definitions {
+            definition.references.sort();
+        }
         definitions.sort();
         digest_usize(&mut digest, definitions.len());
         for definition in definitions {
@@ -1508,8 +1569,7 @@ fn generation(documents: &BTreeMap<SourceId, CatalogDocument>) -> Generation {
                 digest_id(&mut digest, &alias);
             }
             digest_reference(&mut digest, definition.inherits.as_ref());
-            let mut references = definition.references;
-            references.sort();
+            let references = definition.references;
             digest_usize(&mut digest, references.len());
             for reference in &references {
                 digest_reference(&mut digest, Some(reference));

@@ -34,7 +34,9 @@ fn run() -> Result<(), Box<dyn Error>> {
     if arguments.next().as_deref() != Some(std::ffi::OsStr::new("--root")) {
         return Err("usage: corpus --root PATH --revision COMMIT".into());
     }
-    let root = PathBuf::from(arguments.next().ok_or("missing corpus root")?);
+    let root = normalize_root(PathBuf::from(
+        arguments.next().ok_or("missing corpus root")?,
+    ));
     if arguments.next().as_deref() != Some(std::ffi::OsStr::new("--revision")) {
         return Err("usage: corpus --root PATH --revision COMMIT".into());
     }
@@ -88,7 +90,6 @@ fn run() -> Result<(), Box<dyn Error>> {
         )],
     )?;
     let mut documents = Vec::new();
-    let mut faces = BTreeSet::new();
     let mut resources = BTreeSet::new();
     let mut paths = authored_paths(&root)?;
     paths.sort();
@@ -101,7 +102,6 @@ fn run() -> Result<(), Box<dyn Error>> {
             source,
             Limits::default(),
         )?;
-        collect_field_values(&document, &[b"face"], &mut faces)?;
         let evidence = evidence(&relative);
         let catalog_document = (|| -> Result<CatalogDocument, Box<dyn Error>> {
             Ok(match classify(&relative) {
@@ -144,7 +144,6 @@ fn run() -> Result<(), Box<dyn Error>> {
         .map_err(|error| format!("catalog adapter failed for {relative}: {error}"))?;
         documents.push(catalog_document);
     }
-    documents.push(synthetic_document(Domain::Face, "faces", faces)?);
     documents.push(synthetic_document(
         Domain::Resource,
         "resources",
@@ -171,7 +170,10 @@ fn run() -> Result<(), Box<dyn Error>> {
             .entry((diagnostic.code, severity(diagnostic.severity)))
             .or_default() += 1;
     }
-    let mut domains = BTreeMap::<&str, usize>::new();
+    let mut domains = Domain::ALL
+        .into_iter()
+        .map(|domain| (domain.as_str(), 0_usize))
+        .collect::<BTreeMap<_, _>>();
     for definition in catalog.definitions() {
         *domains.entry(definition.id.domain().as_str()).or_default() += 1;
     }
@@ -249,22 +251,6 @@ fn definitions_from_fields(
         1,
         definitions,
     ))
-}
-
-fn collect_field_values(
-    document: &Document,
-    keys: &[&[u8]],
-    values: &mut BTreeSet<String>,
-) -> Result<(), Box<dyn Error>> {
-    for record in document.records() {
-        let RecordKind::Field { key, value } = record.kind else {
-            continue;
-        };
-        if keys.contains(&document.bytes(key)?) {
-            values.insert(std::str::from_utf8(document.bytes(value)?)?.to_owned());
-        }
-    }
-    Ok(())
 }
 
 fn synthetic_document(
@@ -354,18 +340,25 @@ fn validate_root(root: &Path) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+fn normalize_root(root: PathBuf) -> PathBuf {
+    root.components().collect()
+}
+
 fn authored_paths(root: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
     let mut directories = vec![root.join("arch"), root.join("maps")];
     let mut paths = Vec::new();
     let mut entries_seen = 0_usize;
     while let Some(directory) = directories.pop() {
-        let mut entries = fs::read_dir(directory)?.collect::<Result<Vec<_>, _>>()?;
-        entries.sort_by_key(fs::DirEntry::file_name);
-        for entry in entries {
+        let mut entries = Vec::new();
+        for entry in fs::read_dir(directory)? {
             entries_seen = entries_seen.checked_add(1).ok_or("entry count overflow")?;
             if entries_seen > MAXIMUM_ENTRIES {
                 return Err("corpus entry limit exceeded".into());
             }
+            entries.push(entry?);
+        }
+        entries.sort_by_key(fs::DirEntry::file_name);
+        for entry in entries {
             let file_type = entry.file_type()?;
             if file_type.is_symlink() {
                 return Err(

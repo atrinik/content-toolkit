@@ -1,18 +1,18 @@
 {
   "schema_version": 1,
   "corpus_revision": "01b1fdb65c2243df4bafe9c8109fc93229df0121",
-  "generation": "7bf1d0996e5a2d15c0ad57d67d98e6dbb8d4e642cb62aacc4c12fc7ad5659c5c",
-  "documents": 5678,
-  "definitions": 17732,
-  "diagnostics": 254,
+  "generation": "7bb902e7c90f946670d0878436b32dd0d0218937c2d86bdbcf14f15af834506a",
+  "documents": 5677,
+  "definitions": 14182,
+  "diagnostics": 3806,
   "codes": {
     "catalog.missing_reference:error": 245,
-    "catalog.missing_reference:warning": 9
+    "catalog.missing_reference:warning": 3561
   },
   "domains": {
     "animation": 775,
     "archetype": 3784,
-    "face": 3550,
+    "face": 0,
     "faction": 56,
     "interface": 67,
     "map": 3666,
