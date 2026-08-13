@@ -11,14 +11,21 @@ dependency.
 
 This toolkit is part of Atrinik's agentic next-generation reimplementation. Its
 fresh MIT-licensed Rust code is developed primarily through Codex-driven
-workflows under maintainer direction, review, clean-room provenance controls,
-tests, and repository validation. “Agentic” describes the project's primary
-current software-development workflow; it does not mean every line or commit is
-agent-written or every contributor uses an agent. Direct human-written code
-contributions are welcome under the same controls.
+workflows under maintainer direction, review, evidence-gated provenance
+controls, tests, and repository validation. “Agentic” describes the project's
+primary current software-development workflow; it does not mean every line or
+commit is agent-written or every contributor uses an agent. Direct
+human-written code contributions are welcome under the same controls.
 
-The toolkit reimplements and improves Classic content tooling; it is not a
-mechanical Python or C translation or source port. See the
+The toolkit reimplements and improves Classic content tooling without being a
+wholesale Python or C source port. Its current implementation combines
+independently authored work with the narrow, audited grant-covered translations
+and machine-contract copies recorded in [`PROVENANCE.md`](PROVENANCE.md).
+Future exact historical reuse follows that local record and the
+[canonical grant registry](https://github.com/atrinik/atrinik/blob/main/docs/PROVENANCE.md):
+admitted destination material may be consulted and MIT-relicensed, while every
+uncovered portion remains excluded and the Classic repository remains
+GPL-distributed. See the
 [replacement roadmap](https://github.com/atrinik/atrinik/issues/168) and
 [canonical project authorship statement](https://github.com/atrinik/atrinik/issues/331)
 for the project-wide direction and authorship boundaries.
