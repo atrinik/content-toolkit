@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "corpus_revision": "01b1fdb65c2243df4bafe9c8109fc93229df0121",
+  "generation": "c0c85cc10a39f93d28a172dfcae9b4c5196ab9277ba5d02685940bb6c2831230",
+  "documents": 5678,
+  "definitions": 33372,
+  "diagnostics": 254,
+  "diagnostic_digest": "5d77c014f0dbc27882be7655872adfe6bf017782a80de4dd1bbc1b80ff36c13e",
+  "codes": {
+    "catalog.missing_reference:error": 245,
+    "catalog.missing_reference:warning": 9
+  },
+  "domains": {
+    "animation": 775,
+    "archetype": 3784,
+    "face": 9413,
+    "faction": 56,
+    "interface": 67,
+    "map": 3666,
+    "quest": 16,
+    "resource": 15453,
+    "treasure": 142
+  }
+}

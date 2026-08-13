@@ -5,7 +5,7 @@
 
 use std::{collections::BTreeSet, fmt};
 
-use atrinik_diagnostics::{Diagnostic, DiagnosticSet, Severity, Span};
+use atrinik_diagnostics::{Diagnostic, DiagnosticSet, Location, Severity, Span};
 use atrinik_source::Document;
 
 pub const FOUNDATION_ARTIFACT_SCHEMA: &str =
@@ -71,12 +71,16 @@ impl Schema {
         let mut diagnostics = DiagnosticSet::new(maximum_diagnostics);
         for required in &self.required_fields {
             if !present.contains(required.as_slice()) {
-                diagnostics.push(Diagnostic {
-                    code: "schema.required_field",
-                    severity: Severity::Error,
-                    span: Span::new(0, 0),
-                    message: "a required field is absent",
-                });
+                diagnostics.push(
+                    Diagnostic::new(
+                        "schema.required_field",
+                        Severity::Error,
+                        Location::new(document.source_id().as_str(), Span::new(0, 0)),
+                        "a required field is absent",
+                    )
+                    .with_semantic_path([String::from_utf8_lossy(required).into_owned()])
+                    .with_fix_hint("add the required field"),
+                );
             }
         }
         diagnostics
