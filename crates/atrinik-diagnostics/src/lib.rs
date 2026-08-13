@@ -290,7 +290,17 @@ impl DiagnosticSet {
                 }
                 return;
             };
-            self.values.remove(position);
+            // Once a lower-priority tier is interleaved with retained values,
+            // compact that entire tier. Subsequent lower-priority values are
+            // appended at the end and can be evicted without repeated shifts.
+            if position + 1 == self.values.len() {
+                self.values.pop();
+            } else if self.values[position].suppressed {
+                self.values.retain(|value| !value.suppressed);
+            } else {
+                self.values
+                    .retain(|value| value.suppressed || value.severity == Severity::Error);
+            }
             self.values.push(diagnostic);
             self.rebuild_slots();
             return;
@@ -506,6 +516,38 @@ mod tests {
             diagnostics.push(value("catalog.required"));
         }
         assert_eq!(diagnostics.values().len(), 2);
+        assert!(diagnostics.has_errors());
+        assert!(diagnostics.truncated());
+    }
+
+    #[test]
+    fn warning_then_error_overflow_preserves_producer_order_without_repeated_shifts() {
+        const MAXIMUM: usize = 4096;
+        let mut diagnostics = DiagnosticSet::new(MAXIMUM);
+        for index in 0..MAXIMUM {
+            let mut warning = value("catalog.warning");
+            warning.severity = Severity::Warning;
+            warning.message = format!("warning-{index}");
+            diagnostics.push(warning);
+        }
+        for index in 0..MAXIMUM {
+            let mut error = value("catalog.required");
+            error.message = format!("error-{index}");
+            diagnostics.push(error);
+        }
+
+        assert_eq!(diagnostics.values().len(), MAXIMUM);
+        assert!(
+            diagnostics
+                .values()
+                .iter()
+                .all(|diagnostic| diagnostic.severity == Severity::Error)
+        );
+        assert_eq!(diagnostics.values()[0].message, "error-0");
+        assert_eq!(
+            diagnostics.values()[MAXIMUM - 1].message,
+            format!("error-{}", MAXIMUM - 1)
+        );
         assert!(diagnostics.has_errors());
         assert!(diagnostics.truncated());
     }

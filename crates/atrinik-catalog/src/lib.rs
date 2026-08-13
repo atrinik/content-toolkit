@@ -1120,6 +1120,12 @@ impl Catalog {
             .filter(|definition| impacted_ids.contains(&definition.id))
             .flat_map(|definition| definition.aliases.iter().cloned())
             .collect::<BTreeSet<_>>();
+        let replacement_alias_targets = collect_alias_targets(
+            &self.candidates,
+            impacted_ids,
+            &impacted_aliases,
+            self.limits.maximum_graph_work,
+        )?;
         for alias in impacted_aliases {
             let mut targets = self.aliases.remove(&alias).unwrap_or_default();
             for target in &targets {
@@ -1131,14 +1137,8 @@ impl Catalog {
                 }
             }
             targets.retain(|target| !impacted_ids.contains(target));
-            for id in impacted_ids {
-                if self
-                    .candidates
-                    .get(id)
-                    .is_some_and(|values| values.iter().any(|value| value.aliases.contains(&alias)))
-                {
-                    targets.insert(id.clone());
-                }
+            if let Some(replacements) = replacement_alias_targets.get(&alias) {
+                targets.extend(replacements.iter().cloned());
             }
             if !targets.is_empty() {
                 for target in &targets {
@@ -1408,7 +1408,8 @@ fn apply_rule(
         }
         FieldRule::Inherits => {
             if definition.inherits.is_none()
-                && definition.all_references().count() >= limits.maximum_references_per_definition
+                && definition_reference_count(definition)?
+                    >= limits.maximum_references_per_definition
             {
                 return Err(Error::LimitExceeded("references per definition"));
             }
@@ -1433,7 +1434,7 @@ fn apply_rule(
             {
                 return Err(Error::InvalidDocument);
             }
-            if definition.all_references().count() >= limits.maximum_references_per_definition {
+            if definition_reference_count(definition)? >= limits.maximum_references_per_definition {
                 return Err(Error::LimitExceeded("references per definition"));
             }
             definition.references.push(
@@ -1463,6 +1464,15 @@ fn apply_rule(
         }
     }
     Ok(())
+}
+
+fn definition_reference_count(definition: &Definition) -> Result<usize, Error> {
+    definition
+        .references
+        .len()
+        .checked_add(usize::from(definition.inherits.is_some()))
+        .and_then(|value| value.checked_add(definition.preview.media.len()))
+        .ok_or(Error::LimitExceeded("references per definition"))
 }
 
 fn text(document: &Document, span: Span, limits: CatalogLimits) -> Result<String, Error> {
@@ -1518,17 +1528,20 @@ fn validate_document(document: &CatalogDocument, limits: CatalogLimits) -> Resul
             validate_text(alias.namespace(), limits)?;
             validate_text(alias.local(), limits)?;
         }
-        if let Some(inheritance) = &definition.inherits
-            && (inheritance.kind != ReferenceKind::Inherits
-                || inheritance.target.domain() != definition.id.domain())
-        {
-            return Err(Error::InvalidDocument);
+        if let Some(inheritance) = &definition.inherits {
+            if inheritance.kind != ReferenceKind::Inherits
+                || inheritance.target.domain() != definition.id.domain()
+            {
+                return Err(Error::InvalidDocument);
+            }
+            validate_reference(inheritance, document, limits)?;
         }
-        for reference in definition.all_references() {
-            if reference.location.source != document.source_id.as_str()
-                || reference.semantic_path.len() > limits.maximum_semantic_depth
-                || (reference.kind == ReferenceKind::Inherits
-                    && definition.inherits.as_ref() != Some(reference))
+        for reference in definition
+            .references
+            .iter()
+            .chain(definition.preview.media.values())
+        {
+            if reference.kind == ReferenceKind::Inherits
                 || reference
                     .kind
                     .expected_domain()
@@ -1536,11 +1549,7 @@ fn validate_document(document: &CatalogDocument, limits: CatalogLimits) -> Resul
             {
                 return Err(Error::InvalidDocument);
             }
-            validate_text(reference.target.namespace(), limits)?;
-            validate_text(reference.target.local(), limits)?;
-            for segment in &reference.semantic_path {
-                validate_text(segment, limits)?;
-            }
+            validate_reference(reference, document, limits)?;
         }
         for value in definition
             .preview
@@ -1555,6 +1564,24 @@ fn validate_document(document: &CatalogDocument, limits: CatalogLimits) -> Resul
         {
             validate_text(value, limits)?;
         }
+    }
+    Ok(())
+}
+
+fn validate_reference(
+    reference: &Reference,
+    document: &CatalogDocument,
+    limits: CatalogLimits,
+) -> Result<(), Error> {
+    if reference.location.source != document.source_id.as_str()
+        || reference.semantic_path.len() > limits.maximum_semantic_depth
+    {
+        return Err(Error::InvalidDocument);
+    }
+    validate_text(reference.target.namespace(), limits)?;
+    validate_text(reference.target.local(), limits)?;
+    for segment in &reference.semantic_path {
+        validate_text(segment, limits)?;
     }
     Ok(())
 }
@@ -1597,6 +1624,41 @@ fn checked_index_entries(
     } else {
         Ok(total)
     }
+}
+
+fn collect_alias_targets(
+    candidates: &BTreeMap<CatalogId, Vec<Definition>>,
+    ids: &BTreeSet<CatalogId>,
+    aliases: &BTreeSet<CatalogId>,
+    maximum_work: usize,
+) -> Result<BTreeMap<CatalogId, BTreeSet<CatalogId>>, Error> {
+    let mut targets = BTreeMap::<CatalogId, BTreeSet<CatalogId>>::new();
+    let mut work = 0_usize;
+    for id in ids {
+        let Some(definitions) = candidates.get(id) else {
+            continue;
+        };
+        for definition in definitions {
+            work = work
+                .checked_add(1)
+                .ok_or(Error::LimitExceeded("graph work"))?;
+            if work > maximum_work {
+                return Err(Error::LimitExceeded("graph work"));
+            }
+            for alias in &definition.aliases {
+                work = work
+                    .checked_add(1)
+                    .ok_or(Error::LimitExceeded("graph work"))?;
+                if work > maximum_work {
+                    return Err(Error::LimitExceeded("graph work"));
+                }
+                if aliases.contains(alias) {
+                    targets.entry(alias.clone()).or_default().insert(id.clone());
+                }
+            }
+        }
+    }
+    Ok(targets)
 }
 
 fn reverse_aliases(

@@ -7,8 +7,9 @@ use atrinik_diagnostics::{DiagnosticLimits, Location, Span, SuppressionPolicy};
 use atrinik_source::{Document, Limits, SourceId};
 
 use super::{
-    Catalog, CatalogDocument, CatalogId, CatalogLimits, Definition, Domain, EvidenceReferences,
-    FieldRule, LineDocumentLoader, PreviewMetadata, Query, Reference, ReferenceKind, Resolution,
+    Catalog, CatalogDocument, CatalogId, CatalogLimits, Definition, Domain, Error,
+    EvidenceReferences, FieldRule, LineDocumentLoader, PreviewMetadata, Query, Reference,
+    ReferenceKind, Resolution,
 };
 
 fn source(name: &str, bytes: &[u8]) -> Document {
@@ -306,6 +307,64 @@ fn incremental_edit_excludes_unchanged_siblings_and_enforces_bounds() {
 }
 
 #[test]
+fn incremental_alias_rebuild_is_linear_and_charges_candidate_work() {
+    let original = source("alias-work", b"name original\n");
+    let aliases = (0..128)
+        .map(|index| {
+            definition(&original, Domain::Resource, &format!("value-{index:03}"))
+                .with_alias(id(Domain::Resource, &format!("old-{index:03}")))
+        })
+        .collect::<Vec<_>>();
+    let limits = CatalogLimits {
+        maximum_graph_work: 256,
+        ..CatalogLimits::default()
+    };
+    let catalog = Catalog::build(
+        [input(&original, aliases)],
+        limits,
+        SuppressionPolicy::default(),
+    )
+    .unwrap();
+    let edited = source("alias-work", b"name edited\n");
+    let replacement = input(
+        &edited,
+        (0..128)
+            .map(|index| {
+                definition(&edited, Domain::Resource, &format!("value-{index:03}"))
+                    .with_alias(id(Domain::Resource, &format!("new-{index:03}")))
+            })
+            .collect(),
+    );
+    let update = catalog.update_document(replacement.clone()).unwrap();
+    let clean =
+        Catalog::build([replacement.clone()], limits, SuppressionPolicy::default()).unwrap();
+    assert_eq!(update.catalog, clean);
+
+    let tight_limits = CatalogLimits {
+        maximum_graph_work: 255,
+        ..CatalogLimits::default()
+    };
+    let tight = Catalog::build(
+        [input(
+            &original,
+            (0..128)
+                .map(|index| {
+                    definition(&original, Domain::Resource, &format!("value-{index:03}"))
+                        .with_alias(id(Domain::Resource, &format!("old-{index:03}")))
+                })
+                .collect(),
+        )],
+        tight_limits,
+        SuppressionPolicy::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        tight.update_document(replacement).unwrap_err(),
+        Error::LimitExceeded("graph work")
+    );
+}
+
+#[test]
 fn invalidation_traverses_aliases_of_transitive_dependents() {
     let document = source("alias-chain", b"name chain\n");
     let a = id(Domain::Archetype, "a");
@@ -585,6 +644,43 @@ fn rejects_cross_domain_aliases_inheritance_and_typed_references() {
 }
 
 #[test]
+fn rejects_inheritance_edges_copied_into_other_reference_collections() {
+    let document = source("duplicate-inheritance", b"name child\n");
+    let inheritance = Reference::new(
+        id(Domain::Archetype, "parent"),
+        ReferenceKind::Inherits,
+        Location::new(document.source_id().as_str(), Span::new(0, 1)),
+    );
+    let ordinary = definition(&document, Domain::Archetype, "ordinary")
+        .with_inheritance(inheritance.clone())
+        .with_reference(inheritance.clone());
+    assert!(
+        Catalog::build(
+            [input(&document, vec![ordinary])],
+            CatalogLimits::default(),
+            SuppressionPolicy::default(),
+        )
+        .is_err()
+    );
+
+    let mut preview = PreviewMetadata::default();
+    preview
+        .media
+        .insert("parent".to_owned(), inheritance.clone());
+    let media = definition(&document, Domain::Archetype, "media")
+        .with_inheritance(inheritance)
+        .with_preview(preview);
+    assert!(
+        Catalog::build(
+            [input(&document, vec![media])],
+            CatalogLimits::default(),
+            SuppressionPolicy::default(),
+        )
+        .is_err()
+    );
+}
+
+#[test]
 fn duplicate_transitions_invalidate_alias_consumers_from_unchanged_documents() {
     let first = source("alias-owner", b"name owner\n");
     let duplicate = source("duplicate-added", b"name duplicate\n");
@@ -816,6 +912,39 @@ fn line_loader_rejects_values_before_exceeding_catalog_limits() {
             .load_single(&document, "map", EvidenceReferences::default())
             .is_err()
     );
+}
+
+#[test]
+fn line_loader_handles_the_reference_limit_without_recounting_prior_edges() {
+    const REFERENCES: usize = 4_096;
+    let mut bytes = b"Object value\n".to_vec();
+    bytes.extend_from_slice(b"face portrait\n".repeat(REFERENCES).as_slice());
+    bytes.extend_from_slice(b"end\n");
+    let document = source("loader-reference-work", &bytes);
+    let loader = LineDocumentLoader::new(
+        Domain::Archetype,
+        "core",
+        1,
+        [(
+            b"face".to_vec(),
+            FieldRule::Reference {
+                domain: Domain::Face,
+                kind: ReferenceKind::Face,
+                optional: true,
+            },
+        )],
+    )
+    .unwrap()
+    .with_limits(CatalogLimits {
+        maximum_references_per_definition: REFERENCES,
+        maximum_graph_work: REFERENCES,
+        ..CatalogLimits::default()
+    })
+    .unwrap();
+    let loaded = loader
+        .load_objects(&document, EvidenceReferences::default())
+        .unwrap();
+    assert_eq!(loaded.definitions()[0].references.len(), REFERENCES);
 }
 
 #[test]
