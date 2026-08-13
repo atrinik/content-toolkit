@@ -21,10 +21,14 @@
 
 ## Branch, mutation, and resource safety
 
-- `atrinik/content@main` is forward authoring; `content@1.x` is the independent
-  classic release line. Make repository, branch, revision, input/output roots,
-  and supported versions explicit. Never infer a mutation target from a nearby
-  checkout or assume a migration applies to both lines.
+- `atrinik/content@main` is the sole mutable authored source for replacement
+  and Classic targets. Retired `1.x` revisions, releases, local checkouts, and
+  provenance records are immutable migration or recovery evidence, never
+  authoring, pull-request, or publication targets.
+- Make repository, source role, exact revision, input/output roots, and
+  supported versions explicit. Historical comparisons select an immutable
+  tag, commit, or preserved local snapshot; they never require a live `1.x`
+  branch. Never infer a mutation target from a nearby checkout.
 - Mutation is dry-run-first with deterministic semantic/text diffs, revision
   preconditions, complete resulting-project validation, destination allowlists,
   and atomic publication. Failure/cancellation leaves either the old or new
