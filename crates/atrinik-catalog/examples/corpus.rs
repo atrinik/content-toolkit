@@ -350,7 +350,7 @@ fn diagnostic_digest(diagnostics: &[atrinik_diagnostics::Diagnostic]) -> String 
     identities.sort();
     let mut digest = Sha256::new();
     for identity in identities {
-        digest.update(identity.len().to_le_bytes());
+        digest.update((identity.len() as u64).to_le_bytes());
         digest.update(identity.as_bytes());
     }
     digest
