@@ -290,10 +290,9 @@ impl DiagnosticSet {
                 }
                 return;
             };
-            self.suppressed_slots.remove(&position);
-            self.warning_slots.remove(&position);
-            self.values[position] = diagnostic;
-            self.record_slot(position);
+            self.values.remove(position);
+            self.values.push(diagnostic);
+            self.rebuild_slots();
             return;
         }
         let position = self.values.len();
@@ -307,6 +306,18 @@ impl DiagnosticSet {
             self.suppressed_slots.insert(position);
         } else if value.severity != Severity::Error {
             self.warning_slots.insert(position);
+        }
+    }
+
+    fn rebuild_slots(&mut self) {
+        self.suppressed_slots.clear();
+        self.warning_slots.clear();
+        for (position, value) in self.values.iter().enumerate() {
+            if value.suppressed {
+                self.suppressed_slots.insert(position);
+            } else if value.severity != Severity::Error {
+                self.warning_slots.insert(position);
+            }
         }
     }
 
@@ -471,12 +482,14 @@ mod tests {
 
     #[test]
     fn active_error_displaces_warning_or_fails_closed_at_zero_capacity() {
-        let mut diagnostics = DiagnosticSet::new(1);
+        let mut diagnostics = DiagnosticSet::new(2);
         let mut warning = value("catalog.warning");
         warning.severity = Severity::Warning;
         diagnostics.push(warning);
+        diagnostics.push(value("catalog.second"));
         diagnostics.push(value("catalog.required"));
-        assert_eq!(diagnostics.values()[0].code, "catalog.required");
+        assert_eq!(diagnostics.values()[0].code, "catalog.second");
+        assert_eq!(diagnostics.values()[1].code, "catalog.required");
         assert!(diagnostics.has_errors());
 
         let mut zero = DiagnosticSet::new(0);

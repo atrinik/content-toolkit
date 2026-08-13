@@ -404,6 +404,8 @@ impl Catalog {
         suppressions: SuppressionPolicy,
     ) -> Result<Self, Error> {
         let mut document_index = BTreeMap::new();
+        let mut total_definitions = 0_usize;
+        let mut total_index_entries = 0_usize;
         for document in documents {
             if document_index.contains_key(document.source_id()) {
                 return Err(Error::DuplicateSource);
@@ -411,6 +413,18 @@ impl Catalog {
             if document_index.len() >= limits.maximum_documents {
                 return Err(Error::LimitExceeded("documents"));
             }
+            validate_document(&document, limits)?;
+            total_definitions = total_definitions
+                .checked_add(document.definitions.len())
+                .ok_or(Error::LimitExceeded("definitions"))?;
+            if total_definitions > limits.maximum_definitions {
+                return Err(Error::LimitExceeded("definitions"));
+            }
+            total_index_entries = checked_index_entries(
+                total_index_entries,
+                document.definitions(),
+                limits.maximum_graph_work,
+            )?;
             document_index.insert(document.source_id().clone(), document);
         }
         Self::from_index(document_index, limits, suppressions)
@@ -427,6 +441,7 @@ impl Catalog {
         let mut candidates: BTreeMap<CatalogId, Vec<Definition>> = BTreeMap::new();
         let mut aliases: BTreeMap<CatalogId, BTreeSet<CatalogId>> = BTreeMap::new();
         let mut total_definitions = 0_usize;
+        let mut total_index_entries = 0_usize;
         for document in documents.values() {
             validate_document(document, limits)?;
             total_definitions = total_definitions
@@ -435,6 +450,11 @@ impl Catalog {
             if total_definitions > limits.maximum_definitions {
                 return Err(Error::LimitExceeded("definitions"));
             }
+            total_index_entries = checked_index_entries(
+                total_index_entries,
+                document.definitions(),
+                limits.maximum_graph_work,
+            )?;
             for definition in &document.definitions {
                 candidates
                     .entry(definition.id.clone())
@@ -1048,6 +1068,14 @@ impl Catalog {
         if total_definitions > self.limits.maximum_definitions {
             return Err(Error::LimitExceeded("definitions"));
         }
+        let mut total_index_entries = 0_usize;
+        for document in self.documents.values() {
+            total_index_entries = checked_index_entries(
+                total_index_entries,
+                document.definitions(),
+                self.limits.maximum_graph_work,
+            )?;
+        }
 
         let old_edges = unique_edges(&self.candidates, impacted_ids);
         if let Some(old) = old {
@@ -1234,6 +1262,7 @@ impl LineDocumentLoader {
             .and_then(|value| value.checked_add(limits.maximum_preview_values))
             .and_then(|value| value.checked_add(2))
             .ok_or(Error::LimitExceeded("loader rules"))?;
+        validate_text(&self.namespace, limits)?;
         if self.rules.len() > maximum_rules
             || self
                 .rules
@@ -1319,6 +1348,8 @@ impl LineDocumentLoader {
             return Err(Error::LimitExceeded("definitions per document"));
         }
         validate_evidence(&evidence, self.limits)?;
+        let local_id = local_id.into();
+        validate_text(&local_id, self.limits)?;
         let id = CatalogId::new(self.domain, self.namespace.clone(), local_id)?;
         let mut definition = Definition::new(
             id,
@@ -1367,12 +1398,13 @@ fn apply_rule(
     validate_text(&value, limits)?;
     match rule {
         FieldRule::Alias => {
-            if definition.aliases.len() >= limits.maximum_aliases_per_definition {
+            let alias = CatalogId::new(definition.id.domain(), namespace, value)?;
+            if !definition.aliases.contains(&alias)
+                && definition.aliases.len() >= limits.maximum_aliases_per_definition
+            {
                 return Err(Error::LimitExceeded("aliases per definition"));
             }
-            definition
-                .aliases
-                .insert(CatalogId::new(definition.id.domain(), namespace, value)?);
+            definition.aliases.insert(alias);
         }
         FieldRule::Inherits => {
             if definition.inherits.is_none()
@@ -1413,16 +1445,17 @@ fn apply_rule(
         FieldRule::Label => definition.preview.label = Some(value),
         FieldRule::Summary => definition.preview.summary = Some(value),
         FieldRule::Tag => {
-            if definition.preview.tags.len() + definition.preview.keywords.len()
-                >= limits.maximum_preview_values
+            let current = definition.preview.tags.len() + definition.preview.keywords.len();
+            if !definition.preview.tags.contains(&value) && current >= limits.maximum_preview_values
             {
                 return Err(Error::LimitExceeded("preview values"));
             }
             definition.preview.tags.insert(value);
         }
         FieldRule::Keyword => {
-            if definition.preview.tags.len() + definition.preview.keywords.len()
-                >= limits.maximum_preview_values
+            let current = definition.preview.tags.len() + definition.preview.keywords.len();
+            if !definition.preview.keywords.contains(&value)
+                && current >= limits.maximum_preview_values
             {
                 return Err(Error::LimitExceeded("preview values"));
             }
@@ -1546,6 +1579,24 @@ fn unique_edges(
                 .map(|reference| (reference.target.clone(), values[0].id.clone()))
         })
         .collect()
+}
+
+fn checked_index_entries(
+    initial: usize,
+    definitions: &[Definition],
+    maximum: usize,
+) -> Result<usize, Error> {
+    let total = definitions.iter().try_fold(initial, |count, definition| {
+        count
+            .checked_add(definition.aliases.len())
+            .and_then(|value| value.checked_add(definition.all_references().count()))
+            .ok_or(Error::LimitExceeded("index entries"))
+    })?;
+    if total > maximum {
+        Err(Error::LimitExceeded("index entries"))
+    } else {
+        Ok(total)
+    }
 }
 
 fn reverse_aliases(

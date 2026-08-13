@@ -768,6 +768,54 @@ fn line_loader_rejects_values_before_exceeding_catalog_limits() {
         .load_single(&document, "map", EvidenceReferences::default())
         .is_err()
     );
+
+    let duplicate = source(
+        "loader-duplicate",
+        b"Object value\nalias old\nalias old\ntag same\ntag same\nend\n",
+    );
+    let duplicate_loader = LineDocumentLoader::new(
+        Domain::Archetype,
+        "core",
+        1,
+        [
+            (b"alias".to_vec(), FieldRule::Alias),
+            (b"tag".to_vec(), FieldRule::Tag),
+        ],
+    )
+    .unwrap()
+    .with_limits(CatalogLimits {
+        maximum_aliases_per_definition: 1,
+        maximum_preview_values: 1,
+        ..CatalogLimits::default()
+    })
+    .unwrap();
+    assert!(
+        duplicate_loader
+            .load_objects(&duplicate, EvidenceReferences::default())
+            .is_ok()
+    );
+
+    assert!(
+        LineDocumentLoader::new(Domain::Map, "core", 1, [])
+            .unwrap()
+            .with_limits(CatalogLimits {
+                maximum_string_bytes: 3,
+                ..CatalogLimits::default()
+            })
+            .is_err()
+    );
+    let short = LineDocumentLoader::new(Domain::Map, "c", 1, [])
+        .unwrap()
+        .with_limits(CatalogLimits {
+            maximum_string_bytes: 1,
+            ..CatalogLimits::default()
+        })
+        .unwrap();
+    assert!(
+        short
+            .load_single(&document, "map", EvidenceReferences::default())
+            .is_err()
+    );
 }
 
 #[test]
@@ -822,6 +870,47 @@ fn handles_large_bounded_graph_and_truncates_diagnostics() {
     .unwrap();
     assert_eq!(catalog.diagnostics().values().len(), 2);
     assert!(catalog.diagnostics().truncated());
+}
+
+#[test]
+fn build_and_updates_preflight_global_definition_and_index_work() {
+    let first = source("global-one", b"name one\n");
+    let second = source("global-two", b"name two\n");
+    let definition_with_aliases = definition(&first, Domain::Resource, "one")
+        .with_alias(id(Domain::Resource, "old-one"))
+        .with_alias(id(Domain::Resource, "older-one"));
+    assert!(
+        Catalog::build(
+            [input(&first, vec![definition_with_aliases])],
+            CatalogLimits {
+                maximum_graph_work: 1,
+                ..CatalogLimits::default()
+            },
+            SuppressionPolicy::default(),
+        )
+        .is_err()
+    );
+
+    let bounded = Catalog::build(
+        [input(
+            &first,
+            vec![definition(&first, Domain::Resource, "one")],
+        )],
+        CatalogLimits {
+            maximum_definitions: 1,
+            ..CatalogLimits::default()
+        },
+        SuppressionPolicy::default(),
+    )
+    .unwrap();
+    assert!(
+        bounded
+            .update_document(input(
+                &second,
+                vec![definition(&second, Domain::Resource, "two")],
+            ))
+            .is_err()
+    );
 }
 
 #[test]
