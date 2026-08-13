@@ -86,5 +86,9 @@ jobs:
         run: |
           cargo run --locked --package atrinik-catalog --example corpus -- \
             --root ../corpus \
+            --revision 01b1fdb65c2243df4bafe9c8109fc93229df0121 \
             >build/m2-catalog-corpus-report.json
+          diff -u \
+            <(jq -S . compatibility/m2-catalog-corpus-baseline.json) \
+            <(jq -S . build/m2-catalog-corpus-report.json)
           jq . build/m2-catalog-corpus-report.json | tee -a "${GITHUB_STEP_SUMMARY}"

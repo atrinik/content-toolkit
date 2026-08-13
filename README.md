@@ -96,8 +96,13 @@ for every owned diagnostic code:
 
 ```sh
 cargo run --locked --package atrinik-catalog --example corpus -- \
-  --root /absolute/content/checkout
+  --root /absolute/content/checkout \
+  --revision 01b1fdb65c2243df4bafe9c8109fc93229df0121
 ```
+
+`compatibility/m2-catalog-corpus-baseline.json` pins the resulting generation,
+domain-definition totals, and severity-qualified diagnostic counts. CI fails on
+any drift, including a newly unresolved, ambiguous, duplicate, or cyclic edge.
 
 The M1 baseline is 5,590 authored files, 61,379,370 bytes, zero diagnostics or
 truncation, and digest

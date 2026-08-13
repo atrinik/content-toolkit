@@ -163,13 +163,13 @@ impl SuppressionPolicy {
         maximum_code_bytes: usize,
     ) -> Result<Self, SuppressionError> {
         let mut accepted = BTreeSet::new();
-        for code in codes {
+        for (index, code) in codes.into_iter().enumerate() {
+            if index >= maximum_codes {
+                return Err(SuppressionError::LimitExceeded);
+            }
             let code = code.into();
             if code.len() > maximum_code_bytes || !valid_code(&code) {
                 return Err(SuppressionError::InvalidCode);
-            }
-            if !accepted.contains(&code) && accepted.len() >= maximum_codes {
-                return Err(SuppressionError::LimitExceeded);
             }
             accepted.insert(code);
         }
@@ -446,6 +446,10 @@ mod tests {
         );
         assert_eq!(
             SuppressionPolicy::new(["one.code", "two.code"], 1, 64),
+            Err(SuppressionError::LimitExceeded)
+        );
+        assert_eq!(
+            SuppressionPolicy::new(["one.code", "one.code"], 1, 64),
             Err(SuppressionError::LimitExceeded)
         );
     }

@@ -374,12 +374,33 @@ fn query_filter_and_preview_do_not_require_payload_access() {
         text: Some("blade".to_owned()),
         tags: BTreeSet::from(["weapon".to_owned()]),
     };
-    let results = catalog.search(&query, 1);
+    let results = catalog.search(&query, 1).unwrap();
     assert_eq!(results[0].id.local(), "silver_sword");
     assert_eq!(
         catalog.preview(&results[0].id).unwrap().label.as_deref(),
         Some("Localized Silver Sword")
     );
+}
+
+#[test]
+fn query_input_and_scan_work_are_bounded() {
+    let document = source("query-bounds", b"name bounds\n");
+    let limits = CatalogLimits {
+        maximum_query_terms: 1,
+        maximum_query_work: 0,
+        ..CatalogLimits::default()
+    };
+    let catalog = Catalog::build(
+        [input(
+            &document,
+            vec![definition(&document, Domain::Resource, "one")],
+        )],
+        limits,
+        SuppressionPolicy::default(),
+    )
+    .unwrap();
+    assert!(catalog.search(&Query::default(), 2).is_err());
+    assert!(catalog.search(&Query::default(), 1).is_err());
 }
 
 #[test]
@@ -448,6 +469,78 @@ fn rejects_cross_domain_aliases_inheritance_and_typed_references() {
         Catalog::build(
             [input(&document, vec![invalid_reference])],
             CatalogLimits::default(),
+            SuppressionPolicy::default(),
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn duplicate_transitions_invalidate_alias_consumers_from_unchanged_documents() {
+    let first = source("alias-owner", b"name owner\n");
+    let duplicate = source("duplicate-added", b"name duplicate\n");
+    let consumer_source = source("alias-consumer", b"name consumer\n");
+    let canonical = id(Domain::Archetype, "canonical");
+    let alias = id(Domain::Archetype, "old-canonical");
+    let consumer_id = id(Domain::Quest, "consumer");
+    let owner = definition(&first, Domain::Archetype, "canonical").with_alias(alias.clone());
+    let consumer =
+        definition(&consumer_source, Domain::Quest, "consumer").with_reference(Reference::new(
+            alias.clone(),
+            ReferenceKind::Archetype,
+            Location::new(consumer_source.source_id().as_str(), Span::new(0, 1)),
+        ));
+    let catalog = build(vec![
+        input(&first, vec![owner.clone()]),
+        input(&consumer_source, vec![consumer.clone()]),
+    ]);
+    let update = catalog
+        .update_document(input(
+            &duplicate,
+            vec![definition(&duplicate, Domain::Archetype, "canonical")],
+        ))
+        .unwrap();
+    assert!(update.invalidation.changed.contains(&canonical));
+    assert!(update.invalidation.changed.contains(&alias));
+    assert!(update.invalidation.affected.contains(&consumer_id));
+    assert!(matches!(
+        update.catalog.resolve(&alias),
+        Resolution::Ambiguous
+    ));
+    let clean = build(vec![
+        input(&first, vec![owner]),
+        input(&consumer_source, vec![consumer]),
+        input(
+            &duplicate,
+            vec![definition(&duplicate, Domain::Archetype, "canonical")],
+        ),
+    ]);
+    assert_eq!(update.catalog, clean);
+}
+
+#[test]
+fn media_counts_toward_the_reference_limit() {
+    let document = source("media-limit", b"name media\n");
+    let mut preview = PreviewMetadata::default();
+    preview.media.insert(
+        "one".to_owned(),
+        Reference::new(
+            id(Domain::Face, "one"),
+            ReferenceKind::Face,
+            Location::new(document.source_id().as_str(), Span::new(0, 1)),
+        ),
+    );
+    let limits = CatalogLimits {
+        maximum_references_per_definition: 0,
+        ..CatalogLimits::default()
+    };
+    assert!(
+        Catalog::build(
+            [input(
+                &document,
+                vec![definition(&document, Domain::Archetype, "value").with_preview(preview)],
+            )],
+            limits,
             SuppressionPolicy::default(),
         )
         .is_err()
