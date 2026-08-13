@@ -820,6 +820,55 @@ fn line_loader_exposes_one_shared_domain_loading_boundary() {
 }
 
 #[test]
+fn line_loader_rejects_unbalanced_object_boundaries() {
+    let loader = LineDocumentLoader::new(Domain::Archetype, "core", 1, []).unwrap();
+    for (name, bytes) in [
+        ("unclosed", b"Object value\n".as_slice()),
+        ("unmatched", b"end\n".as_slice()),
+    ] {
+        let document = source(name, bytes);
+        assert!(
+            loader
+                .load_objects(&document, EvidenceReferences::default())
+                .is_err()
+        );
+    }
+}
+
+#[test]
+fn line_loader_balances_explicit_embedded_objects() {
+    let document = source(
+        "embedded",
+        b"Object value\narch event\nface ignored\nend\nface retained\nend\n",
+    );
+    let loader = LineDocumentLoader::new(
+        Domain::Archetype,
+        "core",
+        1,
+        [
+            (b"arch".to_vec(), FieldRule::EmbeddedObject),
+            (
+                b"face".to_vec(),
+                FieldRule::Reference {
+                    domain: Domain::Face,
+                    kind: ReferenceKind::Face,
+                    optional: true,
+                },
+            ),
+        ],
+    )
+    .unwrap();
+    let loaded = loader
+        .load_objects(&document, EvidenceReferences::default())
+        .unwrap();
+    assert_eq!(loaded.definitions()[0].references.len(), 1);
+    assert_eq!(
+        loaded.definitions()[0].references[0].target.local(),
+        "retained"
+    );
+}
+
+#[test]
 fn line_loader_rejects_values_before_exceeding_catalog_limits() {
     let document = source(
         "loader-bounds",

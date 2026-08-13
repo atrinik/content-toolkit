@@ -90,9 +90,10 @@ cargo run --locked --package atrinik-source --example corpus -- \
   --revision 01b1fdb65c2243df4bafe9c8109fc93229df0121
 ```
 
-The same CI job builds the cross-file catalog from every supported archetype
-and map document, resolves its supported references, and emits a bounded count
-for every owned diagnostic code:
+The same CI job builds the cross-file catalog from every supported semantic
+document, indexes every bounded regular file as a resource and every PNG media
+identity as a face, resolves supported references, and emits bounded diagnostic
+counts plus a deterministic digest of their source/span/path/message identities:
 
 ```sh
 cargo run --locked --package atrinik-catalog --example corpus -- \
@@ -101,8 +102,9 @@ cargo run --locked --package atrinik-catalog --example corpus -- \
 ```
 
 `compatibility/m2-catalog-corpus-baseline.json` pins the resulting generation,
-domain-definition totals, and severity-qualified diagnostic counts. CI fails on
-any drift, including a newly unresolved, ambiguous, duplicate, or cyclic edge.
+domain-definition totals, severity-qualified diagnostic counts, and diagnostic
+identity digest. CI fails on any drift, including a newly unresolved,
+ambiguous, duplicate, or cyclic edge even when aggregate counts are unchanged.
 
 The M1 baseline is 5,590 authored files, 61,379,370 bytes, zero diagnostics or
 truncation, and digest

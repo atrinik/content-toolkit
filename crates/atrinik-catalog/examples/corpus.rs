@@ -17,8 +17,9 @@ use atrinik_catalog::{
 };
 use atrinik_diagnostics::{DiagnosticLimits, Location, Span, SuppressionPolicy};
 use atrinik_source::{Document, Limits, RecordKind, SourceId};
+use sha2::{Digest, Sha256};
 
-const MAXIMUM_FILES: usize = 10_000;
+const MAXIMUM_FILES: usize = 25_000;
 const MAXIMUM_ENTRIES: usize = 25_000;
 const MAXIMUM_DIAGNOSTICS: usize = 200_000;
 
@@ -57,6 +58,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         "classic",
         1,
         [
+            (b"arch".to_vec(), FieldRule::EmbeddedObject),
             reference(
                 "other_arch",
                 Domain::Archetype,
@@ -89,13 +91,28 @@ fn run() -> Result<(), Box<dyn Error>> {
             false,
         )],
     )?;
+    let catalog_limits = CatalogLimits {
+        diagnostic_limits: DiagnosticLimits {
+            maximum_diagnostics: MAXIMUM_DIAGNOSTICS,
+            ..DiagnosticLimits::default()
+        },
+        ..CatalogLimits::default()
+    };
     let mut documents = Vec::new();
+    let mut definition_count = 0_usize;
     let mut resources = BTreeSet::new();
+    let mut faces = Vec::new();
     let mut paths = authored_paths(&root)?;
     paths.sort();
     for path in paths {
         let relative = normalized_relative(path.strip_prefix(&root)?)?;
         resources.insert(relative.clone());
+        if let Some(face) = face_id(&relative) {
+            faces.push(face);
+        }
+        let Some(domain) = classify(&relative) else {
+            continue;
+        };
         let source = Arc::<[u8]>::from(read_bounded(&path, Limits::default().maximum_file_bytes)?);
         let document = Document::parse(
             SourceId::new(format!("content:{relative}"))?,
@@ -104,24 +121,22 @@ fn run() -> Result<(), Box<dyn Error>> {
         )?;
         let evidence = evidence(&relative);
         let catalog_document = (|| -> Result<CatalogDocument, Box<dyn Error>> {
-            Ok(match classify(&relative) {
-                Some(Domain::Archetype) => archetypes.load_objects(&document, evidence)?,
-                Some(Domain::Map) => {
-                    maps.load_single(&document, stable_path_id(&relative), evidence)?
-                }
-                Some(Domain::Animation) => {
+            Ok(match domain {
+                Domain::Archetype => archetypes.load_objects(&document, evidence)?,
+                Domain::Map => maps.load_single(&document, stable_path_id(&relative), evidence)?,
+                Domain::Animation => {
                     definitions_from_fields(&document, Domain::Animation, &[b"anim"], evidence)?
                 }
-                Some(Domain::Treasure) => definitions_from_fields(
+                Domain::Treasure => definitions_from_fields(
                     &document,
                     Domain::Treasure,
                     &[b"treasure", b"treasureone"],
                     evidence,
                 )?,
-                Some(Domain::Faction) => {
+                Domain::Faction => {
                     definitions_from_fields(&document, Domain::Faction, &[b"faction"], evidence)?
                 }
-                Some(domain @ (Domain::Interface | Domain::Quest)) => CatalogDocument::new(
+                domain @ (Domain::Interface | Domain::Quest) => CatalogDocument::new(
                     document.source_id().clone(),
                     document.revision(),
                     1,
@@ -136,31 +151,32 @@ fn run() -> Result<(), Box<dyn Error>> {
                         .with_evidence(evidence),
                     ],
                 ),
-                Some(Domain::Resource | Domain::Face) | None => {
+                Domain::Resource | Domain::Face => {
                     return Err(format!("unsupported corpus classification: {relative}").into());
                 }
             })
         })()
         .map_err(|error| format!("catalog adapter failed for {relative}: {error}"))?;
-        documents.push(catalog_document);
+        push_bounded_document(
+            &mut documents,
+            &mut definition_count,
+            catalog_document,
+            catalog_limits,
+        )?;
     }
-    documents.push(synthetic_document(
-        Domain::Resource,
-        "resources",
-        resources,
-    )?);
+    for document in [
+        synthetic_document(Domain::Resource, "resources", resources)?,
+        synthetic_document(Domain::Face, "faces", faces)?,
+    ] {
+        push_bounded_document(
+            &mut documents,
+            &mut definition_count,
+            document,
+            catalog_limits,
+        )?;
+    }
 
-    let catalog = Catalog::build(
-        documents,
-        CatalogLimits {
-            diagnostic_limits: DiagnosticLimits {
-                maximum_diagnostics: MAXIMUM_DIAGNOSTICS,
-                ..DiagnosticLimits::default()
-            },
-            ..CatalogLimits::default()
-        },
-        SuppressionPolicy::default(),
-    )?;
+    let catalog = Catalog::build(documents, catalog_limits, SuppressionPolicy::default())?;
     if catalog.diagnostics().truncated() {
         return Err("catalog corpus diagnostics were truncated".into());
     }
@@ -170,6 +186,7 @@ fn run() -> Result<(), Box<dyn Error>> {
             .entry((diagnostic.code, severity(diagnostic.severity)))
             .or_default() += 1;
     }
+    let diagnostic_digest = diagnostic_digest(catalog.diagnostics().values());
     let mut domains = Domain::ALL
         .into_iter()
         .map(|domain| (domain.as_str(), 0_usize))
@@ -178,7 +195,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         *domains.entry(definition.id.domain().as_str()).or_default() += 1;
     }
     print!(
-        "{{\"schema_version\":1,\"corpus_revision\":\"{revision}\",\"generation\":\"{}\",\"documents\":{},\"definitions\":{},\"diagnostics\":{},\"codes\":{{",
+        "{{\"schema_version\":1,\"corpus_revision\":\"{revision}\",\"generation\":\"{}\",\"documents\":{},\"definitions\":{},\"diagnostics\":{},\"diagnostic_digest\":\"{diagnostic_digest}\",\"codes\":{{",
         catalog.generation(),
         catalog.documents().count(),
         catalog.definitions().count(),
@@ -256,7 +273,7 @@ fn definitions_from_fields(
 fn synthetic_document(
     domain: Domain,
     name: &str,
-    values: BTreeSet<String>,
+    values: impl IntoIterator<Item = String>,
 ) -> Result<CatalogDocument, Box<dyn Error>> {
     let bytes = Arc::<[u8]>::from(format!("catalog {name}\n").into_bytes());
     let document = Document::parse(
@@ -279,6 +296,68 @@ fn synthetic_document(
         1,
         definitions,
     ))
+}
+
+fn push_bounded_document(
+    documents: &mut Vec<CatalogDocument>,
+    definition_count: &mut usize,
+    document: CatalogDocument,
+    limits: CatalogLimits,
+) -> Result<(), Box<dyn Error>> {
+    if documents.len() >= limits.maximum_documents {
+        return Err("catalog document limit exceeded".into());
+    }
+    *definition_count = definition_count
+        .checked_add(document.definitions().len())
+        .ok_or("catalog definition count overflow")?;
+    if *definition_count > limits.maximum_definitions {
+        return Err("catalog definition limit exceeded".into());
+    }
+    documents.push(document);
+    Ok(())
+}
+
+fn face_id(relative: &str) -> Option<String> {
+    Path::new(relative)
+        .extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("png"))
+        .then(|| {
+            Path::new(relative)
+                .file_stem()
+                .and_then(|value| value.to_str())
+                .map(str::to_owned)
+        })
+        .flatten()
+}
+
+fn diagnostic_digest(diagnostics: &[atrinik_diagnostics::Diagnostic]) -> String {
+    let mut identities = diagnostics
+        .iter()
+        .map(|diagnostic| {
+            format!(
+                "{}\0{}\0{}\0{}\0{}\0{}\0{}",
+                diagnostic.code,
+                severity(diagnostic.severity),
+                diagnostic.location.source,
+                diagnostic.location.span.start,
+                diagnostic.location.span.end,
+                diagnostic.semantic_path.join("\0"),
+                diagnostic.message
+            )
+        })
+        .collect::<Vec<_>>();
+    identities.sort();
+    let mut digest = Sha256::new();
+    for identity in identities {
+        digest.update(identity.len().to_le_bytes());
+        digest.update(identity.as_bytes());
+    }
+    digest
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 fn reference(
@@ -367,9 +446,7 @@ fn authored_paths(root: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
             }
             if file_type.is_dir() {
                 directories.push(entry.path());
-            } else if file_type.is_file()
-                && classify(&normalized_relative(entry.path().strip_prefix(root)?)?).is_some()
-            {
+            } else if file_type.is_file() {
                 if paths.len() >= MAXIMUM_FILES {
                     return Err("corpus file limit exceeded".into());
                 }

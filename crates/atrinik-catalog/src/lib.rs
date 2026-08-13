@@ -1197,6 +1197,7 @@ pub struct CatalogUpdate {
 pub enum FieldRule {
     Alias,
     Inherits,
+    EmbeddedObject,
     Reference {
         domain: Domain,
         kind: ReferenceKind,
@@ -1282,10 +1283,14 @@ impl LineDocumentLoader {
     ) -> Result<CatalogDocument, Error> {
         validate_evidence(&evidence, self.limits)?;
         let mut stack: Vec<Definition> = Vec::new();
+        let mut embedded_depth = 0_usize;
         let mut definitions = Vec::new();
         for record in document.records() {
             match &record.kind {
                 RecordKind::ObjectStart { name } => {
+                    if embedded_depth != 0 {
+                        return Err(Error::InvalidDocument);
+                    }
                     let definition_count = definitions
                         .len()
                         .checked_add(stack.len())
@@ -1310,6 +1315,18 @@ impl LineDocumentLoader {
                     else {
                         continue;
                     };
+                    if *rule == FieldRule::EmbeddedObject {
+                        embedded_depth = embedded_depth
+                            .checked_add(1)
+                            .ok_or(Error::LimitExceeded("object depth"))?;
+                        if embedded_depth > self.limits.maximum_semantic_depth {
+                            return Err(Error::LimitExceeded("object depth"));
+                        }
+                        continue;
+                    }
+                    if embedded_depth != 0 {
+                        continue;
+                    }
                     let value_text = text(document, *value, self.limits)?;
                     let location = Location::new(document.source_id().as_str(), *value);
                     apply_rule(
@@ -1322,14 +1339,19 @@ impl LineDocumentLoader {
                     )?;
                 }
                 RecordKind::ObjectEnd => {
-                    if let Some(definition) = stack.pop() {
-                        definitions.push(definition);
+                    if embedded_depth != 0 {
+                        embedded_depth -= 1;
+                        continue;
                     }
+                    let definition = stack.pop().ok_or(Error::InvalidDocument)?;
+                    definitions.push(definition);
                 }
                 _ => {}
             }
         }
-        definitions.extend(stack.into_iter().rev());
+        if !stack.is_empty() || embedded_depth != 0 {
+            return Err(Error::InvalidDocument);
+        }
         Ok(CatalogDocument::new(
             document.source_id().clone(),
             document.revision(),
@@ -1422,6 +1444,7 @@ fn apply_rule(
                 .with_semantic_path(["inherits"]),
             );
         }
+        FieldRule::EmbeddedObject => return Err(Error::InvalidDocument),
         FieldRule::Reference {
             domain,
             kind,
