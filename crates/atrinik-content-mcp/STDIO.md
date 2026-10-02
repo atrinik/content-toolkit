@@ -33,7 +33,9 @@ Dirty registration requires a SHA-256 fingerprint over Git's NUL-delimited
 files. For each file append little-endian u64 path byte length, UTF-8 path,
 little-endian u64 content byte length, and exact bytes. Clean registration uses
 null. This is an explicit admission fingerprint, never automatically invented
-for a changed worktree. Root, Git identity, tracked/ignored inventory, status,
+for a changed worktree. Dirty tracked paths outside the admitted inventory and
+rename/conflict status fail closed because their complete bytes cannot be
+attested by this inventory. Root, Git identity, tracked/ignored inventory, status,
 file bytes and modes are checked on each query; changed inputs fail closed.
 The canonical immutable catalog stays in memory for warm queries. Restart with
 a freshly admitted configuration to change its identity or inventory.

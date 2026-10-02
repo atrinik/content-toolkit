@@ -241,6 +241,22 @@ fn load(
             &["status", "--porcelain=v1", "-z", "--untracked-files=no"],
         )
         .map_err(|e| e.code())?;
+        // A dirty fingerprint covers every changed tracked path. Changes outside
+        // the admitted inventory cannot be read safely, so registration fails.
+        for entry in status.split(|b| *b == 0).filter(|entry| !entry.is_empty()) {
+            if entry.len() < 4
+                || entry[2] != b' '
+                || !entry[..2]
+                    .iter()
+                    .all(|b| matches!(*b, b' ' | b'M' | b'A' | b'D' | b'T'))
+                || !configured
+                    .files
+                    .iter()
+                    .any(|file| file.path.as_bytes() == &entry[3..])
+            {
+                return Err("incomplete_data");
+            }
+        }
         let mut dirty = Sha256::new();
         dirty.update(&status);
         let mut files = BTreeMap::new();
@@ -485,15 +501,22 @@ mod tests {
         let value = json!({"snapshots":[{"root":root,"identity":{"repository":"atrinik/content","branch":"refs/heads/main","commit":commit,"main_base_commit":commit,"worktree":"synthetic","source_role":"main","view_role":"replacement","dirty_fingerprint":null,"authorization":"synthetic","manifest":"synthetic","profile":"synthetic","registry":"synthetic","schema_version":1,"provider_version":atrinik_content_mcp::SCHEMA_VERSION},"files":[{"path":"synthetic.arc","domain":"archetype","namespace":"synthetic","rules":{"name":{"kind":"label"}}}]}]});
         let config: Configuration = serde_json::from_value(value).unwrap();
         let cancelled = AtomicBool::new(false);
+        let loaded = load(
+            config.clone(),
+            &cancelled,
+            Instant::now() + Duration::from_secs(5),
+        )
+        .unwrap();
         assert!(
-            load(
-                config.clone(),
-                &cancelled,
-                Instant::now() + Duration::from_secs(5)
-            )
-            .is_ok()
+            loaded
+                .verify(&cancelled, Instant::now() + Duration::from_secs(5))
+                .is_ok()
         );
         std::fs::write(root.join("synthetic.arc"), b"Object changed\nend\n").unwrap();
+        assert!(matches!(
+            loaded.verify(&cancelled, Instant::now() + Duration::from_secs(5)),
+            Err("stale_identity")
+        ));
         assert!(matches!(
             load(config, &cancelled, Instant::now() + Duration::from_secs(5)),
             Err("stale_identity")
