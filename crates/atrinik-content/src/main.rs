@@ -18,6 +18,9 @@ use std::{
 
 use atrinik_source::{Document, Limits, SourceId};
 
+#[cfg(target_os = "linux")]
+mod transaction_cli;
+
 fn main() {
     if let Err(error) = run(env::args_os().skip(1).collect()) {
         eprintln!("atrinik-content: {error}");
@@ -33,6 +36,12 @@ fn run(arguments: Vec<std::ffi::OsString>) -> Result<(), Box<dyn Error>> {
     let Some(command) = arguments.first().and_then(|value| value.to_str()) else {
         return Err(usage().into());
     };
+    if command == "transaction" {
+        #[cfg(target_os = "linux")]
+        return transaction_cli::run(&arguments[1..]);
+        #[cfg(not(target_os = "linux"))]
+        return Err("project transactions require Linux".into());
+    }
     let options = parse_options(&arguments[1..])?;
     let input = required_path(&options, "--input")?;
     let source_id = required_string(&options, "--source-id")?;
@@ -193,5 +202,5 @@ impl Drop for RemoveOnDrop {
 static OUTPUT_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 const fn usage() -> &'static str {
-    "usage: atrinik-content --version | validate --input PATH --source-id ID | round-trip --input PATH --output NEW_PATH --source-id ID"
+    "usage: atrinik-content --version | validate --input PATH --source-id ID | round-trip --input PATH --output NEW_PATH --source-id ID | transaction (initialize | preview | apply) ..."
 }
