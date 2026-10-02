@@ -66,7 +66,7 @@ fn domain(value: &str) -> Result<Domain, &'static str> {
     Domain::ALL
         .into_iter()
         .find(|d| d.as_str() == value)
-        .ok_or("invalid_configuration")
+        .ok_or("INVALID_ARGUMENT")
 }
 fn field_rule(rule: Rule) -> Result<FieldRule, &'static str> {
     Ok(match rule {
@@ -101,23 +101,33 @@ struct Loaded {
     baselines: Vec<Baseline>,
 }
 impl Loaded {
-    fn verify(&self, cancelled: &AtomicBool, deadline: Instant) -> Result<(), &'static str> {
-        for baseline in &self.baselines {
+    fn verify(
+        &self,
+        selected: &[&str],
+        cancelled: &AtomicBool,
+        deadline: Instant,
+    ) -> Result<(), &'static str> {
+        for baseline in self
+            .baselines
+            .iter()
+            .filter(|b| selected.contains(&b.identity.worktree.as_str()))
+        {
             if cancelled.load(std::sync::atomic::Ordering::Acquire) {
-                return Err("cancelled");
+                return Err("CANCELLED");
             }
             if Instant::now() >= deadline {
-                return Err("timeout");
+                return Err("TIMEOUT");
             }
             let root = io::ConfiguredRoot::open(&baseline.root)
                 .map_err(|e| e.code())?
                 .with_deadline(deadline);
             if root.identity().map_err(|e| e.code())? != baseline.directory_identity {
-                return Err("stale_identity");
+                return Err("STALE_COORDINATE");
             }
+            verify_repository(&root, &baseline.root)?;
             let same = |args: &[&str], expected: &[u8]| -> Result<(), &'static str> {
                 if io::git_metadata(&root, args).map_err(|e| e.code())? != expected {
-                    return Err("stale_identity");
+                    return Err("STALE_COORDINATE");
                 }
                 Ok(())
             };
@@ -157,7 +167,7 @@ impl Loaded {
             for (path, file) in &baseline.files {
                 let (bytes, mode) = root.read(path, cancelled, deadline).map_err(|e| e.code())?;
                 if bytes != file.document.source_bytes() || mode != file.mode {
-                    return Err("stale_identity");
+                    return Err("STALE_COORDINATE");
                 }
             }
             same(
@@ -168,9 +178,65 @@ impl Loaded {
                 &["rev-parse", "--verify", "HEAD"],
                 format!("{}\n", baseline.identity.commit).as_bytes(),
             )?;
+            same(
+                &["symbolic-ref", "--quiet", "HEAD"],
+                format!("{}\n", baseline.identity.branch).as_bytes(),
+            )?;
+            same(&["ls-files", "--cached", "-z"], &baseline.tracked)?;
+            same(
+                &[
+                    "ls-files",
+                    "--cached",
+                    "--ignored",
+                    "--exclude-standard",
+                    "-z",
+                ],
+                &baseline.ignored,
+            )?;
+            io::git_metadata(
+                &root,
+                &[
+                    "merge-base",
+                    "--is-ancestor",
+                    &baseline.identity.main_base_commit,
+                    "refs/heads/main",
+                ],
+            )
+            .map_err(|e| e.code())?;
+            verify_repository(&root, &baseline.root)?;
+            if io::ConfiguredRoot::open(&baseline.root)
+                .map_err(|e| e.code())?
+                .identity()
+                .map_err(|e| e.code())?
+                != baseline.directory_identity
+            {
+                return Err("STALE_COORDINATE");
+            }
         }
         Ok(())
     }
+}
+fn verify_repository(
+    root: &io::ConfiguredRoot,
+    path: &std::path::Path,
+) -> Result<(), &'static str> {
+    let origin = io::git_metadata(root, &["config", "--get-all", "remote.origin.url"])
+        .map_err(|_| "FORBIDDEN")?;
+    if ![
+        b"https://github.com/atrinik/content.git\n".as_slice(),
+        b"https://github.com/atrinik/content\n",
+        b"git@github.com:atrinik/content.git\n",
+        b"ssh://git@github.com/atrinik/content.git\n",
+    ]
+    .contains(&origin.as_slice())
+    {
+        return Err("FORBIDDEN");
+    }
+    let top = io::git_metadata(root, &["rev-parse", "--show-toplevel"]).map_err(|e| e.code())?;
+    if top != format!("{}\n", path.display()).as_bytes() {
+        return Err("FORBIDDEN");
+    }
+    Ok(())
 }
 fn load(
     config: Configuration,
@@ -178,22 +244,23 @@ fn load(
     deadline: Instant,
 ) -> Result<Loaded, &'static str> {
     if config.snapshots.is_empty() || config.snapshots.len() > 128 {
-        return Err("limit_exceeded");
+        return Err("LIMIT_EXCEEDED");
     }
     let mut snapshots = Vec::new();
     let mut baselines = Vec::new();
     let mut bytes = 0usize;
     for configured in config.snapshots {
         if Instant::now() >= deadline {
-            return Err("timeout");
+            return Err("TIMEOUT");
         }
         configured.identity.validate().map_err(|e| e.code())?;
         if configured.files.is_empty() || configured.files.len() > 1000 {
-            return Err("limit_exceeded");
+            return Err("LIMIT_EXCEEDED");
         }
         let root = io::ConfiguredRoot::open(&configured.root)
             .map_err(|e| e.code())?
             .with_deadline(deadline);
+        verify_repository(&root, &configured.root)?;
         let actual_head =
             io::git_metadata(&root, &["rev-parse", "--verify", "HEAD"]).map_err(|e| e.code())?;
         let actual_branch =
@@ -201,7 +268,7 @@ fn load(
         if actual_head != format!("{}\n", configured.identity.commit).as_bytes()
             || actual_branch != format!("{}\n", configured.identity.branch).as_bytes()
         {
-            return Err("stale_identity");
+            return Err("STALE_COORDINATE");
         }
         io::git_metadata(
             &root,
@@ -254,7 +321,7 @@ fn load(
                     .iter()
                     .any(|file| file.path.as_bytes() == &entry[3..])
             {
-                return Err("incomplete_data");
+                return Err("INCOMPLETE");
             }
         }
         let mut dirty = Sha256::new();
@@ -271,7 +338,7 @@ fn load(
                     .split(|b| *b == 0)
                     .any(|p| p == selected.path.as_bytes())
             {
-                return Err("forbidden_data");
+                return Err("FORBIDDEN");
             }
             let (source, mode) = root
                 .read(&selected.path, cancelled, deadline)
@@ -285,12 +352,12 @@ fn load(
                 if io::git_metadata(&root, &["cat-file", "blob", &object]).map_err(|e| e.code())?
                     != source
                 {
-                    return Err("stale_identity");
+                    return Err("STALE_COORDINATE");
                 }
             }
-            bytes = bytes.checked_add(source.len()).ok_or("limit_exceeded")?;
+            bytes = bytes.checked_add(source.len()).ok_or("LIMIT_EXCEEDED")?;
             if bytes > 8 * 1024 * 1024 {
-                return Err("limit_exceeded");
+                return Err("LIMIT_EXCEEDED");
             }
             let limits = Limits {
                 maximum_file_bytes: io::MAX_FILE,
@@ -299,10 +366,9 @@ fn load(
                 maximum_nesting: 32,
                 ..Limits::default()
             };
-            let source_id = SourceId::new(&selected.path).map_err(|_| "invalid_configuration")?;
-            let document = Arc::new(
-                Document::parse(source_id, source, limits).map_err(|_| "incomplete_data")?,
-            );
+            let source_id = SourceId::new(&selected.path).map_err(|_| "INVALID_ARGUMENT")?;
+            let document =
+                Arc::new(Document::parse(source_id, source, limits).map_err(|_| "INCOMPLETE")?);
             let rules = selected
                 .rules
                 .into_iter()
@@ -310,13 +376,13 @@ fn load(
                 .collect::<Result<Vec<_>, &'static str>>()?;
             let loader =
                 LineDocumentLoader::new(domain(&selected.domain)?, selected.namespace, 1, rules)
-                    .map_err(|_| "invalid_configuration")?;
+                    .map_err(|_| "INVALID_ARGUMENT")?;
             let schema = Schema::new(
                 "configured-v1",
                 selected.required_fields.into_iter().map(String::into_bytes),
                 SchemaLimits::default(),
             )
-            .map_err(|_| "invalid_configuration")?;
+            .map_err(|_| "INVALID_ARGUMENT")?;
             let shape = selected
                 .single_id
                 .map_or(CatalogShape::Objects, CatalogShape::Single);
@@ -332,7 +398,7 @@ fn load(
                 .insert(selected.path, ProjectFile { document, mode })
                 .is_some()
             {
-                return Err("invalid_configuration");
+                return Err("INVALID_ARGUMENT");
             }
         }
         if io::git_metadata(
@@ -342,7 +408,7 @@ fn load(
         .map_err(|e| e.code())?
             != status
         {
-            return Err("stale_identity");
+            return Err("STALE_COORDINATE");
         }
         let expected_dirty = if status.is_empty() {
             None
@@ -356,7 +422,7 @@ fn load(
             )
         };
         if configured.identity.dirty_fingerprint != expected_dirty {
-            return Err("stale_identity");
+            return Err("STALE_COORDINATE");
         }
         for (path, file) in &files {
             if root
@@ -365,7 +431,7 @@ fn load(
                 .0
                 != file.document.source_bytes()
             {
-                return Err("stale_identity");
+                return Err("STALE_COORDINATE");
             }
         }
         let limits = ProjectLimits {
@@ -390,8 +456,8 @@ fn load(
             tracked,
             ignored,
         });
-        let project = ProjectSnapshot::new(source_identity, files, limits)
-            .map_err(|_| "invalid_configuration")?;
+        let project =
+            ProjectSnapshot::new(source_identity, files, limits).map_err(|_| "INVALID_ARGUMENT")?;
         let policy = ProjectPolicy {
             files: policies,
             limits,
@@ -399,32 +465,40 @@ fn load(
         };
         snapshots.push(Snapshot::new(configured.identity, project, policy).map_err(|e| e.code())?);
     }
-    Ok(Loaded {
+    let loaded = Loaded {
         provider: Provider::new(snapshots).map_err(|e| e.code())?,
         baselines,
-    })
+    };
+    let selectors: Vec<_> = loaded
+        .baselines
+        .iter()
+        .map(|b| b.identity.worktree.as_str())
+        .collect();
+    loaded.verify(&selectors, cancelled, deadline)?;
+    Ok(loaded)
 }
 fn run() -> Result<(), &'static str> {
     let mut arguments = std::env::args_os().skip(1);
     if arguments.next().as_deref() != Some(std::ffi::OsStr::new("--config")) {
-        return Err("explicit_configuration_required");
+        return Err("INVALID_ARGUMENT");
     }
-    let config_path = PathBuf::from(arguments.next().ok_or("explicit_configuration_required")?);
+    let config_path = PathBuf::from(arguments.next().ok_or("INVALID_ARGUMENT")?);
     if arguments.next().is_some() || !config_path.is_absolute() {
-        return Err("invalid_configuration");
+        return Err("INVALID_ARGUMENT");
     }
-    let parent = config_path.parent().ok_or("invalid_configuration")?;
+    let parent = config_path.parent().ok_or("INVALID_ARGUMENT")?;
     let name = config_path
         .file_name()
         .and_then(|n| n.to_str())
-        .ok_or("invalid_configuration")?;
+        .ok_or("INVALID_ARGUMENT")?;
     let cancelled = AtomicBool::new(false);
     let root = io::ConfiguredRoot::open(parent).map_err(|e| e.code())?;
     let (bytes, _) = root
         .read(name, &cancelled, Instant::now() + Duration::from_secs(5))
         .map_err(|e| e.code())?;
     let config: Configuration =
-        serde_json::from_slice(&bytes).map_err(|_| "invalid_configuration")?;
+        serde_json::from_value(io::strict_json(&bytes).map_err(|_| "INVALID_ARGUMENT")?)
+            .map_err(|_| "INVALID_ARGUMENT")?;
     let loaded = load(
         config.clone(),
         &cancelled,
@@ -433,23 +507,30 @@ fn run() -> Result<(), &'static str> {
     let tool = json!({"name":"content_query","description":"Bounded read-only semantic content queries and transaction previews over configured snapshot selectors.","inputSchema":atrinik_content_mcp::input_schema(),"outputSchema":atrinik_content_mcp::output_schema(),"annotations":{"readOnlyHint":true,"destructiveHint":false,"openWorldHint":false}});
     io::serve(
         std::io::BufReader::new(std::io::stdin()),
-        std::io::stdout().lock(),
+        io::BoundedStdout::new().map_err(|_| "INCOMPLETE")?,
         &tool,
         |value, cancelled| {
-            let request = serde_json::from_value(value).map_err(|_| "invalid_arguments")?;
+            let request: atrinik_content_mcp::Request =
+                serde_json::from_value(value).map_err(|_| "INVALID_ARGUMENT")?;
             {
-                let deadline = Instant::now() + Duration::from_secs(5);
-                loaded.verify(cancelled, deadline)?;
+                let deadline = Instant::now() + Duration::from_secs(4);
+                let mut selectors = vec![request.selector.as_str()];
+                if let Some(other) = request.compare_selector.as_deref() {
+                    selectors.push(other);
+                }
+                let selectors: Vec<String> = selectors.into_iter().map(str::to_owned).collect();
+                let selectors: Vec<&str> = selectors.iter().map(String::as_str).collect();
+                loaded.verify(&selectors, cancelled, deadline)?;
                 let result = loaded
                     .provider
                     .call_with_deadline(request, cancelled, deadline);
-                loaded.verify(cancelled, deadline)?;
+                loaded.verify(&selectors, cancelled, deadline)?;
                 result
             }
             .map_err(|e| e.code())
         },
     )
-    .map_err(|_| "transport_unavailable")
+    .map_err(|_| "INCOMPLETE")
 }
 fn main() {
     if let Err(code) = run() {
@@ -479,6 +560,15 @@ mod tests {
             std::env::temp_dir().join(format!("atrinik-mcp-registration-{}", std::process::id()));
         std::fs::create_dir(&root).unwrap();
         git(&root, &["init", "-b", "main"]);
+        git(
+            &root,
+            &[
+                "remote",
+                "add",
+                "origin",
+                "https://github.com/atrinik/content.git",
+            ],
+        );
         std::fs::write(
             root.join("synthetic.arc"),
             b"Object synthetic\nname Synthetic\nend\n",
@@ -501,7 +591,7 @@ mod tests {
         let value = json!({"snapshots":[{"root":root,"identity":{"repository":"atrinik/content","branch":"refs/heads/main","commit":commit,"main_base_commit":commit,"worktree":"synthetic","source_role":"main","view_role":"replacement","dirty_fingerprint":null,"authorization":"synthetic","manifest":"synthetic","profile":"synthetic","registry":"synthetic","schema_version":1,"provider_version":atrinik_content_mcp::SCHEMA_VERSION},"files":[{"path":"synthetic.arc","domain":"archetype","namespace":"synthetic","rules":{"name":{"kind":"label"}}}]}]});
         let config: Configuration = serde_json::from_value(value).unwrap();
         let cancelled = AtomicBool::new(false);
-        let loaded = load(
+        let mut loaded = load(
             config.clone(),
             &cancelled,
             Instant::now() + Duration::from_secs(5),
@@ -509,17 +599,100 @@ mod tests {
         .unwrap();
         assert!(
             loaded
-                .verify(&cancelled, Instant::now() + Duration::from_secs(5))
+                .verify(
+                    &["synthetic"],
+                    &cancelled,
+                    Instant::now() + Duration::from_secs(5)
+                )
                 .is_ok()
         );
+        git(
+            &root,
+            &[
+                "remote",
+                "set-url",
+                "origin",
+                "https://github.com/example/foreign.git",
+            ],
+        );
+        assert!(matches!(
+            loaded.verify(
+                &["synthetic"],
+                &cancelled,
+                Instant::now() + Duration::from_secs(5)
+            ),
+            Err("FORBIDDEN")
+        ));
+        git(&root, &["remote", "remove", "origin"]);
+        assert!(matches!(
+            load(
+                config.clone(),
+                &cancelled,
+                Instant::now() + Duration::from_secs(5)
+            ),
+            Err("FORBIDDEN")
+        ));
+        git(
+            &root,
+            &[
+                "remote",
+                "add",
+                "origin",
+                "https://github.com/atrinik/content.git",
+            ],
+        );
+        let mut unrelated = config.snapshots[0].identity.clone();
+        unrelated.worktree = "unrelated".into();
+        loaded.baselines.push(Baseline {
+            directory_identity: (0, 0),
+            root: root.join("missing-review"),
+            identity: unrelated,
+            files: BTreeMap::new(),
+            status: vec![],
+            tracked: vec![],
+            ignored: vec![],
+        });
+        assert!(
+            loaded
+                .verify(
+                    &["synthetic"],
+                    &cancelled,
+                    Instant::now() + Duration::from_secs(5)
+                )
+                .is_ok()
+        );
+        git(
+            &root,
+            &["config", "filter.synthetic.clean", "touch sentinel"],
+        );
+        std::fs::write(
+            root.join(".gitattributes"),
+            "synthetic.arc filter=synthetic\n",
+        )
+        .unwrap();
+        assert!(matches!(
+            loaded.verify(
+                &["synthetic"],
+                &cancelled,
+                Instant::now() + Duration::from_secs(5)
+            ),
+            Err("FORBIDDEN")
+        ));
+        assert!(!root.join("sentinel").exists());
+        git(&root, &["config", "--unset", "filter.synthetic.clean"]);
+        std::fs::remove_file(root.join(".gitattributes")).unwrap();
         std::fs::write(root.join("synthetic.arc"), b"Object changed\nend\n").unwrap();
         assert!(matches!(
-            loaded.verify(&cancelled, Instant::now() + Duration::from_secs(5)),
-            Err("stale_identity")
+            loaded.verify(
+                &["synthetic"],
+                &cancelled,
+                Instant::now() + Duration::from_secs(5)
+            ),
+            Err("STALE_COORDINATE")
         ));
         assert!(matches!(
             load(config, &cancelled, Instant::now() + Duration::from_secs(5)),
-            Err("stale_identity")
+            Err("STALE_COORDINATE")
         ));
         std::fs::remove_dir_all(root).unwrap();
     }

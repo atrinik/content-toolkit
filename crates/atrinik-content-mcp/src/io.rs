@@ -15,7 +15,7 @@ use std::{
 
 pub const PROTOCOL: &str = "2026-07-28";
 pub const MAX_REQUEST: usize = 16 * 1024;
-pub const MAX_RESULT: usize = 64 * 1024;
+pub const MAX_RESULT: usize = 32 * 1024;
 pub const MAX_FILE: usize = 256 * 1024;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -30,12 +30,12 @@ pub enum AccessError {
 impl AccessError {
     pub const fn code(self) -> &'static str {
         match self {
-            Self::Forbidden => "forbidden_data",
-            Self::Limit => "limit_exceeded",
-            Self::Cancelled => "cancelled",
-            Self::Timeout => "timeout",
-            Self::Changed => "stale_identity",
-            Self::Unavailable => "incomplete_data",
+            Self::Forbidden => "FORBIDDEN",
+            Self::Limit => "LIMIT_EXCEEDED",
+            Self::Cancelled => "CANCELLED",
+            Self::Timeout => "TIMEOUT",
+            Self::Changed => "STALE_COORDINATE",
+            Self::Unavailable => "INCOMPLETE",
         }
     }
 }
@@ -207,7 +207,7 @@ where
     F: FnMut(Value) -> Result<Value, &'static str>,
 {
     let Some(object) = request.as_object() else {
-        return Some(error(Value::Null, -32600, "invalid_request"));
+        return Some(error(Value::Null, -32600, "INVALID_ARGUMENT"));
     };
     let id = object.get("id").cloned().unwrap_or(Value::Null);
     if object.get("jsonrpc").and_then(Value::as_str) != Some("2.0")
@@ -217,7 +217,7 @@ where
             .any(|k| !["jsonrpc", "id", "method", "params"].contains(&k.as_str()))
         || (!id.is_null() && !id.is_string() && !id.is_i64() && !id.is_u64())
     {
-        return Some(error(id, -32600, "invalid_request"));
+        return Some(error(id, -32600, "INVALID_ARGUMENT"));
     }
     // Notifications have no response and cannot invoke domain work.
     if !object.contains_key("id") {
@@ -227,20 +227,31 @@ where
     let meta = params
         .and_then(|p| p.get("_meta"))
         .and_then(Value::as_object);
-    if meta
+    let version = meta
         .and_then(|m| m.get("io.modelcontextprotocol/protocolVersion"))
-        .and_then(Value::as_str)
-        != Some(PROTOCOL)
-    {
-        let mut response = error(id, -32022, "unsupported_protocol_version");
-        response["error"]["data"] = json!({"supported":[PROTOCOL]});
+        .and_then(Value::as_str);
+    let Some(version) = version.filter(|v| {
+        v.len() == 10
+            && v.bytes().enumerate().all(|(i, b)| {
+                if i == 4 || i == 7 {
+                    b == b'-'
+                } else {
+                    b.is_ascii_digit()
+                }
+            })
+    }) else {
+        return Some(error(id, -32602, "INVALID_ARGUMENT"));
+    };
+    if version != PROTOCOL {
+        let mut response = error(id, -32022, "UNSUPPORTED_OPERATION");
+        response["error"]["data"] = json!({"supported":[PROTOCOL],"requested":version});
         return Some(response);
     }
     if !meta
         .and_then(|m| m.get("io.modelcontextprotocol/clientCapabilities"))
         .is_some_and(Value::is_object)
     {
-        return Some(error(id, -32602, "invalid_arguments"));
+        return Some(error(id, -32602, "INVALID_ARGUMENT"));
     }
     let method = object["method"].as_str().unwrap_or_default();
     let allowed: &[&str] = if method == "tools/call" {
@@ -249,7 +260,7 @@ where
         &["_meta"]
     };
     if params.is_some_and(|p| p.keys().any(|k| !allowed.contains(&k.as_str()))) {
-        return Some(error(id, -32602, "invalid_arguments"));
+        return Some(error(id, -32602, "INVALID_ARGUMENT"));
     }
     let result = match method {
         "server/discover" => {
@@ -260,7 +271,7 @@ where
         "tools/call" => {
             let params = params.expect("metadata checked");
             if params.get("name").and_then(Value::as_str) != Some("content_query") {
-                return Some(error(id, -32602, "unsupported_operation"));
+                return Some(error(id, -32602, "UNSUPPORTED_OPERATION"));
             }
             match params
                 .get("arguments")
@@ -270,10 +281,10 @@ where
             {
                 Some(Ok(value)) => json!({"content":[],"structuredContent":value,"isError":false}),
                 Some(Err(code)) => json!({"content":[{"type":"text","text":code}],"isError":true}),
-                None => return Some(error(id, -32602, "invalid_arguments")),
+                None => return Some(error(id, -32602, "INVALID_ARGUMENT")),
             }
         }
-        _ => return Some(error(id, -32601, "unsupported_operation")),
+        _ => return Some(error(id, -32601, "UNSUPPORTED_OPERATION")),
     };
     Some(complete(id, result))
 }
@@ -308,16 +319,28 @@ where
                 .read_until(b'\n', &mut line)
             {
                 Ok(n) => n,
-                Err(_) => break,
+                Err(_) => {
+                    if let Ok(entries) = pending.lock() {
+                        for (_, flag) in entries.iter() {
+                            flag.store(true, Ordering::Release);
+                        }
+                    }
+                    break;
+                }
             };
             if count == 0 {
+                if let Ok(entries) = pending.lock() {
+                    for (_, flag) in entries.iter() {
+                        flag.store(true, Ordering::Release);
+                    }
+                }
                 break;
             }
             let oversized = line.len() > MAX_REQUEST;
             let request: Value = if oversized {
                 Value::Null
             } else {
-                serde_json::from_slice(&line).unwrap_or(Value::Null)
+                strict_json(&line).unwrap_or(Value::Null)
             };
             if request.get("method").and_then(Value::as_str) == Some("notifications/cancelled")
                 && request.get("id").is_none()
@@ -367,9 +390,9 @@ where
     for (request, cancelled, oversized) in receiver {
         let id = request["id"].clone();
         let response = if oversized {
-            Some(error(Value::Null, -32600, "limit_exceeded"))
+            Some(error(Value::Null, -32600, "LIMIT_EXCEEDED"))
         } else if request.is_null() {
-            Some(error(Value::Null, -32700, "invalid_json"))
+            Some(error(Value::Null, -32700, "INVALID_ARGUMENT"))
         } else {
             dispatch(request, tool, &mut |arguments| {
                 handler(arguments, &cancelled)
@@ -378,7 +401,7 @@ where
         if let Some(response) = response {
             let mut bytes = serde_json::to_vec(&response)?;
             if bytes.len() > MAX_RESULT {
-                bytes = serde_json::to_vec(&error(id.clone(), -32603, "limit_exceeded"))?;
+                bytes = serde_json::to_vec(&error(id.clone(), -32603, "LIMIT_EXCEEDED"))?;
             }
             output.write_all(&bytes)?;
             output.write_all(b"\n")?;
@@ -404,12 +427,25 @@ pub fn git_metadata(root: &ConfiguredRoot, arguments: &[&str]) -> Result<Vec<u8>
         thread,
         time::Duration,
     };
+    if arguments.first() == Some(&"status") {
+        let config = git_metadata(root, &["config", "--null", "--list"])?;
+        for entry in config.split(|b| *b == 0) {
+            let key = entry.split(|b| *b == b'\n').next().unwrap_or_default();
+            if key.starts_with(b"filter.")
+                && (key.ends_with(b".clean") || key.ends_with(b".process"))
+            {
+                return Err(AccessError::Forbidden);
+            }
+        }
+    }
     if Instant::now() >= root.deadline {
         return Err(AccessError::Timeout);
     }
     let mut child = Command::new("git")
         .args([
             "--no-pager",
+            "--no-replace-objects",
+            "--no-lazy-fetch",
             "-c",
             "core.fsmonitor=false",
             "-c",
@@ -426,6 +462,8 @@ pub fn git_metadata(root: &ConfiguredRoot, arguments: &[&str]) -> Result<Vec<u8>
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .env("GIT_OPTIONAL_LOCKS", "0")
         .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_NO_REPLACE_OBJECTS", "1")
+        .env("GIT_NO_LAZY_FETCH", "1")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -471,6 +509,105 @@ pub fn git_metadata(_: &ConfiguredRoot, _: &[&str]) -> Result<Vec<u8>, AccessErr
     Err(AccessError::Unavailable)
 }
 
+/// Decode the complete frame without silently replacing duplicate object keys.
+pub fn strict_json(bytes: &[u8]) -> Result<Value, serde_json::Error> {
+    use serde::{
+        Deserialize, Deserializer,
+        de::{self, MapAccess, SeqAccess, Visitor},
+    };
+    struct Strict(Value);
+    impl<'de> Deserialize<'de> for Strict {
+        fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+            struct V;
+            impl<'de> Visitor<'de> for V {
+                type Value = Strict;
+                fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                    f.write_str("bounded JSON without duplicate keys")
+                }
+                fn visit_bool<E: de::Error>(self, v: bool) -> Result<Strict, E> {
+                    Ok(Strict(json!(v)))
+                }
+                fn visit_i64<E: de::Error>(self, v: i64) -> Result<Strict, E> {
+                    Ok(Strict(json!(v)))
+                }
+                fn visit_u64<E: de::Error>(self, v: u64) -> Result<Strict, E> {
+                    Ok(Strict(json!(v)))
+                }
+                fn visit_f64<E: de::Error>(self, v: f64) -> Result<Strict, E> {
+                    Ok(Strict(json!(v)))
+                }
+                fn visit_str<E: de::Error>(self, v: &str) -> Result<Strict, E> {
+                    Ok(Strict(json!(v)))
+                }
+                fn visit_unit<E: de::Error>(self) -> Result<Strict, E> {
+                    Ok(Strict(Value::Null))
+                }
+                fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Strict, A::Error> {
+                    let mut values = Vec::new();
+                    while let Some(Strict(v)) = seq.next_element()? {
+                        values.push(v);
+                    }
+                    Ok(Strict(Value::Array(values)))
+                }
+                fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Strict, A::Error> {
+                    let mut values = serde_json::Map::new();
+                    while let Some((key, Strict(value))) = map.next_entry::<String, Strict>()? {
+                        if values.insert(key, value).is_some() {
+                            return Err(de::Error::custom("duplicate key"));
+                        }
+                    }
+                    Ok(Strict(Value::Object(values)))
+                }
+            }
+            d.deserialize_any(V)
+        }
+    }
+    serde_json::from_slice::<Strict>(bytes).map(|v| v.0)
+}
+
+/// A nonblocking stdout descriptor bounds peer backpressure without an unsafe
+/// signal handler or a thread that can prevent process shutdown.
+pub struct BoundedStdout {
+    file: File,
+    deadline: Option<Instant>,
+}
+impl BoundedStdout {
+    pub fn new() -> std::io::Result<Self> {
+        let fd = rustix::io::dup(std::io::stdout())?;
+        let flags = rustix::fs::fcntl_getfl(&fd)?;
+        rustix::fs::fcntl_setfl(&fd, flags | OFlags::NONBLOCK)?;
+        Ok(Self {
+            file: File::from(fd),
+            deadline: None,
+        })
+    }
+}
+impl Write for BoundedStdout {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        let deadline = *self
+            .deadline
+            .get_or_insert_with(|| Instant::now() + std::time::Duration::from_secs(1));
+        loop {
+            match self.file.write(bytes) {
+                Err(e)
+                    if e.kind() == std::io::ErrorKind::WouldBlock
+                        || e.kind() == std::io::ErrorKind::Interrupted =>
+                {
+                    if Instant::now() >= deadline {
+                        return Err(std::io::ErrorKind::TimedOut.into());
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(2));
+                }
+                result => return result,
+            }
+        }
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.deadline = None;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -489,6 +626,67 @@ mod tests {
         json!({"jsonrpc":"2.0","id":1,"method":method,"params":{"_meta":{"io.modelcontextprotocol/protocolVersion":PROTOCOL,"io.modelcontextprotocol/clientCapabilities":{}}}})
     }
     #[test]
+    fn strict_frames_reject_duplicates_and_bound_final_envelopes() {
+        for value in [
+            br#"{"id":1,"id":2}"#.as_slice(),
+            br#"{"params":{"arguments":{"plan":{"version":1,"version":2}}}}"#,
+        ] {
+            assert!(strict_json(value).is_err());
+        }
+        let mut call = request("tools/call");
+        call["params"]["name"] = json!("content_query");
+        call["params"]["arguments"] = json!({});
+        let mut output = Vec::new();
+        serve(
+            std::io::Cursor::new(format!("{call}\n").into_bytes()),
+            &mut output,
+            &json!({}),
+            |_, _| Ok(json!({"text":"x".repeat(MAX_RESULT-20)})),
+        )
+        .unwrap();
+        let result: Value = serde_json::from_slice(&output).unwrap();
+        assert_eq!(result["error"]["message"], "LIMIT_EXCEEDED");
+        assert!(output.len() < MAX_RESULT);
+        let mut unknown = request("ping");
+        unknown["params"]["_meta"]["io.modelcontextprotocol/protocolVersion"] = json!("2099-01-01");
+        assert_eq!(
+            dispatch(unknown, &json!({}), &mut |_| panic!()).unwrap()["error"]["data"]["requested"],
+            "2099-01-01"
+        );
+    }
+    #[test]
+    fn eof_cancels_outstanding_work_and_stdout_backpressure_is_bounded() {
+        let mut call = request("tools/call");
+        call["params"]["name"] = json!("content_query");
+        call["params"]["arguments"] = json!({});
+        serve(
+            std::io::Cursor::new(format!("{call}\n").into_bytes()),
+            Vec::new(),
+            &json!({}),
+            |_, flag| {
+                let end = Instant::now() + Duration::from_secs(1);
+                while !flag.load(Ordering::Acquire) && Instant::now() < end {
+                    std::thread::yield_now();
+                }
+                assert!(flag.load(Ordering::Acquire));
+                Err("CANCELLED")
+            },
+        )
+        .unwrap();
+        let (mut stream, _peer) = std::os::unix::net::UnixStream::pair().unwrap();
+        stream.set_nonblocking(true).unwrap();
+        while stream.write(&[0; 8192]).is_ok() {}
+        let fd: OwnedFd = stream.into();
+        let mut output = BoundedStdout {
+            file: File::from(fd),
+            deadline: Some(Instant::now()),
+        };
+        assert_eq!(
+            output.write(b"x").unwrap_err().kind(),
+            std::io::ErrorKind::TimedOut
+        );
+    }
+    #[test]
     fn no_handshake_modern_metadata_and_closed_catalog() {
         let mut handler = |_| panic!("must not invoke provider");
         let result = dispatch(request("server/discover"), &json!({}), &mut handler).unwrap();
@@ -505,7 +703,7 @@ mod tests {
                 &mut handler
             )
             .unwrap()["error"]["code"],
-            -32022
+            -32602
         );
     }
     #[test]
@@ -583,7 +781,7 @@ mod tests {
                     std::thread::yield_now();
                 }
                 assert!(cancelled.load(Ordering::Acquire));
-                Err("cancelled")
+                Err("CANCELLED")
             },
         )
         .unwrap();
