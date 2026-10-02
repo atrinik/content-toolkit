@@ -31,7 +31,10 @@ control interpretation or lossy UTF-8 conversion. It is a review format, not a
 patch(1) input. The inverse plan carries the new revisions and adjusted spans;
 undo is a new validated transaction and fails if any intervening project change
 occurred. Reapplying an old plan similarly reports an exact revision mismatch;
-no-op value replacements preserve the revision.
+no-op value replacements preserve the revision. Version 1 rejects replacements
+starting with a space or tab: the parser would absorb those bytes into the field
+separator, preventing a value-only inverse from restoring the original bytes.
+Empty values and trailing whitespace retain reversible value spans.
 
 Default project limits admit 10,000 files, 128 MiB of document bytes, 4,096 commands,
 4 MiB of plan/diff budget, and 256 diagnostics. Source/schema/catalog limits bound

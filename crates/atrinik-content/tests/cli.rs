@@ -247,11 +247,13 @@ fn project_transactions_preview_by_default_and_require_explicit_apply() {
     let invalid_json: serde_json::Value = serde_json::from_slice(&invalid.stdout).unwrap();
     assert_eq!(invalid_json["status"], "invalid");
     assert_eq!(invalid_json["dry_run"], true);
-    assert!(invalid_json["diagnostics"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|diagnostic| diagnostic["code"] == "catalog.missing_reference"));
+    assert!(
+        invalid_json["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|diagnostic| diagnostic["code"] == "catalog.missing_reference")
+    );
 
     let previewed = Command::new(binary)
         .args([
@@ -310,7 +312,7 @@ fn project_transactions_preview_by_default_and_require_explicit_apply() {
             plan.to_str().unwrap(),
         ])
         .output()
-    .unwrap();
+        .unwrap();
     assert!(!stale.status.success());
     let stale_json: serde_json::Value = serde_json::from_slice(&stale.stdout).unwrap();
     assert_eq!(stale_json["status"], "error");

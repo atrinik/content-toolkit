@@ -93,7 +93,7 @@ fn wire_plan(plan: &ProjectPlan) -> Plan {
 }
 pub fn encode_preview(preview: &Preview) -> Result<Vec<u8>, TransactionError> {
     let changes: Vec<_> = preview.changes.iter().map(|c| json!({"path":c.path,"source_id":c.source_id,"record":c.record,"span":{"start":c.span.start,"end":c.span.end},"field":c.field,"before":c.before,"after":c.after,"semantic_intent":c.intent})).collect();
-    let diagnostics: Vec<_> = preview.diagnostics.iter().map(|d| json!({"code":d.code,"severity":format!("{:?}",d.severity).to_lowercase(),"source_id":d.location.source,"span":{"start":d.location.span.start,"end":d.location.span.end},"semantic_path":d.semantic_path,"message":d.message,"suppressed":d.suppressed})).collect();
+    let diagnostics: Vec<_> = preview.diagnostics.iter().map(|d| json!({"code":d.code,"severity":format!("{:?}",d.severity).to_lowercase(),"source_id":d.location.source,"span":{"start":d.location.span.start,"end":d.location.span.end},"semantic_path":d.semantic_path,"message":d.message,"suppressed":d.suppressed,"suppressible":d.suppressible,"fix_hint":d.fix_hint,"related":d.related.iter().map(|r|json!({"source_id":r.location.source,"span":{"start":r.location.span.start,"end":r.location.span.end},"message":r.message})).collect::<Vec<_>>()})).collect();
     serde_json::to_vec(&json!({"version":1,"status":if preview.is_valid(){"valid"}else{"invalid"},"dry_run":true,"original_revision":preview.original().revision(),"result_revision":preview.result().revision(),"changes":changes,"text_diff":preview.text_diff,"diagnostics":diagnostics,"inverse":wire_plan(&preview.inverse)})).map_err(|_| TransactionError::InvalidPlan)
 }
 

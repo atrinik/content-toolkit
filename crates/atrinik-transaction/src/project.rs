@@ -224,6 +224,7 @@ pub enum TransactionError {
     InvalidIdentity,
     InvalidFile(String),
     InvalidPlan,
+    NonReversibleValue(String),
     Limit(&'static str),
     ProjectRevision {
         expected: String,
@@ -299,6 +300,13 @@ pub fn preview(
     for command in commands {
         control.check()?;
         validate_path(&command.path)?;
+        if command
+            .replacement
+            .first()
+            .is_some_and(|byte| matches!(byte, b' ' | b'\t'))
+        {
+            return Err(TransactionError::NonReversibleValue(command.path.clone()));
+        }
         if command.semantic_intent.is_empty()
             || command.semantic_intent.len() > 1024
             || command.semantic_intent.chars().any(char::is_control)
@@ -401,15 +409,17 @@ pub fn preview(
             return Err(TransactionError::Limit("schema diagnostics"));
         }
         append_diagnostics(&mut diagnostics, checked.values(), policy.limits)?;
+        let loader = file_policy
+            .loader
+            .clone()
+            .with_limits(policy.catalog_limits)?;
         let loaded = match &file_policy.shape {
-            CatalogShape::Objects => file_policy
-                .loader
-                .load_objects(&file.document, EvidenceReferences::default())?,
-            CatalogShape::Single(id) => file_policy.loader.load_single(
-                &file.document,
-                id.clone(),
-                EvidenceReferences::default(),
-            )?,
+            CatalogShape::Objects => {
+                loader.load_objects(&file.document, EvidenceReferences::default())?
+            }
+            CatalogShape::Single(id) => {
+                loader.load_single(&file.document, id.clone(), EvidenceReferences::default())?
+            }
         };
         if loaded.schema_version() != result.identity.schema_version {
             return Err(TransactionError::InvalidIdentity);
@@ -634,6 +644,20 @@ mod tests {
             run(&snapshot, &plan, &policy).unwrap().text_diff
         );
     }
+    #[test]
+    fn whitespace_boundary_and_empty_values_have_safe_undo() {
+        let (snapshot, policy, mut plan) = setup();
+        plan.commands[0].replacement = b" leading".to_vec();
+        assert!(matches!(
+            run(&snapshot, &plan, &policy),
+            Err(TransactionError::NonReversibleValue(_))
+        ));
+        plan.commands[0].replacement.clear();
+        let changed = run(&snapshot, &plan, &policy).unwrap();
+        let restored = run(changed.result(), &changed.inverse, &policy).unwrap();
+        assert_eq!(restored.result().revision(), snapshot.revision());
+    }
+
     #[test]
     fn rejects_preconditions_conflicts_and_limits() {
         let (snapshot, mut policy, mut plan) = setup();
