@@ -28,6 +28,7 @@ dependencies = [
  "atrinik-schema",
  "atrinik-source",
  "atrinik-transaction",
+ "rustix",
  "serde",
  "serde_json",
 ]

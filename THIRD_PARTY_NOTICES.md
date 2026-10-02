@@ -20,3 +20,7 @@ also offer Apache-2.0 with the LLVM exception as an alternative to their
 Apache-2.0/MIT terms; the dependency check recognizes that exact exception
 expression without admitting other exceptions or copyleft licenses. The lockfile
 and release SBOM retain all transitive package identities.
+The JSON/derive dependency closure additionally includes memchr (Unlicense OR
+MIT), ryu (Apache-2.0 OR BSL-1.0), and unicode-ident ((MIT OR Apache-2.0) AND
+Unicode-3.0). Their package notices and the Unicode data permission notice remain
+in the dependency sources; the release SBOM records these complete expressions.

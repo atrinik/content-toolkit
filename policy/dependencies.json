@@ -2,7 +2,10 @@
   "schema_version": 1,
   "allowed_spdx": [
     "Apache-2.0",
-    "MIT"
+    "MIT",
+    "BSL-1.0",
+    "Unicode-3.0",
+    "Unlicense"
   ],
   "forbidden_spdx": [
     "AGPL-1.0-only",
@@ -61,5 +64,11 @@
       "eol_response": "upgrade, replace, or remove before the unsupported release ships",
       "validation": "Cargo.lock, cargo metadata, Clippy, tests, Trivy, Syft SBOM"
     }
-  ]
+  ],
+  "transitive_license_notes": {
+    "memchr": "Unlicense OR MIT; MIT alternative retained",
+    "ryu": "Apache-2.0 OR BSL-1.0; Apache-2.0 alternative retained",
+    "unicode-ident": "(MIT OR Apache-2.0) AND Unicode-3.0; Unicode data copyright and permission notice retained in package and release SBOM",
+    "rustix and linux-raw-sys": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT; Apache-2.0 or MIT alternative retained"
+  }
 }
