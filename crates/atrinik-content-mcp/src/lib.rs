@@ -18,6 +18,7 @@ use std::{
 
 pub const MAX_REQUEST: usize = 16 * 1024;
 pub const MAX_OUTPUT: usize = 64 * 1024;
+pub const ROUTINE_OUTPUT: usize = 32 * 1024;
 pub const MAX_PAGE: usize = 50;
 pub const SCHEMA_VERSION: &str = "atrinik-content-mcp/v1";
 
@@ -89,16 +90,16 @@ pub enum Error {
 impl Error {
     pub const fn code(self) -> &'static str {
         match self {
-            Self::InvalidArguments => "invalid_arguments",
-            Self::InvalidIdentity => "stale_identity",
-            Self::UnsupportedSchema => "unsupported_schema",
-            Self::Limit => "limits",
-            Self::StaleCursor => "stale_cursor",
-            Self::Missing => "incomplete_data",
-            Self::Incomplete => "incomplete_data",
-            Self::Cancelled => "cancelled",
-            Self::Timeout => "timeout",
-            Self::Internal => "internal_failure",
+            Self::InvalidArguments => "INVALID_ARGUMENT",
+            Self::InvalidIdentity => "STALE_COORDINATE",
+            Self::UnsupportedSchema => "UNSUPPORTED_OPERATION",
+            Self::Limit => "LIMIT_EXCEEDED",
+            Self::StaleCursor => "STALE_CURSOR",
+            Self::Missing => "INCOMPLETE",
+            Self::Incomplete => "INCOMPLETE",
+            Self::Cancelled => "CANCELLED",
+            Self::Timeout => "TIMEOUT",
+            Self::Internal => "INTERNAL",
         }
     }
 }
@@ -416,7 +417,7 @@ impl Provider {
                             }
                             _ => {
                                 incomplete = true;
-                                records.push(json!({"from":current.to_string(),"to":target.to_string(),"error":"incomplete_data"}));
+                                records.push(json!({"from":current.to_string(),"to":target.to_string(),"error":"INCOMPLETE"}));
                             }
                         }
                     }
@@ -543,7 +544,7 @@ impl Provider {
         if serde_json::to_vec(&result)
             .map_err(|_| Error::Internal)?
             .len()
-            > MAX_OUTPUT
+            > ROUTINE_OUTPUT.min(MAX_OUTPUT)
         {
             return Err(Error::Limit);
         }
@@ -988,5 +989,30 @@ mod tests {
             Err(Error::InvalidArguments)
         );
         assert!(Provider::parse_request(&vec![b' '; MAX_REQUEST + 1]).is_err());
+    }
+    #[test]
+    fn common_error_codes_and_routine_output_ceiling() {
+        assert_eq!(Error::InvalidArguments.code(), "INVALID_ARGUMENT");
+        assert_eq!(Error::InvalidIdentity.code(), "STALE_COORDINATE");
+        assert_eq!(Error::UnsupportedSchema.code(), "UNSUPPORTED_OPERATION");
+        assert_eq!(Error::Limit.code(), "LIMIT_EXCEEDED");
+        assert_eq!(Error::StaleCursor.code(), "STALE_CURSOR");
+        assert_eq!(Error::Incomplete.code(), "INCOMPLETE");
+        assert_eq!(Error::Cancelled.code(), "CANCELLED");
+        assert_eq!(Error::Timeout.code(), "TIMEOUT");
+        assert_eq!(Error::Internal.code(), "INTERNAL");
+        let bytes = format!(
+            "Object a\nname label\nunknown {}\nend\n",
+            "x".repeat(17 * 1024)
+        );
+        let snapshot = fixture_bytes("fixture", &"a".repeat(40), bytes, Domain::Archetype);
+        let provider = Provider::new(vec![snapshot]).unwrap();
+        let mut req = request();
+        req.operation = Operation::Inspect;
+        req.path = Some("items.arc".into());
+        assert_eq!(
+            provider.call(req, &AtomicBool::new(false)),
+            Err(Error::Limit)
+        );
     }
 }

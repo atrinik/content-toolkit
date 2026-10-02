@@ -26,7 +26,7 @@ startup transport must refresh or fail stale before each mutable observation.
 
 Requests are at most 16 KiB; queries at most 1,024 bytes; pages at most 50;
 scans at most 1,000 records; graphs at most depth 8 and 1,000 edges; source
-files at most 256 KiB; structured results at most 64 KiB. Cancellation and a
+files at most 256 KiB; routine structured results at most 32 KiB (64 KiB protocol hard ceiling). Cancellation and a
 five-second deadline are checked during traversal and canonical previews.
 Errors contain fixed codes and never echo caller values. Preview is entirely
 in memory and grants no permission to publish. No apply, execution, network,

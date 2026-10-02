@@ -328,7 +328,7 @@
                 "type": "string"
               },
               "error": {
-                "const": "incomplete_data"
+                "const": "INCOMPLETE"
               }
             },
             "required": [
