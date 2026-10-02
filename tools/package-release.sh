@@ -30,8 +30,12 @@ git archive --format=tar --prefix="atrinik-content-toolkit-${version}/" HEAD \
 cargo package --locked --offline --workspace --allow-dirty --no-verify
 cp "${target_directory}"/package/*.crate "${output}/crates/"
 tools/verify-packages.sh "${output}/crates"
-cargo build --locked --release --package atrinik-content
+cargo build --locked --release --package atrinik-content --package atrinik-content-mcp
 cp "${target_directory}/release/atrinik-content" "${output}/"
+cp "${target_directory}/release/atrinik-content-mcp" "${output}/"
+install -d "${output}/mcp-schemas"
+cp crates/atrinik-content-mcp/schemas/*.json "${output}/mcp-schemas/"
+cp crates/atrinik-content-mcp/STDIO.md "${output}/mcp-schemas/"
 cp -R crates/atrinik-testkit/fixtures "${output}/"
 cp -R crates/atrinik-schema/schemas "${output}/"
 cp -R policy schemas "${output}/"
@@ -66,3 +70,7 @@ tar -tf "${output}/crates/atrinik-schema-0.1.0.crate" \
     'atrinik-schema-0.1.0/schemas/foundation-artifact.schema.json' >/dev/null
 test -s "${output}/policy/classic-authored-limits.json"
 test -s "${output}/schemas/classic-diagnostic.schema.json"
+
+test -s "${output}/atrinik-content-mcp"
+test -s "${output}/mcp-schemas/input.schema.json"
+test -s "${output}/mcp-schemas/output.schema.json"
