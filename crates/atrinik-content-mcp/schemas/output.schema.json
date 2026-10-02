@@ -676,6 +676,110 @@
                   "schema_version",
                   "dirty_fingerprint"
                 ]
+              },
+              "before_fields": {
+                "type": "array",
+                "maxItems": 1000,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "record": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "field_hex": {
+                      "type": "string"
+                    },
+                    "value_hex": {
+                      "type": "string"
+                    },
+                    "span": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "start": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "end": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      },
+                      "required": [
+                        "start",
+                        "end"
+                      ]
+                    },
+                    "source_revision": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "record",
+                    "field_hex",
+                    "value_hex",
+                    "span",
+                    "source_revision"
+                  ]
+                }
+              },
+              "after_fields": {
+                "type": "array",
+                "maxItems": 1000,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "record": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "field_hex": {
+                      "type": "string"
+                    },
+                    "value_hex": {
+                      "type": "string"
+                    },
+                    "span": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "start": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "end": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      },
+                      "required": [
+                        "start",
+                        "end"
+                      ]
+                    },
+                    "source_revision": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "record",
+                    "field_hex",
+                    "value_hex",
+                    "span",
+                    "source_revision"
+                  ]
+                }
               }
             },
             "required": [
@@ -683,7 +787,9 @@
               "before",
               "after",
               "before_identity",
-              "after_identity"
+              "after_identity",
+              "before_fields",
+              "after_fields"
             ]
           },
           {
