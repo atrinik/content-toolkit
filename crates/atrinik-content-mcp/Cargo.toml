@@ -1,0 +1,20 @@
+[package]
+name = "atrinik-content-mcp"
+description = "Bounded read-only adapter over the canonical Atrinik content graph"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+atrinik-catalog.workspace = true
+atrinik-diagnostics.workspace = true
+atrinik-source.workspace = true
+atrinik-schema.workspace = true
+atrinik-transaction.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+rustix.workspace = true

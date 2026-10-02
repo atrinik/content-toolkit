@@ -1,0 +1,170 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "selector",
+    "operation"
+  ],
+  "properties": {
+    "selector": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "operation": {
+      "enum": [
+        "search",
+        "inspect",
+        "references",
+        "impact",
+        "validate",
+        "compare",
+        "preview"
+      ]
+    },
+    "identity": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 1024
+    },
+    "query": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 1024
+    },
+    "domain": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 128
+    },
+    "path": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 1024
+    },
+    "field": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 1024
+    },
+    "cursor": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 160
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 50
+    },
+    "depth": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 8
+    },
+    "compare_selector": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 128
+    },
+    "plan": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "expected_project_revision",
+        "commands"
+      ],
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "expected_project_revision": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "commands": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "expected_source_revision",
+              "record",
+              "expected_span",
+              "semantic_intent",
+              "replacement"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "maxLength": 240
+              },
+              "expected_source_revision": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "record": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "expected_span": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "start",
+                  "end"
+                ],
+                "properties": {
+                  "start": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "end": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              },
+              "semantic_intent": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "replacement": {
+                "type": "array",
+                "maxItems": 4096,
+                "items": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 255
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$id": "https://atrinik.org/schemas/content-mcp/v1/input.json"
+}
