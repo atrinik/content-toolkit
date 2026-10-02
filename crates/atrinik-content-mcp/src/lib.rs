@@ -530,6 +530,9 @@ impl Provider {
                 records.push(json!({"valid":preview.is_valid(),"text_diff":preview.text_diff,"changes":preview.changes.iter().map(|c|json!({"path":c.path,"record":c.record,"field_hex":bytes_hex(&c.field),"before_hex":bytes_hex(&c.before),"after_hex":bytes_hex(&c.after)})).collect::<Vec<_>>(),"diagnostics":preview.diagnostics.iter().map(|d|json!({"code":d.code,"path":d.location.source})).collect::<Vec<_>>() }));
             }
         }
+        if records.len() > 1000 {
+            return Err(Error::Limit);
+        }
         if offset > records.len() {
             return Err(Error::StaleCursor);
         }
@@ -955,5 +958,35 @@ mod tests {
             result["records"][0]["before_fields"],
             result["records"][0]["after_fields"]
         );
+    }
+    #[test]
+    fn stale_effective_parameters_timeout_and_unsupported_schema() {
+        let provider = Provider::new(vec![fixture("fixture", &"a".repeat(40))]).unwrap();
+        let req = request();
+        let page = provider.call(req.clone(), &AtomicBool::new(false)).unwrap();
+        let mut changed = req.clone();
+        changed.cursor = page["next_cursor"].as_str().map(str::to_string);
+        changed.limit = 25;
+        assert_eq!(
+            provider.call(changed, &AtomicBool::new(false)),
+            Err(Error::StaleCursor)
+        );
+        assert_eq!(
+            provider.call_with_deadline(req, &AtomicBool::new(false), Instant::now()),
+            Err(Error::Timeout)
+        );
+        let mut req = request();
+        req.domain = Some("unknown-format".into());
+        assert_eq!(
+            provider.call(req, &AtomicBool::new(false)),
+            Err(Error::UnsupportedSchema)
+        );
+        let mut req = request();
+        req.query = Some("x".repeat(1025));
+        assert_eq!(
+            provider.call(req, &AtomicBool::new(false)),
+            Err(Error::InvalidArguments)
+        );
+        assert!(Provider::parse_request(&vec![b' '; MAX_REQUEST + 1]).is_err());
     }
 }
