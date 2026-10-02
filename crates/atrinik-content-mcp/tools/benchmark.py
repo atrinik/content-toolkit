@@ -7,8 +7,9 @@ Usage: python3 benchmark.py /absolute/path/to/atrinik-content-mcp
 Only synthetic temporary Git fixtures are read or written.
 """
 
-import hashlib, json, pathlib, select, statistics, subprocess, sys, tempfile, time
+import hashlib, json, os, pathlib, select, signal, statistics, subprocess, sys, tempfile, time
 binary = pathlib.Path(sys.argv[1]).resolve()
+binary_digest = hashlib.sha256(binary.read_bytes()).hexdigest()
 iterations = 30
 meta = {'io.modelcontextprotocol/protocolVersion': '2026-07-28', 'io.modelcontextprotocol/clientInfo': {'name': 'synthetic-benchmark', 'version': '1.0.0'}, 'io.modelcontextprotocol/clientCapabilities': {}}
 request = {'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call', 'params': {'_meta': meta, 'name': 'content_query', 'arguments': {'selector': 'synthetic', 'operation': 'search', 'query': 'Display 123'}}}
@@ -34,6 +35,45 @@ def check(data):
         raise RuntimeError('persistent and fresh semantic results differ')
     return len(data)
 
+def read_response(process):
+    deadline = time.monotonic() + 15
+    data = bytearray()
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0 or not select.select([process.stdout], [], [], remaining)[0]:
+            raise TimeoutError('synthetic response timed out')
+        chunk = os.read(process.stdout.fileno(), min(4096, 32769 - len(data)))
+        if not chunk:
+            raise RuntimeError('provider closed response stream')
+        data.extend(chunk)
+        if b'\n' in data:
+            if data.count(b'\n') != 1 or not data.endswith(b'\n'):
+                raise RuntimeError('unexpected response framing')
+            return bytes(data)
+        if len(data) >= 32769:
+            raise RuntimeError('response exceeds routine frame limit')
+
+
+def cleanup(process):
+    try:
+        process.stdin.close()
+    except OSError:
+        pass
+    try:
+        process.wait(timeout=15)
+    except subprocess.TimeoutExpired:
+        # Each benchmark child owns a fresh session; reap its Git subprocesses too.
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait(timeout=5)
+        raise RuntimeError('provider failed to stop after EOF')
+    finally:
+        process.stdout.close()
+        process.stderr.close()
+
+
 def summarize(values):
     values = sorted(values)
     return {'p50_ms': statistics.median(values), 'p95_ms': values[int((len(values) - 1) * 0.95)], 'total_ms': sum(values)}
@@ -44,7 +84,7 @@ with tempfile.TemporaryDirectory(prefix='atrinik-content-mcp-benchmark-') as dir
     env = {'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8', 'LC_ALL': 'C.UTF-8', 'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': '/dev/null', 'GIT_TERMINAL_PROMPT': '0', 'GIT_NO_LAZY_FETCH': '1'}
 
     def git(*args):
-        return subprocess.check_output(['git', *args], cwd=source, env=env, stderr=subprocess.DEVNULL, text=True).strip()
+        return subprocess.check_output(['git', *args], cwd=source, env=env, stderr=subprocess.DEVNULL, text=True, timeout=15).strip()
     git('init', '-b', 'main')
     git('remote', 'add', 'origin', 'https://github.com/atrinik/content.git')
     (source / 'synthetic.arc').write_text(''.join((f'Object item{i:03}\nname Display {i}\nend\n' for i in range(300))))
@@ -57,17 +97,13 @@ with tempfile.TemporaryDirectory(prefix='atrinik-content-mcp-benchmark-') as dir
     command = [str(binary), '--config', str(config)]
     warm = []
     output_bytes = []
-    process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+    process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, start_new_session=True)
     try:
         for i in range(iterations + 1):
             start = time.perf_counter_ns()
             process.stdin.write(payload)
             process.stdin.flush()
-            if not select.select([process.stdout], [], [], 15)[0]:
-                raise TimeoutError('synthetic request timed out')
-            line = process.stdout.readline()
-            if not line:
-                raise RuntimeError('provider exited: ' + process.stderr.read().decode())
+            line = read_response(process)
             elapsed = (time.perf_counter_ns() - start) / 1000000.0
             output_bytes.append(check(line))
             if i:
@@ -75,28 +111,24 @@ with tempfile.TemporaryDirectory(prefix='atrinik-content-mcp-benchmark-') as dir
             else:
                 startup = elapsed
     finally:
-        process.stdin.close()
-        process.wait(timeout=15)
+        cleanup(process)
     if process.returncode != 0:
         raise RuntimeError('provider did not exit successfully')
     cold = []
     for i in range(iterations):
         start = time.perf_counter_ns()
-        process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+        process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, start_new_session=True)
         try:
             process.stdin.write(payload)
             process.stdin.flush()
-            if not select.select([process.stdout], [], [], 15)[0]:
-                raise TimeoutError('synthetic cold request timed out')
-            line = process.stdout.readline()
-            if not line:
-                raise RuntimeError('provider exited: ' + process.stderr.read().decode())
+            line = read_response(process)
             output_bytes.append(check(line))
             cold.append((time.perf_counter_ns() - start) / 1000000.0)
         finally:
-            process.stdin.close()
-            process.wait(timeout=15)
+            cleanup(process)
         if process.returncode != 0:
             raise RuntimeError('provider did not exit successfully')
-    result = {'schema_version': 1, 'iterations': iterations, 'fixtures': 300, 'correct': True, 'external_network': False, 'baseline': 'fresh stdio provider process per identical semantic query', 'warm': 'one persistent stdio provider, each request independently fences live source state', 'binary_sha256': hashlib.sha256(binary.read_bytes()).hexdigest(), 'startup_query_ms': startup, 'persistent': summarize(warm), 'process_per_query': summarize(cold), 'max_response_bytes': max(output_bytes), 'p50_speedup': statistics.median(cold) / statistics.median(warm)}
+    if hashlib.sha256(binary.read_bytes()).hexdigest() != binary_digest:
+        raise RuntimeError('benchmark binary changed during measurement')
+    result = {'schema_version': 1, 'iterations': iterations, 'fixtures': 300, 'correct': True, 'external_network': False, 'baseline': 'fresh stdio provider process per identical semantic query', 'warm': 'one persistent stdio provider, each request independently fences live source state', 'binary_sha256': binary_digest, 'startup_query_ms': startup, 'persistent': summarize(warm), 'process_per_query': summarize(cold), 'max_response_bytes': max(output_bytes), 'p50_speedup': statistics.median(cold) / statistics.median(warm)}
     print(json.dumps(result, sort_keys=True))
