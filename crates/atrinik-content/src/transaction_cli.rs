@@ -33,6 +33,17 @@ const MAXIMUM_EXECUTION_MILLIS: u64 = 300_000;
 const BOOTSTRAP_EXECUTION_MILLIS: u64 = 30_000;
 
 pub fn run(arguments: &[OsString]) -> Result<(), Box<dyn Error>> {
+    match run_inner(arguments) {
+        Ok(()) => Ok(()),
+        Err(error) if error.downcast_ref::<OutputReported>().is_some() => Err(error),
+        Err(error) => {
+            write_error_status(error.as_ref())?;
+            Err(error)
+        }
+    }
+}
+
+fn run_inner(arguments: &[OsString]) -> Result<(), Box<dyn Error>> {
     let Some(first) = arguments.first().and_then(|value| value.to_str()) else {
         return Err(usage().into());
     };
@@ -93,7 +104,10 @@ pub fn run(arguments: &[OsString]) -> Result<(), Box<dyn Error>> {
                 if !preview.is_valid() {
                     std::io::stdout().write_all(&output)?;
                     std::io::stdout().write_all(b"\n")?;
-                    return Err("refusing to apply a preview with active error diagnostics".into());
+                    return Err(OutputReported(
+                        "refusing to apply a preview with active error diagnostics",
+                    )
+                    .into());
                 }
                 let outcome = store.apply(&preview, &control)?;
                 let mut value: serde_json::Value = serde_json::from_slice(&output)?;
@@ -117,7 +131,11 @@ pub fn run(arguments: &[OsString]) -> Result<(), Box<dyn Error>> {
             }
             std::io::stdout().write_all(&output)?;
             std::io::stdout().write_all(b"\n")?;
-            Ok(())
+            if preview.is_valid() {
+                Ok(())
+            } else {
+                Err(OutputReported("preview has active error diagnostics").into())
+            }
         }
         _ => Err(usage().into()),
     }
@@ -265,6 +283,27 @@ fn write_commit_status(status: &str, outcome: &CommitOutcome) -> Result<(), Box<
     println!();
     Ok(())
 }
+
+fn write_error_status(error: &(dyn Error + 'static)) -> Result<(), Box<dyn Error>> {
+    let message: String = error.to_string().chars().take(4096).collect();
+    serde_json::to_writer(
+        std::io::stdout(),
+        &serde_json::json!({"status": "error", "message": message}),
+    )?;
+    println!();
+    Ok(())
+}
+
+#[derive(Debug)]
+struct OutputReported(&'static str);
+
+impl std::fmt::Display for OutputReported {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.0)
+    }
+}
+
+impl Error for OutputReported {}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
