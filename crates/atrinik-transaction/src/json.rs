@@ -19,9 +19,10 @@ struct Range { start: usize, end: usize }
 pub fn decode_plan(bytes: &[u8], limits: ProjectLimits) -> Result<ProjectPlan, TransactionError> {
     if bytes.len() > limits.maximum_diff_bytes { return Err(TransactionError::Limit("plan JSON bytes")); }
     let plan: Plan = serde_json::from_slice(bytes).map_err(|_| TransactionError::InvalidPlan)?;
-    if plan.version != 1 || plan.commands.len() > limits.maximum_commands { return Err(TransactionError::InvalidPlan); }
+    if plan.version != 1 || plan.commands.len() > limits.maximum_commands || !revision(&plan.expected_project_revision) || plan.commands.iter().any(|c| !revision(&c.expected_source_revision) || c.expected_span.start > c.expected_span.end) { return Err(TransactionError::InvalidPlan); }
     Ok(ProjectPlan { version: plan.version, expected_project_revision: plan.expected_project_revision, commands: plan.commands.into_iter().map(|c| ReplaceValue { path: c.path, expected_source_revision: c.expected_source_revision, record: c.record, expected_span: Span::new(c.expected_span.start,c.expected_span.end), semantic_intent: c.semantic_intent, replacement: c.replacement }).collect() })
 }
+fn revision(value: &str) -> bool { value.len() == 64 && value.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) }
 pub fn encode_plan(plan: &ProjectPlan) -> Result<Vec<u8>, TransactionError> {
     serde_json::to_vec(&wire_plan(plan)).map_err(|_| TransactionError::InvalidPlan)
 }
@@ -39,9 +40,9 @@ mod tests {
     use super::*;
     #[test]
     fn strict_bounded_json() {
-        let good = br#"{"version":1,"expected_project_revision":"abc","commands":[]}"#;
+        let good = br#"{"version":1,"expected_project_revision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","commands":[]}"#;
         assert!(decode_plan(good,ProjectLimits::default()).is_ok());
-        for bad in [br#"{"version":1,"version":1,"expected_project_revision":"abc","commands":[]}"#.as_slice(), br#"{"version":1,"expected_project_revision":"abc","commands":[],"apply":true}"#, br#"{"version":2,"expected_project_revision":"abc","commands":[]}"#] { assert!(decode_plan(bad,ProjectLimits::default()).is_err()); }
+        for bad in [br#"{"version":1,"version":1,"expected_project_revision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","commands":[]}"#.as_slice(), br#"{"version":1,"expected_project_revision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","commands":[],"apply":true}"#, br#"{"version":2,"expected_project_revision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","commands":[]}"#] { assert!(decode_plan(bad,ProjectLimits::default()).is_err()); }
         assert!(decode_plan(good,ProjectLimits { maximum_diff_bytes: 1,..ProjectLimits::default() }).is_err());
     }
 }

@@ -107,6 +107,7 @@ pub struct SemanticChange {
 pub struct Preview {
     original: ProjectSnapshot,
     result: ProjectSnapshot,
+    validated: bool,
     pub changes: Vec<SemanticChange>,
     pub text_diff: String,
     pub diagnostics: Vec<Diagnostic>,
@@ -115,7 +116,7 @@ pub struct Preview {
 impl Preview {
     pub fn original(&self) -> &ProjectSnapshot { &self.original }
     pub fn result(&self) -> &ProjectSnapshot { &self.result }
-    pub fn is_valid(&self) -> bool { !self.diagnostics.iter().any(|d| d.severity == atrinik_diagnostics::Severity::Error && d.is_active()) }
+    pub fn is_valid(&self) -> bool { self.validated }
 }
 
 #[derive(Debug)]
@@ -162,7 +163,7 @@ pub fn preview(snapshot: &ProjectSnapshot, plan: &ProjectPlan, policy: &ProjectP
         let before = document.bytes(value)?;
         let field = document.bytes(key)?;
         // Hex encodes arbitrary authored bytes without lossy UTF-8 or terminal escapes.
-        let required = before.len().checked_add(command.replacement.len()).and_then(|n| n.checked_mul(2)).and_then(|n| n.checked_add(command.path.len() * 2 + 128)).ok_or(TransactionError::Limit("diff bytes"))?;
+        let required = before.len().checked_add(command.replacement.len()).and_then(|n| n.checked_mul(2)).and_then(|n| n.checked_add(command.path.len() * 2 + field.len() + command.semantic_intent.len() + document.source_id().as_str().len() + 128)).ok_or(TransactionError::Limit("diff bytes"))?;
         diff_bytes = diff_bytes.checked_add(required).ok_or(TransactionError::Limit("diff bytes"))?;
         if diff_bytes > policy.limits.maximum_diff_bytes { return Err(TransactionError::Limit("diff bytes")); }
         edits.entry(command.path.clone()).or_insert_with(|| EditPlan::new(document.revision())).replace_value(document, command.record, &command.replacement)?;
@@ -202,7 +203,8 @@ pub fn preview(snapshot: &ProjectSnapshot, plan: &ProjectPlan, policy: &ProjectP
         ReplaceValue { path: change.path.clone(), expected_source_revision: document.revision().to_string(), record: change.record, expected_span: value, semantic_intent: "undo value replacement".into(), replacement: change.before.clone() }
     }).collect() };
     control.check()?;
-    Ok(Preview { original: snapshot.clone(), result, changes, text_diff: diff, diagnostics, inverse })
+    let validated = !diagnostics.iter().any(|d| d.severity == atrinik_diagnostics::Severity::Error && d.is_active());
+    Ok(Preview { original: snapshot.clone(), result, validated, changes, text_diff: diff, diagnostics, inverse })
 }
 fn append_diagnostics(target: &mut Vec<Diagnostic>, source: &[Diagnostic], limits: ProjectLimits) -> Result<(), TransactionError> {
     if target.len().saturating_add(source.len()) > limits.maximum_diagnostics { return Err(TransactionError::Limit("diagnostics")); }

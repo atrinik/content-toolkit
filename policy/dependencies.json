@@ -1,6 +1,9 @@
 {
   "schema_version": 1,
-  "allowed_spdx": ["Apache-2.0", "MIT"],
+  "allowed_spdx": [
+    "Apache-2.0",
+    "MIT"
+  ],
   "forbidden_spdx": [
     "AGPL-1.0-only",
     "AGPL-1.0-or-later",
@@ -20,6 +23,39 @@
       "version": "0.11.0",
       "license": "MIT OR Apache-2.0",
       "source": "https://crates.io/crates/sha2",
+      "owner": "content-toolkit maintainers",
+      "review_cadence": "monthly and on every dependency update",
+      "eol_response": "upgrade, replace, or remove before the unsupported release ships",
+      "validation": "Cargo.lock, cargo metadata, Clippy, tests, Trivy, Syft SBOM"
+    },
+    {
+      "ecosystem": "cargo",
+      "name": "serde",
+      "version": "1.0.228",
+      "license": "MIT OR Apache-2.0",
+      "source": "https://crates.io/crates/serde",
+      "owner": "content-toolkit maintainers",
+      "review_cadence": "monthly and on every dependency update",
+      "eol_response": "upgrade, replace, or remove before the unsupported release ships",
+      "validation": "Cargo.lock, cargo metadata, Clippy, tests, Trivy, Syft SBOM"
+    },
+    {
+      "ecosystem": "cargo",
+      "name": "serde_json",
+      "version": "1.0.145",
+      "license": "MIT OR Apache-2.0",
+      "source": "https://crates.io/crates/serde_json",
+      "owner": "content-toolkit maintainers",
+      "review_cadence": "monthly and on every dependency update",
+      "eol_response": "upgrade, replace, or remove before the unsupported release ships",
+      "validation": "Cargo.lock, cargo metadata, Clippy, tests, Trivy, Syft SBOM"
+    },
+    {
+      "ecosystem": "cargo",
+      "name": "rustix",
+      "version": "1.1.5",
+      "license": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+      "source": "https://crates.io/crates/rustix",
       "owner": "content-toolkit maintainers",
       "review_cadence": "monthly and on every dependency update",
       "eol_response": "upgrade, replace, or remove before the unsupported release ships",

@@ -12,3 +12,11 @@ are used under the historical MIT provenance grant recorded in
 
 No GPL/AGPL code, classic Atrinik implementation, authored game content,
 media, or third-party fixture is distributed by this repository.
+
+The transaction engine uses Serde/serde_json for strict versioned JSON and rustix
+for safe descriptor-relative filesystem operations. Their exact releases and
+licenses are recorded in `policy/dependencies.json`. Rustix and linux-raw-sys
+also offer Apache-2.0 with the LLVM exception as an alternative to their
+Apache-2.0/MIT terms; the dependency check recognizes that exact exception
+expression without admitting other exceptions or copyleft licenses. The lockfile
+and release SBOM retain all transitive package identities.
