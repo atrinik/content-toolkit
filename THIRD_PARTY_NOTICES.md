@@ -22,5 +22,7 @@ expression without admitting other exceptions or copyleft licenses. The lockfile
 and release SBOM retain all transitive package identities.
 The JSON/derive dependency closure additionally includes memchr (Unlicense OR
 MIT), ryu (Apache-2.0 OR BSL-1.0), and unicode-ident ((MIT OR Apache-2.0) AND
-Unicode-3.0). Their package notices and the Unicode data permission notice remain
-in the dependency sources; the release SBOM records these complete expressions.
+Unicode-3.0). Release bundles retain the complete dependency license/copyright notices,
+including the Unicode data permission notice, in `third-party-licenses/`. Its
+manifest binds each copied notice digest to the exact locked package release;
+the SBOM records the complete license expressions.

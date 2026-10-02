@@ -40,6 +40,7 @@ cp -R crates/atrinik-testkit/fixtures "${output}/"
 cp -R crates/atrinik-schema/schemas "${output}/"
 cp -R policy schemas "${output}/"
 cp LICENSE PROVENANCE.md THIRD_PARTY_NOTICES.md "${output}/"
+python3 tools/package-licenses.py "${output}/third-party-licenses"
 
 SYFT_CHECK_FOR_APP_UPDATE=false syft dir:. \
   --source-name atrinik-content-toolkit --source-version "${version}" \
@@ -74,3 +75,4 @@ test -s "${output}/schemas/classic-diagnostic.schema.json"
 test -s "${output}/atrinik-content-mcp"
 test -s "${output}/mcp-schemas/input.schema.json"
 test -s "${output}/mcp-schemas/output.schema.json"
+test -s "${output}/third-party-licenses/manifest.json"
