@@ -122,7 +122,10 @@ impl Provider {
         serde_json::from_slice(bytes).map_err(|_| Error::InvalidArguments)
     }
     pub fn call(&self, request: Request, cancelled: &AtomicBool) -> Result<Value,Error> {
-        let deadline = Instant::now()+Duration::from_secs(5);
+        self.call_with_deadline(request,cancelled,Instant::now()+Duration::from_secs(5))
+    }
+    pub fn call_with_deadline(&self, request:Request, cancelled:&AtomicBool, deadline:Instant)->Result<Value,Error> {
+        let deadline=deadline.min(Instant::now()+Duration::from_secs(5));
         check(cancelled,deadline)?;
         if serde_json::to_vec(&request).map_err(|_|Error::Internal)?.len()>MAX_REQUEST || request.limit==0 || request.limit>MAX_PAGE || request.depth==0 || request.depth>8 { return Err(Error::Limit); }
         for v in [&request.query,&request.identity,&request.domain,&request.path,&request.field,&request.compare_selector].into_iter().flatten() { if !safe_text(v,1024) { return Err(Error::InvalidArguments); } }
@@ -236,8 +239,8 @@ fn entity_fields(snapshot:&Snapshot,definition:&Definition,field:Option<&str>)->
     Ok(values)
 }
 fn record(snapshot:&Snapshot,d:&Definition)->Value {let preview=snapshot.catalog.preview(&d.id);json!({"identity":d.id.to_string(),"type":d.id.domain().as_str(),"path":d.location.source,"span":{"start":d.location.span.start,"end":d.location.span.end},"label":preview.and_then(|p|p.label.as_ref()),"summary":preview.and_then(|p|p.summary.as_ref()),"resource":format!("atrinik://content/{}/{}/{}",snapshot.identity.commit,snapshot.fingerprint,d.id),"license":d.evidence.license,"provenance":d.evidence.provenance})}
-fn digest(value:&Value)->Result<String,Error> {Ok(format!("{:x}",Sha256::digest(serde_json::to_vec(value).map_err(|_|Error::Internal)?)))}
-fn encode_cursor(offset:usize,binding:&str)->String {let body=format!("v1:{offset}:{binding}");format!("{body}:{:x}",Sha256::digest(body.as_bytes()))}
+fn digest(value:&Value)->Result<String,Error> {Ok(bytes_hex(&Sha256::digest(serde_json::to_vec(value).map_err(|_|Error::Internal)?)))}
+fn encode_cursor(offset:usize,binding:&str)->String {let body=format!("v1:{offset}:{binding}");format!("{body}:{}",bytes_hex(&Sha256::digest(body.as_bytes())))}
 fn decode_cursor(cursor:Option<&str>,binding:&str)->Result<usize,Error> {let Some(cursor)=cursor else{return Ok(0)};if cursor.len()>160{return Err(Error::StaleCursor);}let parts:Vec<_>=cursor.split(':').collect();if parts.len()!=4||parts[0]!="v1"||parts[2]!=binding{return Err(Error::StaleCursor);}let offset=parts[1].parse().map_err(|_|Error::StaleCursor)?;if offset>1000||encode_cursor(offset,binding)!=cursor{return Err(Error::StaleCursor);}Ok(offset)}
 fn bytes_hex(bytes:&[u8])->String {bytes.iter().map(|b|format!("{b:02x}")).collect()}
 
