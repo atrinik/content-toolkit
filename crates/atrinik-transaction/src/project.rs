@@ -142,8 +142,10 @@ fn hash_part(hash: &mut Sha256, value: &[u8]) {
     hash.update(value);
 }
 pub fn validate_path(path: &str) -> Result<(), TransactionError> {
+    if path.len() > 240 {
+        return Err(TransactionError::Limit("path bytes"));
+    }
     if path.is_empty()
-        || path.len() > 240
         || path.contains('\\')
         || path.bytes().any(|b| b < 32 || b == 127)
         || path
@@ -238,7 +240,11 @@ pub enum TransactionError {
         expected: String,
         actual: String,
     },
-    SpanMismatch(String),
+    SpanMismatch {
+        path: String,
+        expected: Span,
+        actual: Span,
+    },
     MissingPolicy(String),
     Cancelled,
     Deadline,
@@ -370,7 +376,11 @@ pub fn preview(
             return Err(TransactionError::InvalidPlan);
         };
         if value != command.expected_span {
-            return Err(TransactionError::SpanMismatch(command.path.clone()));
+            return Err(TransactionError::SpanMismatch {
+                path: command.path.clone(),
+                expected: command.expected_span,
+                actual: value,
+            });
         }
         let before = document.bytes(value)?;
         let field = document.bytes(key)?;
@@ -681,6 +691,16 @@ mod tests {
             run(&snapshot, &plan, &policy).unwrap().text_diff
         );
     }
+    #[test]
+    fn span_precondition_reports_both_coordinates() {
+        let (snapshot, policy, mut plan) = setup();
+        let actual = plan.commands[0].expected_span;
+        plan.commands[0].expected_span = Span::new(0, 0);
+        assert!(
+            matches!(run(&snapshot, &plan, &policy), Err(TransactionError::SpanMismatch { expected, actual: found, .. }) if expected == Span::new(0, 0) && found == actual)
+        );
+    }
+
     #[test]
     fn native_plans_reject_unbounded_revision_metadata_before_preconditions() {
         let (snapshot, policy, mut plan) = setup();

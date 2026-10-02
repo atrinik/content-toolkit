@@ -6,7 +6,9 @@ or regenerate documents. A command identifies an allowlisted relative path,
 source revision, record index, exact original byte span, replacement bytes, and
 human-readable semantic intent. `schemas/transaction-plan.schema.json` describes
 the JSON shape; the Rust decoder also rejects unknown and duplicate properties,
-unsupported versions, and input larger than the configured bound.
+unsupported versions, and input larger than the configured bound. The JSON
+schema is structural; canonical engine validation additionally enforces span
+ordering, control-character restrictions, edit semantics and configured bounds.
 
 The project revision hashes the complete sorted file inventory, source IDs,
 bytes, logical permission modes, repository, branch, authored revision and schema

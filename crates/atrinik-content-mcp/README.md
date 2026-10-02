@@ -36,3 +36,10 @@ credential, generated-state or write operation exists in this provider.
 contract. Synthetic tests compare canonical IDs against six complete pages
 of 300 records, check identity-bound cursor invalidation, closed requests,
 unsupported operations, cancellation, control characters, and hard limits.
+
+Review previews retain the validated outer MCP identity: the actual selected
+branch, source role, base commit, selected commit and dirty fingerprint. The
+transaction model's `SourceIdentity.reference = refs/heads/main` identifies the
+sole authored-source line; it is not a claim that the selected review checkout
+is on that branch and never selects a Git write destination. The MCP adapter
+provides previews only and exposes no apply operation.
