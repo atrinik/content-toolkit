@@ -34,6 +34,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "atrinik-content-mcp"
+version = "0.1.0"
+dependencies = [
+ "atrinik-catalog",
+ "atrinik-diagnostics",
+ "atrinik-schema",
+ "atrinik-source",
+ "atrinik-transaction",
+ "rustix",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "atrinik-diagnostics"
 version = "0.1.0"
 

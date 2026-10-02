@@ -3,6 +3,7 @@ members = [
   "crates/atrinik-artifact",
   "crates/atrinik-catalog",
   "crates/atrinik-content",
+  "crates/atrinik-content-mcp",
   "crates/atrinik-diagnostics",
   "crates/atrinik-schema",
   "crates/atrinik-source",
@@ -20,6 +21,7 @@ rust-version = "1.97.1"
 version = "0.1.0"
 
 [workspace.dependencies]
+atrinik-content-mcp = { path = "crates/atrinik-content-mcp", version = "=0.1.0" }
 atrinik-artifact = { path = "crates/atrinik-artifact", version = "=0.1.0" }
 atrinik-catalog = { path = "crates/atrinik-catalog", version = "=0.1.0" }
 atrinik-diagnostics = { path = "crates/atrinik-diagnostics", version = "=0.1.0" }

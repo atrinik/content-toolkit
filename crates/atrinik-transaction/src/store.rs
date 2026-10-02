@@ -871,6 +871,72 @@ mod tests {
     }
 
     #[test]
+    fn concurrent_readers_observe_whole_generations() {
+        let fixture = Fixture::new();
+        fixture.initialize();
+        let forward = fixture.preview();
+        let reverse = project::preview(
+            forward.result(),
+            &forward.inverse,
+            &fixture.policy,
+            &control(),
+        )
+        .unwrap();
+        let done = AtomicBool::new(false);
+        let observed = AtomicU64::new(0);
+        std::thread::scope(|scope| {
+            for _ in 0..4 {
+                scope.spawn(|| {
+                    while !done.load(Ordering::Acquire) {
+                        match fixture.store.read(&control()) {
+                            Ok(snapshot) => {
+                                assert!(
+                                    snapshot.revision() == forward.original().revision()
+                                        || snapshot.revision() == forward.result().revision()
+                                );
+                                let names: Vec<_> = snapshot
+                                    .files()
+                                    .values()
+                                    .map(|f| {
+                                        f.document
+                                            .fields()
+                                            .find(|(key, _)| *key == b"name")
+                                            .unwrap()
+                                            .1
+                                    })
+                                    .collect();
+                                assert!(names.windows(2).all(|pair| pair[0] == pair[1]));
+                                observed.fetch_add(1, Ordering::Relaxed);
+                            }
+                            Err(StoreError::Busy) => std::thread::yield_now(),
+                            Err(error) => panic!("{error}"),
+                        }
+                    }
+                });
+            }
+            while observed.load(Ordering::Acquire) == 0 {
+                std::thread::yield_now();
+            }
+            for _ in 0..12 {
+                for change in [&forward, &reverse] {
+                    let deadline = Instant::now() + Duration::from_secs(10);
+                    loop {
+                        match fixture.store.apply(change, &control()) {
+                            Ok(_) => break,
+                            Err(StoreError::Busy) if Instant::now() < deadline => {
+                                std::thread::yield_now()
+                            }
+                            Err(error) => panic!("{error}"),
+                        }
+                    }
+                }
+            }
+            done.store(true, Ordering::Release);
+        });
+        assert!(observed.load(Ordering::Relaxed) > 0);
+    }
+
+    #[test]
     fn publish_preserves_modes_bytes_and_reader_snapshot() {
         let fixture = Fixture::new();
         fixture.initialize();

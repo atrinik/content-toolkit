@@ -18,10 +18,11 @@ use atrinik_diagnostics::DiagnosticLimits;
 use atrinik_schema::{Schema, SchemaLimits};
 use atrinik_source::{Limits, SourceId};
 use atrinik_transaction::{
+    CatalogShape, Control, FilePolicy, ProjectLimits, ProjectPolicy, ProjectSnapshot,
+    SourceIdentity,
     json::{decode_plan, encode_preview},
     store::{CommitOutcome, GenerationStore, read_source_file},
-    CatalogShape, Control, FilePolicy, ProjectLimits, ProjectPolicy, ProjectSnapshot,
-    SourceIdentity, validate_path,
+    validate_path,
 };
 use rustix::fs::{Mode, OFlags};
 use serde::Deserialize;
@@ -99,7 +100,10 @@ pub fn run(arguments: &[OsString]) -> Result<(), Box<dyn Error>> {
                 let object = value
                     .as_object_mut()
                     .ok_or("preview encoder returned a non-object")?;
-                object.insert("status".into(), serde_json::Value::String("published".into()));
+                object.insert(
+                    "status".into(),
+                    serde_json::Value::String("published".into()),
+                );
                 object.insert("dry_run".into(), serde_json::Value::Bool(false));
                 object.insert(
                     "publication".into(),
@@ -207,7 +211,11 @@ fn read_bounded(
         || bytes.len() != capacity
         || FileStamp::from(&file.metadata()?) != stamp
     {
-        return Err(format!("{} exceeded its bound or changed during read", path.display()).into());
+        return Err(format!(
+            "{} exceeded its bound or changed during read",
+            path.display()
+        )
+        .into());
     }
     Ok(bytes)
 }
@@ -452,10 +460,7 @@ impl ProjectLimitsConfig {
                 (requested.maximum_bytes, ceiling.maximum_bytes),
                 (requested.maximum_commands, ceiling.maximum_commands),
                 (requested.maximum_diff_bytes, ceiling.maximum_diff_bytes),
-                (
-                    requested.maximum_diagnostics,
-                    ceiling.maximum_diagnostics,
-                ),
+                (requested.maximum_diagnostics, ceiling.maximum_diagnostics),
             ],
             "project limits",
         )?;
@@ -507,10 +512,7 @@ impl CatalogLimitsConfig {
                     requested.maximum_definitions_per_document,
                     ceiling.maximum_definitions_per_document,
                 ),
-                (
-                    requested.maximum_definitions,
-                    ceiling.maximum_definitions,
-                ),
+                (requested.maximum_definitions, ceiling.maximum_definitions),
                 (
                     requested.maximum_aliases_per_definition,
                     ceiling.maximum_aliases_per_definition,
@@ -523,19 +525,13 @@ impl CatalogLimitsConfig {
                     requested.maximum_preview_values,
                     ceiling.maximum_preview_values,
                 ),
-                (
-                    requested.maximum_string_bytes,
-                    ceiling.maximum_string_bytes,
-                ),
+                (requested.maximum_string_bytes, ceiling.maximum_string_bytes),
                 (
                     requested.maximum_semantic_depth,
                     ceiling.maximum_semantic_depth,
                 ),
                 (requested.maximum_graph_work, ceiling.maximum_graph_work),
-                (
-                    requested.maximum_invalidation,
-                    ceiling.maximum_invalidation,
-                ),
+                (requested.maximum_invalidation, ceiling.maximum_invalidation),
                 (requested.maximum_query_terms, ceiling.maximum_query_terms),
                 (requested.maximum_query_work, ceiling.maximum_query_work),
             ],
@@ -565,10 +561,7 @@ impl DiagnosticLimitsConfig {
         let ceiling = DiagnosticLimits::default();
         ensure_bounded(
             &[
-                (
-                    requested.maximum_diagnostics,
-                    ceiling.maximum_diagnostics,
-                ),
+                (requested.maximum_diagnostics, ceiling.maximum_diagnostics),
                 (requested.maximum_related, ceiling.maximum_related),
                 (
                     requested.maximum_semantic_depth,
@@ -587,7 +580,9 @@ fn ensure_bounded(values: &[(usize, usize)], name: &str) -> Result<(), Box<dyn E
         .iter()
         .any(|(requested, ceiling)| *requested == 0 || requested > ceiling)
     {
-        return Err(format!("{name} must be positive and no greater than built-in ceilings").into());
+        return Err(
+            format!("{name} must be positive and no greater than built-in ceilings").into(),
+        );
     }
     Ok(())
 }
@@ -621,9 +616,7 @@ impl SchemaConfig {
     fn build(self) -> Result<Schema, Box<dyn Error>> {
         Ok(Schema::new(
             self.name,
-            self.required_fields
-                .into_iter()
-                .map(String::into_bytes),
+            self.required_fields.into_iter().map(String::into_bytes),
             SchemaLimits::default(),
         )?)
     }
@@ -643,7 +636,7 @@ impl LoaderConfig {
         let rules = self
             .rules
             .into_iter()
-            .map(|(field, rule)| (field.into_bytes(), rule.build()))
+            .map(|(field, rule)| rule.build().map(|rule| (field.into_bytes(), rule)))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(LineDocumentLoader::new(
             self.domain.build(),
@@ -715,7 +708,10 @@ impl RuleConfig {
             } => {
                 let domain = domain.build();
                 let kind = reference_kind.build();
-                if kind.expected_domain().is_some_and(|expected| expected != domain) {
+                if kind
+                    .expected_domain()
+                    .is_some_and(|expected| expected != domain)
+                {
                     return Err("reference kind does not match its domain".into());
                 }
                 FieldRule::Reference {
