@@ -113,7 +113,7 @@ impl std::error::Error for Error {}
 /// The caller must validate selected commits against its configured main ancestry.
 /// This adapter accepts immutable canonical project snapshots, never caller paths.
 pub struct Snapshot {
-    pub identity: Identity,
+    identity: Identity,
     project: ProjectSnapshot,
     policy: ProjectPolicy,
     catalog: Catalog,
@@ -183,6 +183,9 @@ impl Snapshot {
             catalog,
             fingerprint,
         })
+    }
+    pub fn identity(&self) -> &Identity {
+        &self.identity
     }
     pub fn catalog(&self) -> &Catalog {
         &self.catalog
