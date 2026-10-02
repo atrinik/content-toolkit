@@ -198,6 +198,10 @@ impl GenerationStore {
             (_, Err(error)) => return Err(error),
             _ => return Err(StoreError::InvalidStore("CURRENT changed before publication")),
         }
+        let (installed, _) = self.read_file(&generation, self.bundle_limit()?, control)?;
+        if installed != bytes { return Err(StoreError::InvalidStore("new generation changed before publication")); }
+        let (pointer_bytes, pointer_stamp) = self.read_file(pointer.name.as_deref().expect("temporary pointer"), 65, control)?;
+        if pointer_bytes != format!("{}\n", snapshot.revision()).as_bytes() || pointer_stamp != Stamp::from(&pointer.file.metadata()?) { return Err(StoreError::InvalidStore("temporary pointer changed before publication")); }
         check_root(&self.root)?;
         control.check()?;
         pointer.install("CURRENT")?;
@@ -386,6 +390,31 @@ mod tests {
     }
 
     #[test]
+    fn rejects_invalid_seed_and_invalid_preview() {
+        let mut fixture = Fixture::new();
+        fixture.policy.files.get_mut("first.arc").unwrap().schema = Schema::new("invalid", [b"absent".to_vec()], SchemaLimits::default()).unwrap();
+        assert!(matches!(fixture.store.initialize(&fixture.snapshot, &fixture.policy, &control()), Err(StoreError::InvalidPreview)));
+        assert!(matches!(fixture.store.read(&control()), Err(StoreError::Uninitialized)));
+        fixture.policy.files.get_mut("first.arc").unwrap().schema = Schema::new("valid", [b"name".to_vec()], SchemaLimits::default()).unwrap();
+        fixture.initialize();
+        fixture.policy.files.get_mut("first.arc").unwrap().schema = Schema::new("invalid", [b"absent".to_vec()], SchemaLimits::default()).unwrap();
+        let preview = fixture.preview(); assert!(!preview.is_valid());
+        assert!(matches!(fixture.store.apply(&preview, &control()), Err(StoreError::InvalidPreview)));
+        assert_eq!(fixture.store.read(&control()).unwrap().revision(), fixture.snapshot.revision());
+    }
+
+    #[test]
+    fn cancellation_after_publication_reports_committed_revision() {
+        let fixture = Fixture::new(); fixture.initialize();
+        let cancelled = AtomicBool::new(false);
+        let operation = Control { cancelled:&cancelled, deadline:Instant::now() + Duration::from_secs(30) };
+        let preview = fixture.preview();
+        let outcome = fixture.store.apply_with_faults(&preview, &operation, &mut |stage| { if stage == FaultStage::Published { cancelled.store(true, Ordering::Release); } Ok(()) }).unwrap();
+        assert!(outcome.durable);
+        assert_eq!(fixture.store.read(&control()).unwrap().revision(), preview.result().revision());
+    }
+
+    #[test]
     fn every_fault_checkpoint_recovers_exactly_old_or_new() {
         for stage in [FaultStage::GenerationCreated, FaultStage::GenerationWritten, FaultStage::GenerationSynced, FaultStage::GenerationInstalled, FaultStage::GenerationDirectorySynced, FaultStage::PointerCreated, FaultStage::PointerWritten, FaultStage::PointerSynced, FaultStage::BeforePublish, FaultStage::Published, FaultStage::Committed] {
             let fixture = Fixture::new(); fixture.initialize();
@@ -454,6 +483,15 @@ mod tests {
         stdfs::write(&generation, bytes).unwrap(); stdfs::set_permissions(&generation, stdfs::Permissions::from_mode(0o400)).unwrap();
         assert!(fixture.store.apply(&preview, &control()).is_err());
         assert!(fixture.store.recover(&control()).is_err());
+    }
+
+    #[test]
+    fn staged_generation_tampering_does_not_publish() {
+        let fixture = Fixture::new(); fixture.initialize();
+        let preview = fixture.preview();
+        let staged = fixture.path.join(format!("gen-{}", preview.result().revision()));
+        assert!(fixture.store.apply_with_faults(&preview, &control(), &mut |stage| { if stage == FaultStage::BeforePublish { stdfs::set_permissions(&staged, stdfs::Permissions::from_mode(0o600)).unwrap(); stdfs::write(&staged, b"corrupt").unwrap(); stdfs::set_permissions(&staged, stdfs::Permissions::from_mode(0o400)).unwrap(); } Ok(()) }).is_err());
+        assert_eq!(fixture.store.read(&control()).unwrap().revision(), fixture.snapshot.revision());
     }
 
     #[test]
