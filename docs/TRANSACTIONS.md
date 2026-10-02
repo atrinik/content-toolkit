@@ -37,7 +37,10 @@ separator, preventing a value-only inverse from restoring the original bytes.
 Empty values and trailing whitespace retain reversible value spans.
 
 Default project limits admit 10,000 files, 128 MiB of document bytes, 4,096 commands,
-4 MiB of plan/diff budget, and 256 diagnostics. Source/schema/catalog limits bound
+4 MiB of plan/diff budget, and 256 diagnostics. Native plans pass the same revision/path/metadata validator
+as decoded JSON before any precondition error copies their fields. JSON encoders
+apply the default ceilings and a 4 MiB serialized-output cap, including escaping
+and numeric byte arrays; oversized review output fails explicitly. Source/schema/catalog limits bound
 individual fields, tokens, nesting, graph work and diagnostics. Cancellation and
 deadline checks occur between bounded commands, documents and catalog stages;
 they are cooperative and cannot interrupt a kernel filesystem call or a bounded

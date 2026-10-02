@@ -82,7 +82,10 @@ impl ProjectSnapshot {
             || identity.reference != "refs/heads/main"
             || identity.schema_version != 1
             || identity.revision.len() != 40
-            || !identity.revision.bytes().all(|b| b.is_ascii_hexdigit())
+            || !identity
+                .revision
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
         {
             return Err(TransactionError::InvalidIdentity);
         }
@@ -259,6 +262,42 @@ impl From<atrinik_catalog::Error> for TransactionError {
     }
 }
 
+/// Validates caller-owned native plans before cloning or reporting preconditions.
+pub fn validate_plan(plan: &ProjectPlan, limits: ProjectLimits) -> Result<(), TransactionError> {
+    let digest = |value: &str| {
+        value.len() == 64
+            && value
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    };
+    if plan.version != 1 || !digest(&plan.expected_project_revision) {
+        return Err(TransactionError::InvalidPlan);
+    }
+    if plan.commands.len() > limits.maximum_commands {
+        return Err(TransactionError::Limit("commands"));
+    }
+    let mut bytes = 0usize;
+    for command in &plan.commands {
+        validate_path(&command.path)?;
+        if !digest(&command.expected_source_revision)
+            || command.expected_span.start > command.expected_span.end
+            || command.semantic_intent.is_empty()
+            || command.semantic_intent.len() > 1024
+            || command.semantic_intent.chars().any(char::is_control)
+        {
+            return Err(TransactionError::InvalidPlan);
+        }
+        bytes = bytes
+            .checked_add(command.replacement.len())
+            .and_then(|n| n.checked_add(command.path.len() + command.semantic_intent.len() + 128))
+            .ok_or(TransactionError::Limit("plan bytes"))?;
+        if bytes > limits.maximum_diff_bytes {
+            return Err(TransactionError::Limit("plan bytes"));
+        }
+    }
+    Ok(())
+}
+
 /// Plans entirely in memory. Even invalid resulting projects return reviewable diagnostics;
 /// only a valid Preview can be published by the store.
 pub fn preview(
@@ -268,9 +307,7 @@ pub fn preview(
     control: &Control<'_>,
 ) -> Result<Preview, TransactionError> {
     control.check()?;
-    if plan.version != 1 {
-        return Err(TransactionError::InvalidPlan);
-    }
+    validate_plan(plan, policy.limits)?;
     if plan.expected_project_revision != snapshot.revision {
         return Err(TransactionError::ProjectRevision {
             expected: plan.expected_project_revision.clone(),
@@ -645,6 +682,23 @@ mod tests {
         );
     }
     #[test]
+    fn native_plans_reject_unbounded_revision_metadata_before_preconditions() {
+        let (snapshot, policy, mut plan) = setup();
+        plan.expected_project_revision = "a".repeat(10_000);
+        assert!(matches!(
+            run(&snapshot, &plan, &policy),
+            Err(TransactionError::InvalidPlan)
+        ));
+        assert!(crate::json::encode_plan(&plan).is_err());
+        plan.expected_project_revision = snapshot.revision().into();
+        plan.commands[0].expected_source_revision = "a".repeat(10_000);
+        assert!(matches!(
+            run(&snapshot, &plan, &policy),
+            Err(TransactionError::InvalidPlan)
+        ));
+    }
+
+    #[test]
     fn whitespace_boundary_and_empty_values_have_safe_undo() {
         let (snapshot, policy, mut plan) = setup();
         plan.commands[0].replacement = b" leading".to_vec();
@@ -672,7 +726,7 @@ mod tests {
         policy.limits.maximum_diff_bytes = 1;
         assert!(matches!(
             run(&snapshot, &plan, &policy),
-            Err(TransactionError::Limit("diff bytes"))
+            Err(TransactionError::Limit(_))
         ));
         policy.limits = ProjectLimits::default();
         plan.commands[0].expected_source_revision = "0".repeat(64);
