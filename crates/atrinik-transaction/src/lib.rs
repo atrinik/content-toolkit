@@ -3,10 +3,10 @@
 
 #![forbid(unsafe_code)]
 
-#[cfg(target_os = "linux")]
-pub mod store;
 pub mod json;
 pub mod project;
+#[cfg(target_os = "linux")]
+pub mod store;
 pub use project::*;
 
 use std::sync::Arc;
