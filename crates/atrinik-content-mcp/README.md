@@ -43,3 +43,21 @@ transaction model's `SourceIdentity.reference = refs/heads/main` identifies the
 sole authored-source line; it is not a claim that the selected review checkout
 is on that branch and never selects a Git write destination. The MCP adapter
 provides previews only and exposes no apply operation.
+
+Measure the complete stdio path using the released executable:
+
+```sh
+python3 crates/atrinik-content-mcp/tools/benchmark.py \
+  /absolute/path/to/atrinik-content-mcp
+```
+
+Run in an offline environment with Python 3 and Git available. The script creates
+one temporary synthetic repository with 300 definitions and the admitted content
+origin. It checks the same stable identity in 30 persistent-process queries and
+30 fresh-process queries. Both paths perform the provider's normal source
+freshness checks; the fresh path also pays startup and index construction.
+Stdin remains open until each response arrives, preserving cancellation
+semantics. Output includes correctness, binary SHA-256, response bytes, startup
+time, p50/p95, totals and median speedup. This measures the complete semantic
+provider against process-per-query execution, while the ignored Rust benchmark
+isolates canonical index reuse. Neither benchmark accesses a real content root.
