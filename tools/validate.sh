@@ -16,6 +16,7 @@ cargo run --locked --quiet --package atrinik-content -- \
   --source-id fixture:minimal
 
 tools/check-provenance.sh
+tools/test-check-dependencies.sh
 tools/check-dependencies.sh
 jq empty crates/atrinik-schema/schemas/*.json policy/*.json provenance/*.json schemas/*.json
 

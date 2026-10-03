@@ -6,10 +6,12 @@ cd "${repository}"
 
 jq -e '
   .schema_version == 1
-  and (.direct_dependencies | length == 1)
-  and all(.direct_dependencies[];
-    [.ecosystem, .name, .version, .license, .source, .owner,
-      .review_cadence, .eol_response, .validation] | all(. != ""))
+  and (.allowed_spdx | type == "array" and length > 0)
+  and (.forbidden_spdx | type == "array" and length > 0)
+  and all(.allowed_spdx[]; type == "string" and length > 0)
+  and all(.forbidden_spdx[]; type == "string" and length > 0)
+  and ([.allowed_spdx[], .forbidden_spdx[]] | length)
+    == ([.allowed_spdx[], .forbidden_spdx[]] | unique | length)
 ' policy/dependencies.json >/dev/null
 jq -e '
   .schema_version == 1
@@ -31,13 +33,9 @@ jq -e --slurpfile policy policy/dependencies.json \
       | map(select(. != "" and . != "AND" and . != "OR"))) as $licenses
     | ($licenses | length) > 0
       and all($licenses[];
-        . as $license | ($policy[0].allowed_spdx | index($license)) != null))
-  and all($policy[0].direct_dependencies[];
-    . as $dependency
-    | any($metadata.packages[];
-      .name == $dependency.name
-      and .version == $dependency.version
-      and .license == $dependency.license))
+        . as $license
+        | ($policy[0].allowed_spdx | index($license)) != null
+          and ($policy[0].forbidden_spdx | index($license)) == null))
   and all($metadata.packages[];
     (.source // "") | test("github.com/atrinik/(classic|client|editor|renderer|server)") | not)
   and all($metadata.packages[].name;
