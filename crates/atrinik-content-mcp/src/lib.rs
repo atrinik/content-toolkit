@@ -20,6 +20,7 @@ pub const MAX_REQUEST: usize = 16 * 1024;
 pub const MAX_OUTPUT: usize = 64 * 1024;
 pub const ROUTINE_OUTPUT: usize = 32 * 1024;
 pub const MAX_PAGE: usize = 50;
+const MAX_PREVIEW_REPLACEMENT: usize = 4096;
 pub const SCHEMA_VERSION: &str = "atrinik-content-mcp/v1";
 
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
@@ -340,10 +341,8 @@ impl Provider {
                     .map_err(|_| Error::Limit)?
                 {
                     check(cancelled, deadline)?;
-                    if request
-                        .path
-                        .as_ref()
-                        .is_some_and(|p| &definition.location.source != p)
+                    if let Some(path) = &request.path
+                        && definition_path(snapshot, definition)? != path
                     {
                         continue;
                     }
@@ -352,13 +351,13 @@ impl Provider {
                     {
                         continue;
                     }
-                    records.push(record(snapshot, definition));
+                    records.push(record(snapshot, definition)?);
                 }
             }
             Operation::Inspect => {
                 if let Some(id) = &id {
                     let definition = resolve(snapshot, id)?;
-                    records.push(record(snapshot, definition));
+                    records.push(record(snapshot, definition)?);
                     records.extend(entity_fields(
                         snapshot,
                         definition,
@@ -413,7 +412,7 @@ impl Provider {
                         }
                         match snapshot.catalog.resolve(&target) {
                             Resolution::Found(value) => {
-                                records.push(json!({"from":current.to_string(),"to":target.to_string(),"depth":depth+1,"entity":record(snapshot,value)}));
+                                records.push(json!({"from":current.to_string(),"to":target.to_string(),"depth":depth+1,"entity":record(snapshot,value)?}));
                                 if seen.insert(target.clone()) {
                                     queue.push_back((target, depth + 1));
                                 }
@@ -443,12 +442,9 @@ impl Provider {
                 )
                 .map_err(transaction_error)?;
                 for diagnostic in preview.diagnostics {
-                    if request
-                        .path
-                        .as_ref()
-                        .is_none_or(|p| &diagnostic.location.source == p)
-                    {
-                        records.push(json!({"code":diagnostic.code,"severity":format!("{:?}",diagnostic.severity),"path":diagnostic.location.source,"span":{"start":diagnostic.location.span.start,"end":diagnostic.location.span.end}}));
+                    let path = project_path(snapshot, &diagnostic.location.source)?;
+                    if request.path.as_ref().is_none_or(|requested| path == requested) {
+                        records.push(json!({"code":diagnostic.code,"severity":format!("{:?}",diagnostic.severity),"path":path,"span":{"start":diagnostic.location.span.start,"end":diagnostic.location.span.end}}));
                     }
                 }
             }
@@ -476,10 +472,23 @@ impl Provider {
                     if id.as_ref().is_some_and(|id| id != &key) {
                         continue;
                     }
-                    if request.path.as_ref().is_some_and(|path| {
-                        !matches!(snapshot.catalog.resolve(&key),Resolution::Found(d) if &d.location.source==path)
-                        && !matches!(other.catalog.resolve(&key),Resolution::Found(d) if &d.location.source==path)
-                    }) {continue;}
+                    if let Some(path) = &request.path {
+                        let before_matches = match snapshot.catalog.resolve(&key) {
+                            Resolution::Found(definition) => {
+                                definition_path(snapshot, definition)? == path
+                            }
+                            _ => false,
+                        };
+                        let after_matches = match other.catalog.resolve(&key) {
+                            Resolution::Found(definition) => {
+                                definition_path(other, definition)? == path
+                            }
+                            _ => false,
+                        };
+                        if !before_matches && !after_matches {
+                            continue;
+                        }
+                    }
                     let before_fields = match snapshot.catalog.resolve(&key) {
                         Resolution::Found(d) => entity_fields(snapshot, d, None)?,
                         _ => vec![],
@@ -489,11 +498,11 @@ impl Provider {
                         _ => vec![],
                     };
                     let before = match snapshot.catalog.resolve(&key) {
-                        Resolution::Found(d) => Some(record(snapshot, d)),
+                        Resolution::Found(d) => Some(record(snapshot, d)?),
                         _ => None,
                     };
                     let after = match other.catalog.resolve(&key) {
-                        Resolution::Found(d) => Some(record(other, d)),
+                        Resolution::Found(d) => Some(record(other, d)?),
                         _ => None,
                     };
                     let equal = match (snapshot.catalog.resolve(&key), other.catalog.resolve(&key))
@@ -516,9 +525,24 @@ impl Provider {
                 }
             }
             Operation::Preview => {
-                let bytes =
-                    serde_json::to_vec(request.plan.as_ref().ok_or(Error::InvalidArguments)?)
-                        .map_err(|_| Error::InvalidArguments)?;
+                let plan_value = request.plan.as_ref().ok_or(Error::InvalidArguments)?;
+                if plan_value
+                    .get("commands")
+                    .and_then(Value::as_array)
+                    .is_some_and(|commands| {
+                        commands.iter().any(|command| {
+                            command
+                                .get("replacement")
+                                .and_then(Value::as_array)
+                                .is_some_and(|replacement| {
+                                    replacement.len() > MAX_PREVIEW_REPLACEMENT
+                                })
+                        })
+                    })
+                {
+                    return Err(Error::Limit);
+                }
+                let bytes = serde_json::to_vec(plan_value).map_err(|_| Error::InvalidArguments)?;
                 let plan = atrinik_transaction::json::decode_plan(&bytes, snapshot.policy.limits)
                     .map_err(|_| Error::InvalidArguments)?;
                 let preview = project::preview(
@@ -531,7 +555,17 @@ impl Provider {
                     },
                 )
                 .map_err(transaction_error)?;
-                records.push(json!({"valid":preview.is_valid(),"text_diff":preview.text_diff,"changes":preview.changes.iter().map(|c|json!({"path":c.path,"record":c.record,"field_hex":bytes_hex(&c.field),"before_hex":bytes_hex(&c.before),"after_hex":bytes_hex(&c.after)})).collect::<Vec<_>>(),"diagnostics":preview.diagnostics.iter().map(|d|json!({"code":d.code,"path":d.location.source})).collect::<Vec<_>>() }));
+                let diagnostics = preview
+                    .diagnostics
+                    .iter()
+                    .map(|diagnostic| {
+                        Ok(json!({
+                            "code": diagnostic.code,
+                            "path": project_path(snapshot, &diagnostic.location.source)?,
+                        }))
+                    })
+                    .collect::<Result<Vec<_>, Error>>()?;
+                records.push(json!({"valid":preview.is_valid(),"text_diff":preview.text_diff,"changes":preview.changes.iter().map(|c|json!({"path":c.path,"record":c.record,"field_hex":bytes_hex(&c.field),"before_hex":bytes_hex(&c.before),"after_hex":bytes_hex(&c.after)})).collect::<Vec<_>>(),"diagnostics":diagnostics}));
             }
         }
         if records.len() > 1000 {
@@ -638,9 +672,24 @@ fn entity_fields(
     }
     Ok(values)
 }
-fn record(snapshot: &Snapshot, d: &Definition) -> Value {
+fn definition_path<'a>(
+    snapshot: &'a Snapshot,
+    definition: &Definition,
+) -> Result<&'a str, Error> {
+    project_path(snapshot, &definition.location.source)
+}
+fn project_path<'a>(snapshot: &'a Snapshot, source_id: &str) -> Result<&'a str, Error> {
+    snapshot
+        .project
+        .files()
+        .iter()
+        .find(|(_, file)| file.document.source_id().as_str() == source_id)
+        .map(|(path, _)| path.as_str())
+        .ok_or(Error::Incomplete)
+}
+fn record(snapshot: &Snapshot, d: &Definition) -> Result<Value, Error> {
     let preview = snapshot.catalog.preview(&d.id);
-    json!({"identity":d.id.to_string(),"type":d.id.domain().as_str(),"path":d.location.source,"span":{"start":d.location.span.start,"end":d.location.span.end},"label":preview.and_then(|p|p.label.as_ref()),"summary":preview.and_then(|p|p.summary.as_ref()),"resource":format!("atrinik://content/{}/{}/{}",snapshot.identity.commit,snapshot.fingerprint,d.id),"license":d.evidence.license,"provenance":d.evidence.provenance})
+    Ok(json!({"identity":d.id.to_string(),"type":d.id.domain().as_str(),"path":definition_path(snapshot,d)?,"span":{"start":d.location.span.start,"end":d.location.span.end},"label":preview.and_then(|p|p.label.as_ref()),"summary":preview.and_then(|p|p.summary.as_ref()),"resource":format!("atrinik://content/{}/{}/{}",snapshot.identity.commit,snapshot.fingerprint,d.id),"license":d.evidence.license,"provenance":d.evidence.provenance}))
 }
 fn digest(value: &Value) -> Result<String, Error> {
     Ok(bytes_hex(&Sha256::digest(
@@ -697,9 +746,19 @@ mod tests {
         fixture_bytes(worktree, commit, bytes, Domain::Archetype)
     }
     fn fixture_bytes(worktree: &str, commit: &str, bytes: String, domain: Domain) -> Snapshot {
+        fixture_with_source_path(worktree, commit, bytes, domain, "items.arc", "items.arc")
+    }
+    fn fixture_with_source_path(
+        worktree: &str,
+        commit: &str,
+        bytes: String,
+        domain: Domain,
+        path: &str,
+        source_id: &str,
+    ) -> Snapshot {
         let doc = Arc::new(
             Document::parse(
-                SourceId::new("items.arc").unwrap(),
+                SourceId::new(source_id).unwrap(),
                 Arc::<[u8]>::from(bytes.into_bytes()),
                 Limits::default(),
             )
@@ -713,7 +772,7 @@ mod tests {
                 schema_version: 1,
             },
             BTreeMap::from([(
-                "items.arc".into(),
+                path.into(),
                 ProjectFile {
                     document: doc,
                     mode: 0o644,
@@ -724,7 +783,7 @@ mod tests {
         .unwrap();
         let policy = ProjectPolicy {
             files: BTreeMap::from([(
-                "items.arc".into(),
+                path.into(),
                 FilePolicy {
                     schema: Schema::new("objects", [b"name".to_vec()], SchemaLimits::default())
                         .unwrap(),
@@ -873,6 +932,111 @@ mod tests {
         let result = provider.call(req, &AtomicBool::new(false)).unwrap();
         assert_eq!(result["records"].as_array().unwrap().len(), 50);
         assert!(result["records"][0]["span"]["end"].is_number());
+    }
+    #[test]
+    fn preview_enforces_replacement_schema_item_limit() {
+        let snapshot = fixture_bytes(
+            "fixture",
+            &"a".repeat(40),
+            "Object item\nname x\nend\n".into(),
+            Domain::Archetype,
+        );
+        let file = &snapshot.project().files()["items.arc"];
+        let record = &file.document.records()[1];
+        let atrinik_source::RecordKind::Field { value, .. } = record.kind else {
+            panic!("fixture field record");
+        };
+        let revision = snapshot.project().revision().to_string();
+        let source_revision = file.document.revision().to_string();
+        let provider = Provider::new(vec![snapshot]).unwrap();
+        let plan = |replacement: Vec<u8>| {
+            json!({
+                "version": 1,
+                "expected_project_revision": revision,
+                "commands": [{
+                    "path": "items.arc",
+                    "expected_source_revision": source_revision,
+                    "record": 1,
+                    "expected_span": {"start": value.start, "end": value.end},
+                    "semantic_intent": "exercise replacement bound",
+                    "replacement": replacement,
+                }],
+            })
+        };
+
+        let mut preview_request = request();
+        preview_request.operation = Operation::Preview;
+        preview_request.plan = Some(plan(vec![b'a'; MAX_PREVIEW_REPLACEMENT]));
+        assert!(
+            provider
+                .call(preview_request, &AtomicBool::new(false))
+                .is_ok()
+        );
+
+        let mut preview_request = request();
+        preview_request.operation = Operation::Preview;
+        preview_request.plan = Some(plan(vec![b'a'; MAX_PREVIEW_REPLACEMENT + 1]));
+        assert_eq!(
+            provider.call(preview_request, &AtomicBool::new(false)),
+            Err(Error::Limit)
+        );
+    }
+    #[test]
+    fn project_paths_resolve_from_distinct_source_ids() {
+        let path = "content/items.arc";
+        let source_id = "logical-items-source";
+        let before = fixture_with_source_path(
+            "fixture",
+            &"a".repeat(40),
+            "Object item\nname Before\nunknown original\nend\n".into(),
+            Domain::Archetype,
+            path,
+            source_id,
+        );
+        let after = fixture_with_source_path(
+            "after",
+            &"b".repeat(40),
+            "Object item\nname Before\nunknown changed\nend\n".into(),
+            Domain::Archetype,
+            path,
+            source_id,
+        );
+        let provider = Provider::new(vec![before, after]).unwrap();
+
+        let mut search_request = request();
+        search_request.path = Some(path.into());
+        let result = provider
+            .call(search_request, &AtomicBool::new(false))
+            .unwrap();
+        assert_eq!(result["records"].as_array().unwrap().len(), 1);
+        assert_eq!(result["records"][0]["path"], path);
+
+        let mut compare_request = request();
+        compare_request.operation = Operation::Compare;
+        compare_request.compare_selector = Some("after".into());
+        compare_request.path = Some(path.into());
+        let result = provider
+            .call(compare_request, &AtomicBool::new(false))
+            .unwrap();
+        assert_eq!(result["records"].as_array().unwrap().len(), 1);
+        assert_eq!(result["records"][0]["before"]["path"], path);
+        assert_eq!(result["records"][0]["after"]["path"], path);
+
+        let mut inspect_request = request();
+        inspect_request.operation = Operation::Inspect;
+        inspect_request.identity = Some("archetype:fixture/item".into());
+        inspect_request.path = Some(path.into());
+        let result = provider
+            .call(inspect_request, &AtomicBool::new(false))
+            .unwrap();
+        assert!(!result["records"].as_array().unwrap().is_empty());
+        assert!(
+            result["records"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|record| record["path"] == path)
+        );
     }
     #[test]
     #[ignore = "explicit offline benchmark; run release with --ignored --nocapture"]
