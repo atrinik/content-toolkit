@@ -27,13 +27,15 @@ using an admitted HTTPS or SSH spelling. Clean file bytes must
 match the selected immutable Git blob. Git executes with a cleared environment,
 disabled hooks/fsmonitor, no shell, no network and bounded output/time. Git
 replacement objects and lazy fetching are disabled. Configured clean/process
-filters are rejected before status can execute them. Linux
+filters are rejected before status can execute them. Status uses
+`--ignore-submodules=all` to avoid entering independently configured nested
+repositories; gitlinks are outside the admitted file inventory. Linux
 `/proc/self/fd` pins its working directory to the opened root descriptor. Other
 platforms fail closed until an equivalent descriptor-pinned implementation is
 available. Configuration does not constitute ancestry proof.
 
 Dirty registration requires a SHA-256 fingerprint over Git's NUL-delimited
-`status --porcelain=v1 -z --untracked-files=no` bytes followed by sorted selected
+`status --porcelain=v1 -z --untracked-files=no --ignore-submodules=all` bytes followed by sorted selected
 files. For each file append little-endian u64 path byte length, UTF-8 path,
 little-endian u64 content byte length, and exact bytes. Clean registration uses
 null. This is an explicit admission fingerprint, never automatically invented
@@ -70,5 +72,7 @@ backpressure within the five-second request budget. EOF and read errors cancel
 outstanding work. Domain errors expose stable codes,
 never filesystem paths, Git diagnostics, configuration values or source bytes.
 
-Emitted `atrinik://content/` values are locator identities for the inspect tool;
-they do not advertise an MCP `resources/read` implementation.
+Emitted `atrinik://content/` resource values are informational evidence locators,
+not inspect identities. For inspect, pass the returned `identity` together with
+the selected snapshot's selector. The server does not implement MCP
+`resources/read`.

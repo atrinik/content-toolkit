@@ -441,7 +441,8 @@ pub fn git_metadata(root: &ConfiguredRoot, arguments: &[&str]) -> Result<Vec<u8>
     if Instant::now() >= root.deadline {
         return Err(AccessError::Timeout);
     }
-    let mut child = Command::new("git")
+    let mut command = Command::new("git");
+    command
         .args([
             "--no-pager",
             "--no-replace-objects",
@@ -453,7 +454,13 @@ pub fn git_metadata(root: &ConfiguredRoot, arguments: &[&str]) -> Result<Vec<u8>
             "-c",
             "core.untrackedCache=false",
         ])
-        .args(arguments)
+        .args(arguments);
+    // Gitlinks are outside the admitted file inventory. Do not let status
+    // recurse into independently configured repositories.
+    if arguments.first() == Some(&"status") {
+        command.arg("--ignore-submodules=all");
+    }
+    let mut child = command
         .current_dir(format!("/proc/self/fd/{}", root.directory.as_raw_fd()))
         .env_clear()
         .env("PATH", "/usr/bin:/bin")
