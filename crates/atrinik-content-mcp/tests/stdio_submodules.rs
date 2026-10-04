@@ -140,7 +140,7 @@ impl Fixture {
             ],
         );
         fs::write(nested.join(".gitattributes"), "file.arc filter=fixture\n").unwrap();
-        fs::write(nested.join("file.arc"), "changed\n").unwrap();
+        fs::write(nested.join("file.arc"), "modified\n").unwrap();
         assert!(!git(&self.root, &["config", "--null", "--list"]).contains("filter.fixture"));
         assert!(!self.sentinel().exists());
     }
