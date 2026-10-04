@@ -29,7 +29,8 @@ jq -e --slurpfile policy policy/dependencies.json \
   . as $metadata
   | all($metadata.packages[];
     (.license // "") as $expression
-    | ($expression | gsub("/"; " OR ") | gsub("[()]"; " ") | split(" ")
+    | ($expression | gsub("Apache-2.0 WITH LLVM-exception"; "Apache-2.0")
+      | gsub("/"; " OR ") | gsub("[()]"; " ") | split(" ")
       | map(select(. != "" and . != "AND" and . != "OR"))) as $licenses
     | ($licenses | length) > 0
       and all($licenses[];

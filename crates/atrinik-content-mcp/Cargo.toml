@@ -1,6 +1,6 @@
 [package]
-name = "atrinik-transaction"
-description = "Revisioned immutable Atrinik authored content transactions"
+name = "atrinik-content-mcp"
+description = "Bounded read-only adapter over the canonical Atrinik content graph"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,11 +9,12 @@ rust-version.workspace = true
 version.workspace = true
 
 [dependencies]
-atrinik-source.workspace = true
 atrinik-catalog.workspace = true
-atrinik-schema.workspace = true
 atrinik-diagnostics.workspace = true
-sha2.workspace = true
+atrinik-source.workspace = true
+atrinik-schema.workspace = true
+atrinik-transaction.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 rustix.workspace = true

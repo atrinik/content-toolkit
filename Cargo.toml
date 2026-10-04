@@ -3,6 +3,7 @@ members = [
   "crates/atrinik-artifact",
   "crates/atrinik-catalog",
   "crates/atrinik-content",
+  "crates/atrinik-content-mcp",
   "crates/atrinik-diagnostics",
   "crates/atrinik-schema",
   "crates/atrinik-source",
@@ -20,6 +21,7 @@ rust-version = "1.97.1"
 version = "0.1.0"
 
 [workspace.dependencies]
+atrinik-content-mcp = { path = "crates/atrinik-content-mcp", version = "=0.1.0" }
 atrinik-artifact = { path = "crates/atrinik-artifact", version = "=0.1.0" }
 atrinik-catalog = { path = "crates/atrinik-catalog", version = "=0.1.0" }
 atrinik-diagnostics = { path = "crates/atrinik-diagnostics", version = "=0.1.0" }
@@ -28,3 +30,6 @@ atrinik-source = { path = "crates/atrinik-source", version = "=0.1.0" }
 atrinik-testkit = { path = "crates/atrinik-testkit", version = "=0.1.0" }
 atrinik-transaction = { path = "crates/atrinik-transaction", version = "=0.1.0" }
 sha2 = "0.11.0"
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.145"
+rustix = { version = "=1.1.5", features = ["fs", "process"] }

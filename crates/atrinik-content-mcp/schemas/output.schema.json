@@ -1,0 +1,884 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "identity",
+    "generation",
+    "project_revision",
+    "freshness",
+    "classification",
+    "records",
+    "next_cursor",
+    "truncated",
+    "incomplete"
+  ],
+  "properties": {
+    "schema": {
+      "const": "atrinik-content-mcp/v1"
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "repository": {
+          "type": "string"
+        },
+        "branch": {
+          "type": "string"
+        },
+        "main_base_commit": {
+          "type": "string"
+        },
+        "commit": {
+          "type": "string"
+        },
+        "worktree": {
+          "type": "string"
+        },
+        "source_role": {
+          "type": "string"
+        },
+        "view_role": {
+          "type": "string"
+        },
+        "authorization": {
+          "type": "string"
+        },
+        "manifest": {
+          "type": "string"
+        },
+        "profile": {
+          "type": "string"
+        },
+        "registry": {
+          "type": "string"
+        },
+        "provider_version": {
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1
+        },
+        "dirty_fingerprint": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "repository",
+        "branch",
+        "main_base_commit",
+        "commit",
+        "worktree",
+        "source_role",
+        "view_role",
+        "authorization",
+        "manifest",
+        "profile",
+        "registry",
+        "provider_version",
+        "schema_version",
+        "dirty_fingerprint"
+      ]
+    },
+    "generation": {
+      "type": "string"
+    },
+    "project_revision": {
+      "type": "string"
+    },
+    "freshness": {
+      "enum": [
+        "immutable",
+        "mutable-zero-ttl"
+      ]
+    },
+    "classification": {
+      "const": "untrusted-data"
+    },
+    "records": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "identity": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "span": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "start": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "end": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "start",
+                  "end"
+                ]
+              },
+              "label": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "summary": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "resource": {
+                "type": "string"
+              },
+              "license": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "provenance": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "identity",
+              "type",
+              "path",
+              "span",
+              "label",
+              "summary",
+              "resource",
+              "license",
+              "provenance"
+            ]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "record": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "field_hex": {
+                "type": "string"
+              },
+              "value_hex": {
+                "type": "string"
+              },
+              "span": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "start": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "end": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "start",
+                  "end"
+                ]
+              },
+              "source_revision": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "record",
+              "field_hex",
+              "value_hex",
+              "span",
+              "source_revision"
+            ]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              },
+              "depth": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "entity": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "identity": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "string"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "span": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "start": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "end": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    },
+                    "required": [
+                      "start",
+                      "end"
+                    ]
+                  },
+                  "label": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "summary": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "resource": {
+                    "type": "string"
+                  },
+                  "license": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "provenance": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "identity",
+                  "type",
+                  "path",
+                  "span",
+                  "label",
+                  "summary",
+                  "resource",
+                  "license",
+                  "provenance"
+                ]
+              }
+            },
+            "required": [
+              "from",
+              "to",
+              "depth",
+              "entity"
+            ]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              },
+              "error": {
+                "const": "INCOMPLETE"
+              }
+            },
+            "required": [
+              "from",
+              "to",
+              "error"
+            ]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "severity": {
+                "enum": [
+                  "Error",
+                  "Warning",
+                  "Info"
+                ]
+              },
+              "path": {
+                "type": "string"
+              },
+              "span": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "start": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "end": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "start",
+                  "end"
+                ]
+              }
+            },
+            "required": [
+              "code",
+              "severity",
+              "path",
+              "span"
+            ]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "identity": {
+                "type": "string"
+              },
+              "before": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "identity": {
+                        "type": "string"
+                      },
+                      "type": {
+                        "type": "string"
+                      },
+                      "path": {
+                        "type": "string"
+                      },
+                      "span": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "start": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "end": {
+                            "type": "integer",
+                            "minimum": 0
+                          }
+                        },
+                        "required": [
+                          "start",
+                          "end"
+                        ]
+                      },
+                      "label": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "summary": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "resource": {
+                        "type": "string"
+                      },
+                      "license": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "provenance": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "identity",
+                      "type",
+                      "path",
+                      "span",
+                      "label",
+                      "summary",
+                      "resource",
+                      "license",
+                      "provenance"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "after": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "identity": {
+                        "type": "string"
+                      },
+                      "type": {
+                        "type": "string"
+                      },
+                      "path": {
+                        "type": "string"
+                      },
+                      "span": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "start": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "end": {
+                            "type": "integer",
+                            "minimum": 0
+                          }
+                        },
+                        "required": [
+                          "start",
+                          "end"
+                        ]
+                      },
+                      "label": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "summary": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "resource": {
+                        "type": "string"
+                      },
+                      "license": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "provenance": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "identity",
+                      "type",
+                      "path",
+                      "span",
+                      "label",
+                      "summary",
+                      "resource",
+                      "license",
+                      "provenance"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "before_identity": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "repository": {
+                    "type": "string"
+                  },
+                  "branch": {
+                    "type": "string"
+                  },
+                  "main_base_commit": {
+                    "type": "string"
+                  },
+                  "commit": {
+                    "type": "string"
+                  },
+                  "worktree": {
+                    "type": "string"
+                  },
+                  "source_role": {
+                    "type": "string"
+                  },
+                  "view_role": {
+                    "type": "string"
+                  },
+                  "authorization": {
+                    "type": "string"
+                  },
+                  "manifest": {
+                    "type": "string"
+                  },
+                  "profile": {
+                    "type": "string"
+                  },
+                  "registry": {
+                    "type": "string"
+                  },
+                  "provider_version": {
+                    "type": "string"
+                  },
+                  "schema_version": {
+                    "const": 1
+                  },
+                  "dirty_fingerprint": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "repository",
+                  "branch",
+                  "main_base_commit",
+                  "commit",
+                  "worktree",
+                  "source_role",
+                  "view_role",
+                  "authorization",
+                  "manifest",
+                  "profile",
+                  "registry",
+                  "provider_version",
+                  "schema_version",
+                  "dirty_fingerprint"
+                ]
+              },
+              "after_identity": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "repository": {
+                    "type": "string"
+                  },
+                  "branch": {
+                    "type": "string"
+                  },
+                  "main_base_commit": {
+                    "type": "string"
+                  },
+                  "commit": {
+                    "type": "string"
+                  },
+                  "worktree": {
+                    "type": "string"
+                  },
+                  "source_role": {
+                    "type": "string"
+                  },
+                  "view_role": {
+                    "type": "string"
+                  },
+                  "authorization": {
+                    "type": "string"
+                  },
+                  "manifest": {
+                    "type": "string"
+                  },
+                  "profile": {
+                    "type": "string"
+                  },
+                  "registry": {
+                    "type": "string"
+                  },
+                  "provider_version": {
+                    "type": "string"
+                  },
+                  "schema_version": {
+                    "const": 1
+                  },
+                  "dirty_fingerprint": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "repository",
+                  "branch",
+                  "main_base_commit",
+                  "commit",
+                  "worktree",
+                  "source_role",
+                  "view_role",
+                  "authorization",
+                  "manifest",
+                  "profile",
+                  "registry",
+                  "provider_version",
+                  "schema_version",
+                  "dirty_fingerprint"
+                ]
+              },
+              "before_fields": {
+                "type": "array",
+                "maxItems": 1000,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "record": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "field_hex": {
+                      "type": "string"
+                    },
+                    "value_hex": {
+                      "type": "string"
+                    },
+                    "span": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "start": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "end": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      },
+                      "required": [
+                        "start",
+                        "end"
+                      ]
+                    },
+                    "source_revision": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "record",
+                    "field_hex",
+                    "value_hex",
+                    "span",
+                    "source_revision"
+                  ]
+                }
+              },
+              "after_fields": {
+                "type": "array",
+                "maxItems": 1000,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "record": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "field_hex": {
+                      "type": "string"
+                    },
+                    "value_hex": {
+                      "type": "string"
+                    },
+                    "span": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "start": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "end": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      },
+                      "required": [
+                        "start",
+                        "end"
+                      ]
+                    },
+                    "source_revision": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "record",
+                    "field_hex",
+                    "value_hex",
+                    "span",
+                    "source_revision"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "identity",
+              "before",
+              "after",
+              "before_identity",
+              "after_identity",
+              "before_fields",
+              "after_fields"
+            ]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "valid": {
+                "type": "boolean"
+              },
+              "text_diff": {
+                "type": "string"
+              },
+              "changes": {
+                "type": "array",
+                "maxItems": 100,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "record": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "field_hex": {
+                      "type": "string"
+                    },
+                    "before_hex": {
+                      "type": "string"
+                    },
+                    "after_hex": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "record",
+                    "field_hex",
+                    "before_hex",
+                    "after_hex"
+                  ]
+                }
+              },
+              "diagnostics": {
+                "type": "array",
+                "maxItems": 256,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "path"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "valid",
+              "text_diff",
+              "changes",
+              "diagnostics"
+            ]
+          }
+        ]
+      }
+    },
+    "next_cursor": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 160
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "incomplete": {
+      "type": "boolean"
+    }
+  },
+  "$id": "https://atrinik.org/schemas/content-mcp/v1/output.json"
+}

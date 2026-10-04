@@ -13,3 +13,19 @@ are used under the historical MIT provenance grant recorded in
 
 No GPL/AGPL code, classic Atrinik implementation, authored game content,
 media, or third-party fixture is distributed by this repository.
+
+The transaction engine uses Serde/serde_json for strict versioned JSON and rustix
+for safe descriptor-relative filesystem operations. `Cargo.lock` records their
+exact releases; Cargo metadata and the release SBOM record their license
+expressions, with release notices retained in `third-party-licenses/`.
+Rustix and linux-raw-sys
+also offer Apache-2.0 with the LLVM exception as an alternative to their
+Apache-2.0/MIT terms; the dependency check recognizes that exact exception
+expression without admitting other exceptions or copyleft licenses. The lockfile
+and release SBOM retain all transitive package identities.
+The JSON/derive dependency closure additionally includes memchr (Unlicense OR
+MIT), ryu (Apache-2.0 OR BSL-1.0), and unicode-ident ((MIT OR Apache-2.0) AND
+Unicode-3.0). Release bundles retain the complete dependency license/copyright notices,
+including the Unicode data permission notice, in `third-party-licenses/`. Its
+manifest binds each copied notice digest to the exact locked package release;
+the SBOM records the complete license expressions.

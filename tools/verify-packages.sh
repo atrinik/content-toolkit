@@ -20,6 +20,7 @@ crates=(
   atrinik-schema
   atrinik-transaction
   atrinik-content
+  atrinik-content-mcp
   atrinik-testkit
 )
 

@@ -129,6 +129,43 @@ cmp crates/atrinik-testkit/fixtures/minimal.arc \
 rm /tmp/atrinik-minimal-round-trip.arc
 ```
 
+## Project transactions
+
+Project publication uses an immutable generation store and an exact file
+allowlist. Initialization names every source path, source ID, expected mode,
+and input path in a versioned JSON manifest; `--input-root` is explicit and
+imports reject links and paths outside that root. The policy is also versioned
+JSON. It supplies bounded source, project, catalog, diagnostic, and execution
+limits plus the schema, line-document loader rules, and catalog shape for every
+allowed destination path.
+
+```sh
+atrinik-content transaction initialize \
+  --root /absolute/transaction-store \
+  --policy policy.json \
+  --manifest import.json \
+  --input-root /absolute/import/root
+
+# Omitting the operation is the machine-readable dry-run form.
+atrinik-content transaction \
+  --root /absolute/transaction-store \
+  --policy policy.json \
+  --plan exact-plan.json
+
+atrinik-content transaction apply \
+  --root /absolute/transaction-store \
+  --policy policy.json \
+  --plan exact-plan.json
+```
+
+Plans carry the expected project revision and, for every replacement, the
+destination path, expected source revision, record index, exact source span,
+semantic intent, and replacement bytes. Preview emits deterministic JSON with
+semantic changes, a byte-exact hex diff, complete-project diagnostics, the
+result revision, and an inverse plan. `apply` recomputes that preview against
+the current generation, rejects active error diagnostics or stale
+preconditions, and reports the atomic publication revision and durability.
+
 See [architecture and bounds](docs/ARCHITECTURE.md),
 [provenance evidence](PROVENANCE.md), and [contribution policy](CONTRIBUTING.md).
 

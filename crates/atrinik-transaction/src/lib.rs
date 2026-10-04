@@ -3,6 +3,12 @@
 
 #![forbid(unsafe_code)]
 
+pub mod json;
+pub mod project;
+#[cfg(target_os = "linux")]
+pub mod store;
+pub use project::*;
+
 use std::sync::Arc;
 
 use atrinik_source::{Document, EditPlan, Error};
