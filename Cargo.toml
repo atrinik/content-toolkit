@@ -29,7 +29,7 @@ atrinik-schema = { path = "crates/atrinik-schema", version = "=0.1.0" }
 atrinik-source = { path = "crates/atrinik-source", version = "=0.1.0" }
 atrinik-testkit = { path = "crates/atrinik-testkit", version = "=0.1.0" }
 atrinik-transaction = { path = "crates/atrinik-transaction", version = "=0.1.0" }
-sha2 = "=0.11.0"
+sha2 = "0.11.0"
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = "=1.0.145"
 rustix = { version = "=1.1.5", features = ["fs", "process"] }

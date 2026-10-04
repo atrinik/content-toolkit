@@ -1,9 +1,10 @@
 # Third-party notices
 
-Rust package dependencies retain their licenses as recorded in
-`policy/dependencies.json` and the release SBOM. The admitted historical design
-translation and synthetic fixtures are documented in `PROVENANCE.md` and
-`provenance/reuse.json`.
+Rust package dependencies retain their licenses as recorded in Cargo metadata
+and the release SBOM. `policy/dependencies.json` defines the licenses accepted
+by validation without duplicating package versions from `Cargo.lock`. The
+admitted historical design translation and synthetic fixtures are documented
+in `PROVENANCE.md` and `provenance/reuse.json`.
 
 The two byte-identical machine contracts in `policy/classic-authored-limits.json`
 and `schemas/classic-diagnostic.schema.json` retain attribution to Zoey Rose and

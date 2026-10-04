@@ -19,52 +19,6 @@
     "GPL-3.0-only",
     "GPL-3.0-or-later"
   ],
-  "direct_dependencies": [
-    {
-      "ecosystem": "cargo",
-      "name": "sha2",
-      "version": "0.11.0",
-      "license": "MIT OR Apache-2.0",
-      "source": "https://crates.io/crates/sha2",
-      "owner": "content-toolkit maintainers",
-      "review_cadence": "monthly and on every dependency update",
-      "eol_response": "upgrade, replace, or remove before the unsupported release ships",
-      "validation": "Cargo.lock, cargo metadata, Clippy, tests, Trivy, Syft SBOM"
-    },
-    {
-      "ecosystem": "cargo",
-      "name": "serde",
-      "version": "1.0.228",
-      "license": "MIT OR Apache-2.0",
-      "source": "https://crates.io/crates/serde",
-      "owner": "content-toolkit maintainers",
-      "review_cadence": "monthly and on every dependency update",
-      "eol_response": "upgrade, replace, or remove before the unsupported release ships",
-      "validation": "Cargo.lock, cargo metadata, Clippy, tests, Trivy, Syft SBOM"
-    },
-    {
-      "ecosystem": "cargo",
-      "name": "serde_json",
-      "version": "1.0.145",
-      "license": "MIT OR Apache-2.0",
-      "source": "https://crates.io/crates/serde_json",
-      "owner": "content-toolkit maintainers",
-      "review_cadence": "monthly and on every dependency update",
-      "eol_response": "upgrade, replace, or remove before the unsupported release ships",
-      "validation": "Cargo.lock, cargo metadata, Clippy, tests, Trivy, Syft SBOM"
-    },
-    {
-      "ecosystem": "cargo",
-      "name": "rustix",
-      "version": "1.1.5",
-      "license": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
-      "source": "https://crates.io/crates/rustix",
-      "owner": "content-toolkit maintainers",
-      "review_cadence": "monthly and on every dependency update",
-      "eol_response": "upgrade, replace, or remove before the unsupported release ships",
-      "validation": "Cargo.lock, cargo metadata, Clippy, tests, Trivy, Syft SBOM"
-    }
-  ],
   "transitive_license_notes": {
     "memchr": "Unlicense OR MIT; MIT alternative retained",
     "ryu": "Apache-2.0 OR BSL-1.0; Apache-2.0 alternative retained",
