@@ -725,10 +725,7 @@ mod tests {
         for id in [json!(1), json!("request-1")] {
             let mut ping = request("ping");
             ping["id"] = id.clone();
-            assert_eq!(
-                dispatch(ping, &json!({}), &mut handler).unwrap()["id"],
-                id
-            );
+            assert_eq!(dispatch(ping, &json!({}), &mut handler).unwrap()["id"], id);
         }
 
         let mut null_id = request("tools/call");
@@ -759,6 +756,8 @@ mod tests {
         .unwrap();
         let response: Value = serde_json::from_slice(&output).unwrap();
         assert_eq!(response["id"], json!(1.5));
+        assert!(response.get("result").is_some());
+        assert!(response.get("error").is_none());
     }
     #[test]
     fn bounded_framing_and_notification_no_work() {
@@ -830,7 +829,8 @@ mod tests {
         let writer_done = std::sync::Arc::clone(&handler_done);
         let writer = std::thread::spawn(move || {
             peer.write_all(&bytes).unwrap();
-            while !writer_done.load(Ordering::Acquire) {
+            let deadline = Instant::now() + Duration::from_secs(3);
+            while !writer_done.load(Ordering::Acquire) && Instant::now() < deadline {
                 std::thread::yield_now();
             }
         });

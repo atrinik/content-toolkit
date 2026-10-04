@@ -443,7 +443,11 @@ impl Provider {
                 .map_err(transaction_error)?;
                 for diagnostic in preview.diagnostics {
                     let path = project_path(snapshot, &diagnostic.location.source)?;
-                    if request.path.as_ref().is_none_or(|requested| path == requested) {
+                    if request
+                        .path
+                        .as_ref()
+                        .is_none_or(|requested| path == requested)
+                    {
                         records.push(json!({"code":diagnostic.code,"severity":format!("{:?}",diagnostic.severity),"path":path,"span":{"start":diagnostic.location.span.start,"end":diagnostic.location.span.end}}));
                     }
                 }
@@ -672,10 +676,7 @@ fn entity_fields(
     }
     Ok(values)
 }
-fn definition_path<'a>(
-    snapshot: &'a Snapshot,
-    definition: &Definition,
-) -> Result<&'a str, Error> {
+fn definition_path<'a>(snapshot: &'a Snapshot, definition: &Definition) -> Result<&'a str, Error> {
     project_path(snapshot, &definition.location.source)
 }
 fn project_path<'a>(snapshot: &'a Snapshot, source_id: &str) -> Result<&'a str, Error> {
@@ -689,7 +690,9 @@ fn project_path<'a>(snapshot: &'a Snapshot, source_id: &str) -> Result<&'a str, 
 }
 fn record(snapshot: &Snapshot, d: &Definition) -> Result<Value, Error> {
     let preview = snapshot.catalog.preview(&d.id);
-    Ok(json!({"identity":d.id.to_string(),"type":d.id.domain().as_str(),"path":definition_path(snapshot,d)?,"span":{"start":d.location.span.start,"end":d.location.span.end},"label":preview.and_then(|p|p.label.as_ref()),"summary":preview.and_then(|p|p.summary.as_ref()),"resource":format!("atrinik://content/{}/{}/{}",snapshot.identity.commit,snapshot.fingerprint,d.id),"license":d.evidence.license,"provenance":d.evidence.provenance}))
+    Ok(
+        json!({"identity":d.id.to_string(),"type":d.id.domain().as_str(),"path":definition_path(snapshot,d)?,"span":{"start":d.location.span.start,"end":d.location.span.end},"label":preview.and_then(|p|p.label.as_ref()),"summary":preview.and_then(|p|p.summary.as_ref()),"resource":format!("atrinik://content/{}/{}/{}",snapshot.identity.commit,snapshot.fingerprint,d.id),"license":d.evidence.license,"provenance":d.evidence.provenance}),
+    )
 }
 fn digest(value: &Value) -> Result<String, Error> {
     Ok(bytes_hex(&Sha256::digest(
