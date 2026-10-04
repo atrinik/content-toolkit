@@ -200,6 +200,10 @@ fn complete(id: Value, mut result: Value) -> Value {
     json!({"jsonrpc":"2.0","id":id,"result":result})
 }
 
+fn is_request_id(value: &Value) -> bool {
+    value.is_string() || value.is_number()
+}
+
 /// Modern stateless MCP: no initialization handshake, no caller roots, no writes.
 /// The handler receives only the one tool's structured arguments.
 pub fn dispatch<F>(request: Value, tool: &Value, handler: &mut F) -> Option<Value>
@@ -215,7 +219,7 @@ where
         || object
             .keys()
             .any(|k| !["jsonrpc", "id", "method", "params"].contains(&k.as_str()))
-        || (!id.is_null() && !id.is_string() && !id.is_i64() && !id.is_u64())
+        || (object.contains_key("id") && !is_request_id(&id))
     {
         return Some(error(id, -32600, "INVALID_ARGUMENT"));
     }
@@ -346,7 +350,9 @@ where
                 && request.get("id").is_none()
                 && request["jsonrpc"] == "2.0"
             {
-                if let Some(id) = request.pointer("/params/requestId")
+                if let Some(id) = request
+                    .pointer("/params/requestId")
+                    .filter(|id| is_request_id(id))
                     && let Ok(entries) = pending.lock()
                 {
                     for (key, flag) in entries.iter() {
@@ -714,6 +720,47 @@ mod tests {
         );
     }
     #[test]
+    fn request_ids_follow_the_pinned_string_or_number_schema() {
+        let mut handler = |_| panic!("request ID validation must not invoke provider");
+        for id in [json!(1), json!("request-1")] {
+            let mut ping = request("ping");
+            ping["id"] = id.clone();
+            assert_eq!(
+                dispatch(ping, &json!({}), &mut handler).unwrap()["id"],
+                id
+            );
+        }
+
+        let mut null_id = request("tools/call");
+        null_id["id"] = Value::Null;
+        null_id["params"]["name"] = json!("content_query");
+        null_id["params"]["arguments"] = json!({});
+        let mut output = Vec::new();
+        serve(
+            std::io::Cursor::new(format!("{null_id}\n").into_bytes()),
+            &mut output,
+            &json!({}),
+            |_, _| panic!("null request ID must not invoke provider"),
+        )
+        .unwrap();
+        let response: Value = serde_json::from_slice(&output).unwrap();
+        assert_eq!(response["id"], Value::Null);
+        assert_eq!(response["error"]["code"], -32600);
+
+        let mut fractional = request("ping");
+        fractional["id"] = json!(1.5);
+        output.clear();
+        serve(
+            std::io::Cursor::new(format!("{fractional}\n").into_bytes()),
+            &mut output,
+            &json!({}),
+            |_, _| panic!("ping must not invoke provider"),
+        )
+        .unwrap();
+        let response: Value = serde_json::from_slice(&output).unwrap();
+        assert_eq!(response["id"], json!(1.5));
+    }
+    #[test]
     fn bounded_framing_and_notification_no_work() {
         let mut output = Vec::new();
         serve(
@@ -772,14 +819,24 @@ mod tests {
     #[test]
     fn cancellation_reaches_active_request_without_a_handshake() {
         let mut call = request("tools/call");
+        call["id"] = json!(1.5);
         call["params"]["name"] = json!("content_query");
         call["params"]["arguments"] = json!({});
         let cancellation =
-            json!({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":1}});
+            json!({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":1.5}});
         let bytes = format!("{call}\n{cancellation}\n").into_bytes();
+        let (input, mut peer) = std::os::unix::net::UnixStream::pair().unwrap();
+        let handler_done = std::sync::Arc::new(AtomicBool::new(false));
+        let writer_done = std::sync::Arc::clone(&handler_done);
+        let writer = std::thread::spawn(move || {
+            peer.write_all(&bytes).unwrap();
+            while !writer_done.load(Ordering::Acquire) {
+                std::thread::yield_now();
+            }
+        });
         let mut output = Vec::new();
         serve(
-            std::io::Cursor::new(bytes),
+            std::io::BufReader::new(input),
             &mut output,
             &json!({}),
             |_, cancelled| {
@@ -787,11 +844,14 @@ mod tests {
                 while !cancelled.load(Ordering::Acquire) && Instant::now() < deadline {
                     std::thread::yield_now();
                 }
-                assert!(cancelled.load(Ordering::Acquire));
+                let observed = cancelled.load(Ordering::Acquire);
+                handler_done.store(true, Ordering::Release);
+                assert!(observed);
                 Err("CANCELLED")
             },
         )
         .unwrap();
+        writer.join().unwrap();
         let response: Value = serde_json::from_slice(&output).unwrap();
         assert_eq!(response["result"]["isError"], true);
     }
