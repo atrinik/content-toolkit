@@ -96,10 +96,5 @@ rm -rf -- "${output}/fixtures" "${output}/mcp-schemas" "${output}/schemas" \
 
 checksums=$(mktemp /tmp/atrinik-content-toolkit-checksums.XXXXXX)
 trap 'rm -f -- "${checksums}"' EXIT
-(
-  cd "${output}"
-  find . -type f ! -name SHA256SUMS -print0 \
-    | sort -z \
-    | xargs -0 sha256sum
-) >"${checksums}"
+python3 tools/release-checksums.py "${output}" >"${checksums}"
 mv "${checksums}" "${output}/SHA256SUMS"
