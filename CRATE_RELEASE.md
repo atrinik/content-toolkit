@@ -48,9 +48,27 @@ locally using a crates.io API token and the same verified release archives, then
 configure each crate's Trusted Publishing identity for the repository ID in the
 policy, workflow `publish-crate.yml`, environment `crates-io-release`, and GitHub
 OIDC audience. The token stays on the owner's machine; CI accepts only OIDC.
-Configure the protected environment and workflow permissions before activating
-publication. Preparing this source does not perform bootstrap, change repository
+Enable owner-enforced immutable GitHub releases before the first source tag;
+the inert finalizer checks that setting before publication. Configure the
+protected environment and workflow permissions before activating publication. Preparing this source does not perform bootstrap, change repository
 settings or activate a publisher.
+
+After the reviewed tooling is on `main` and an immutable source release exists,
+run the owner bootstrap from a local terminal with explicit public account
+coordinates:
+
+```sh
+python3 tools/crate_release.py bootstrap \
+  --release-id SOURCE_RELEASE_ID --revision FULL_SOURCE_SHA \
+  --manifest-sha256 MANIFEST_SHA256 \
+  --expected-owner CRATES_IO_LOGIN --expected-owner-id CRATES_IO_ACCOUNT_ID
+```
+
+The helper verifies the complete release first, requires terminal confirmation,
+and reads the token through a hidden prompt. It accepts only initially absent
+names and verifies owner identity after publication. crates.io exposes no token
+identity API, so the owner must create the short-lived token in that verified
+account. Never supply it in environment variables or workflow secrets.
 
 Use the helper's `--help` for read-only verification and reconciliation interfaces.
 Retain the exact source release coordinates and successful checksum evidence for

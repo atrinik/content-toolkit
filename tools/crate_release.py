@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import gzip
+import getpass
 import io
 import json
 import os
@@ -325,10 +326,13 @@ def registry_state(row):
     raw_api = get(f"{REGISTRY}/api/v1/crates/{row['name']}/{row['version']}", absent=True)
     raw_index = get(f"{INDEX}/{index_path(row['name'])}", absent=True, maximum=MAX_BYTES)
     api_row = None if raw_api is None else json.loads(raw_api)['version']
+    require(api_row is None or (api_row.get('crate') == row['name'] and api_row.get('num') == row['version']),
+            'registry API coordinate mismatch')
     matches = [] if raw_index is None else [json.loads(line) for line in raw_index.splitlines()
                 if line and json.loads(line)['vers'] == row['version']]
     require(len(matches) <= 1, 'duplicate index version')
     index_row = matches[0] if matches else None
+    require(index_row is None or index_row.get('name') == row['name'], 'registry index coordinate mismatch')
     for value, key in ((api_row, 'checksum'), (index_row, 'cksum')):
         if value is not None:
             require(value[key] == row['sha256'] and not value.get('yanked', False), 'registry checksum/yank conflict')
@@ -411,6 +415,10 @@ def release_evidence(config, release_id, revision, manifest_sha256):
     assets = release['assets']
     require(len({row['name'] for row in assets}) == len(assets) and
             set(checksums) == {row['name'] for row in assets if row['name'] != 'SHA256SUMS'}, 'incomplete source checksum inventory')
+    for asset in assets:
+        if asset['name'] != 'SHA256SUMS':
+            require(asset.get('state') == 'uploaded' and asset.get('digest') == 'sha256:' + checksums[asset['name']],
+                    'source asset digest disagrees with checksum inventory')
     require(checksums[MANIFEST] == manifest_sha256, 'manifest absent from source checksums')
     snapshots = {}
     for row in manifest['crates']:
@@ -504,6 +512,10 @@ def finalize(config, source_tag, directory):
             os.environ.get('EXPECTED_SOURCE_VERSION', source_tag[1:]) == source_tag[1:], 'source plan drift')
     manifest = validate_manifest(config, json.loads((directory / MANIFEST).read_text()))
     require(manifest['revision'] == revision and manifest['source_tag'] == source_tag, 'prepared source identity')
+    if manifest['crates']:
+        immutable = api(config, 'immutable-releases')
+        require(immutable.get('enabled') is True and immutable.get('enforced_by_owner') is True,
+                'owner-enforced immutable releases must be enabled before tagging')
     provenance = json.loads((directory / 'provenance.json').read_text())
     require(provenance['revision'] == revision and provenance['version'] == source_tag[1:], 'prepared provenance')
     checksums = {}
@@ -530,14 +542,69 @@ def finalize(config, source_tag, directory):
     return manifest
 
 
+def bootstrap(config, release_id, revision, manifest_sha256, expected_owner, expected_owner_id):
+    """One-time owner-terminal bootstrap; never an Actions fallback credential."""
+    require(not os.environ.get('GITHUB_ACTIONS') and not os.environ.get('CI') and
+            not os.environ.get('ACTIONS_ID_TOKEN_REQUEST_URL') and
+            not any(os.environ.get(key) for key in ('CARGO_REGISTRY_TOKEN',
+                'CARGO_REGISTRIES_CRATES_IO_TOKEN', 'CARGO_REGISTRY_BOOTSTRAP_TOKEN')),
+            'bootstrap requires a local owner terminal without environment credentials')
+    require(sys.stdin.isatty() and sys.stderr.isatty(), 'bootstrap requires interactive terminal')
+    require(re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9-]{0,63}', expected_owner or '')
+            and str(expected_owner_id).isdigit(), 'explicit owner identity required')
+    require(not subprocess.check_output(['git', 'status', '--porcelain'], cwd=ROOT), 'dirty bootstrap checkout')
+    head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
+    require(api(config, f'compare/{head}...main')['status'] in ('identical', 'ahead'), 'bootstrap tooling must be reviewed on main')
+    release, manifest, snapshots = release_evidence(config, release_id, revision, manifest_sha256)
+    historical = {row['name'] for row in config['historical']}
+    require(manifest['crates'] and all(row['name'] not in historical for row in manifest['crates']),
+            'bootstrap cannot publish established historical crate families')
+    public_owner = json.loads(get(f'{REGISTRY}/api/v1/users/{expected_owner}'))['user']
+    require(str(public_owner['id']) == str(expected_owner_id) and public_owner['login'] == expected_owner,
+            'bootstrap owner identity mismatch')
+    def owned(name):
+        users = json.loads(get(f'{REGISTRY}/api/v1/crates/{name}/owners'))['users']
+        require(any(user.get('kind') == 'user' and str(user.get('id')) == str(expected_owner_id)
+                    and user.get('login') == expected_owner for user in users), 'bootstrap owner mismatch')
+    to_publish = []
+    for row in ordered(manifest['crates']):
+        if registry_state(row) == 'present':
+            owned(row['name'])
+            continue
+        # A name that exists at any other coordinate is not a first publication.
+        require(get(f"{REGISTRY}/api/v1/crates/{row['name']}", absent=True) is None,
+                'bootstrap name already exists; configure Trusted Publishing instead')
+        to_publish.append(row)
+    if not to_publish:
+        return
+    coordinates = ', '.join(f"{row['name']}@{row['version']}" for row in to_publish)
+    print(f'First publication of {coordinates} as {expected_owner} ({expected_owner_id}).', file=sys.stderr)
+    print('Use a short-lived publish-new token created in this owner account; no token identity API is available.', file=sys.stderr)
+    require(input(f'Type PUBLISH AS {expected_owner}: ') == f'PUBLISH AS {expected_owner}', 'bootstrap not confirmed')
+    token = getpass.getpass('One-use crates.io token (hidden): ')
+    require(0 < len(token) <= 8192 and all(33 <= ord(char) <= 126 for char in token), 'invalid bootstrap token')
+    for row in to_publish:
+        require(api(config, f'releases/{release_id}') == release, 'bootstrap source changed')
+        require(registry_state(row) == 'absent' and
+                get(f"{REGISTRY}/api/v1/crates/{row['name']}", absent=True) is None,
+                'bootstrap coordinate is no longer absent')
+        put_once(snapshots[row['name']], row['metadata'], token)
+        confirm([row])
+        owned(row['name'])
+    print('Bootstrap confirmed; revoke this one-use token and register Trusted Publishing.', file=sys.stderr)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('operation', choices=['verify', 'upload', 'confirm', 'dispatch', 'reconcile', 'finalize'])
+    parser.add_argument('operation', choices=['verify', 'upload', 'confirm', 'dispatch', 'reconcile', 'finalize', 'bootstrap'])
     parser.add_argument('--release-id'); parser.add_argument('--revision'); parser.add_argument('--manifest-sha256')
     parser.add_argument('--source-tag'); parser.add_argument('--archives', type=Path)
+    parser.add_argument('--expected-owner'); parser.add_argument('--expected-owner-id')
     args = parser.parse_args()
     config = policy()
-    if args.operation == 'finalize':
+    if args.operation == 'bootstrap':
+        bootstrap(config, args.release_id, args.revision, args.manifest_sha256, args.expected_owner, args.expected_owner_id)
+    elif args.operation == 'finalize':
         require(args.archives is not None, 'prepared directory required')
         finalize(config, args.source_tag, args.archives)
     elif args.operation in ('verify', 'confirm'):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+from contextlib import ExitStack
 import gzip
 import io
 import json
@@ -166,8 +167,8 @@ class GraphTests(unittest.TestCase):
 class RegistryTests(unittest.TestCase):
     def observations(self, entry, data, api=True, index=True, checksum=None, yanked=False):
         checksum = checksum or entry['sha256']
-        return [R.canonical({'version': {'checksum': checksum, 'yanked': yanked}}) if api else None,
-                R.canonical({'vers': entry['version'], 'cksum': checksum, 'yanked': yanked}) if index else None,
+        return [R.canonical({'version': {'crate': entry['name'], 'num': entry['version'], 'checksum': checksum, 'yanked': yanked}}) if api else None,
+                R.canonical({'name': entry['name'], 'vers': entry['version'], 'cksum': checksum, 'yanked': yanked}) if index else None,
                 data]
 
     def test_registry_requires_both_views_and_download(self):
@@ -237,6 +238,34 @@ class BoundaryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             R.validate_manifest(CONFIG, changed)
 
+    def test_bootstrap_cannot_run_in_actions_or_noninteractive_context(self):
+        for environment in ({'GITHUB_ACTIONS': 'true'}, {'CARGO_REGISTRY_TOKEN': 'secret'}, {}):
+            with patch.dict(os.environ, environment, clear=True), patch.object(R.sys.stdin, 'isatty', return_value=False):
+                with self.assertRaises(ValueError):
+                    R.bootstrap(CONFIG, 10, REVISION, 'b' * 64, 'owner', '123')
+
+    def test_bootstrap_existing_name_and_uncertain_upload_fail_closed(self):
+        entry, data = row()
+        release = {'id': 10}
+        for existing, uncertain in [(True, False), (False, True)]:
+            with self.subTest(existing=existing), ExitStack() as stack:
+                stack.enter_context(patch.dict(os.environ, {}, clear=True))
+                stack.enter_context(patch.object(R.sys.stdin, 'isatty', return_value=True))
+                stack.enter_context(patch.object(R.sys.stderr, 'isatty', return_value=True))
+                stack.enter_context(patch.object(R.subprocess, 'check_output', side_effect=[b'', REVISION]))
+                stack.enter_context(patch.object(R, 'api', side_effect=[{'status': 'identical'}, release]))
+                stack.enter_context(patch.object(R, 'release_evidence', return_value=(release, {'crates': [entry]}, {'example': data})))
+                stack.enter_context(patch.object(R, 'registry_state', return_value='absent'))
+                stack.enter_context(patch.object(R, 'get', side_effect=[R.canonical({'user': {'id': 123, 'login': 'owner'}}),
+                    b'existing' if existing else None, None]))
+                stack.enter_context(patch('builtins.input', return_value='PUBLISH AS owner'))
+                stack.enter_context(patch.object(R.getpass, 'getpass', return_value='test-only-token'))
+                stack.enter_context(patch.object(R, 'confirm', side_effect=ValueError('unresolved')))
+                put = stack.enter_context(patch.object(R, 'put_once', return_value=False))
+                with self.assertRaisesRegex(ValueError, 'name already exists' if existing else 'unresolved'):
+                    R.bootstrap(CONFIG, 10, REVISION, 'b' * 64, 'owner', '123')
+                self.assertEqual(put.call_count, 0 if existing else 1)
+
     def test_required_checks_exact_revision_name_app_and_latest_success(self):
         check = {'name': 'Example validation', 'head_sha': REVISION, 'app': {'slug': 'github-actions'},
                  'id': 1, 'status': 'completed', 'conclusion': 'success'}
@@ -262,8 +291,13 @@ class BoundaryTests(unittest.TestCase):
             (directory / entry['asset']).write_bytes(data)
             sums = ''.join(f'{R.digest(path.read_bytes())}  {path.name}\n' for path in sorted(directory.iterdir()))
             (directory / 'SHA256SUMS').write_text(sums)
-            with patch.object(R.subprocess, 'check_output', return_value=REVISION):
+            with patch.object(R.subprocess, 'check_output', return_value=REVISION), \
+                 patch.object(R, 'api', return_value={'enabled': True, 'enforced_by_owner': True}):
                 R.finalize(CONFIG, 'v1.0.0', directory)
+                for settings in ({'enabled': False, 'enforced_by_owner': True},
+                                 {'enabled': True, 'enforced_by_owner': False}):
+                    with patch.object(R, 'api', return_value=settings), self.assertRaisesRegex(ValueError, 'before tagging'):
+                        R.finalize(CONFIG, 'v1.0.0', directory)
                 (directory / 'unchecked').write_text('extra')
                 with self.assertRaisesRegex(ValueError, 'inventory coverage'):
                     R.finalize(CONFIG, 'v1.0.0', directory)

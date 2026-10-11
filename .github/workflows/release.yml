@@ -103,10 +103,12 @@ jobs:
           npm install --prefix "${RUNNER_TEMP}/semantic-release"
           --ignore-scripts --no-audit --no-fund --package-lock=false
           semantic-release@25.0.9 @semantic-release/exec@7.1.0
+          @semantic-release/github@12.0.6
           conventional-changelog-conventionalcommits@9.3.1
       - name: Reanalyze and publish only the verified prepared payload
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_READ_TOKEN: ${{ github.token }}
           ATRINIK_RELEASE_BRANCH: ${{ github.ref_name }}
           EXPECTED_SOURCE_REVISION: ${{ needs.package.outputs.revision }}
           EXPECTED_SOURCE_VERSION: ${{ needs.package.outputs.version }}
