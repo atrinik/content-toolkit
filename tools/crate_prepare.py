@@ -26,7 +26,7 @@ def git(*args):
 def clean_environment():
     environment = os.environ.copy()
     for name in tuple(environment):
-        if name in ('GH_TOKEN', 'GITHUB_TOKEN', 'ACTIONS_ID_TOKEN_REQUEST_URL',
+        if name in ('GH_TOKEN', 'GITHUB_TOKEN', 'GH_READ_TOKEN', 'ACTIONS_ID_TOKEN_REQUEST_URL',
                     'ACTIONS_ID_TOKEN_REQUEST_TOKEN') or name.startswith('CARGO_REGISTR'):
             environment.pop(name)
     return environment
@@ -64,6 +64,8 @@ def known(config):
 
 
 def pending(config):
+    if not R.registry_source_branch():
+        return False
     existing = known(config)
     return any((name, version) not in existing for name, version in versions(config).items())
 
@@ -123,7 +125,8 @@ def prepare(config, tag, output, archives=None, dry_run=False):
     R.require(__import__('re').fullmatch(r'v[0-9]+\.[0-9]+\.[0-9]+', tag), 'source version')
     output.mkdir(parents=True, exist_ok=True)
     current = versions(config)
-    previous = {} if dry_run else known(config)
+    eligible = dry_run or R.registry_source_branch()
+    previous = {} if dry_run or not eligible else known(config)
     manifest = {'schema_version': 1, 'repository': config['repository'],
                 'repository_id': config['repository_id'], 'revision': revision, 'source_tag': tag, 'crates': []}
     # Cargo packages the complete public graph together, resolving internal
@@ -167,6 +170,12 @@ def prepare(config, tag, output, archives=None, dry_run=False):
                 R.verify_archive(row, first, revision)
             if archives is not None:
                 write_exact(archives / asset, first)
+            if not eligible:
+                # Maintenance still verifies its complete source package graph,
+                # but cannot reserve names/versions for the main-only publisher.
+                if archives is not None:
+                    (archives / asset).unlink()
+                continue
             key = (name, version)
             if key in previous:
                 R.require(old_content(config, previous[key]) == row['content_sha256'], 'owned crate version has changed package contents')

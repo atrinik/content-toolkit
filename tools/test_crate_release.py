@@ -199,6 +199,28 @@ class RegistryTests(unittest.TestCase):
                 R.upload(CONFIG, 10, REVISION, 'b' * 64)
             self.assertEqual(put.call_count, 1)
 
+    def test_download_counts_may_change_but_asset_identity_may_not(self):
+        entry, data = row()
+        release = {'id': 10, 'tag_name': 'v1.0.0', 'immutable': True,
+                   'assets': [{'id': 20, 'name': entry['asset'], 'size': len(data),
+                               'digest': 'sha256:' + entry['sha256'], 'state': 'uploaded', 'download_count': 0}]}
+        for key, value, permitted in [('download_count', 4, True), ('digest', 'sha256:' + '0' * 64, False),
+                                      ('name', 'other.crate', False), ('id', 21, False), ('size', 0, False)]:
+            changed = copy.deepcopy(release); changed['assets'][0][key] = value
+            changed['updated_at'] = 'later'; changed['body'] = 'Edited release notes'
+            with self.subTest(key=key), patch.object(R, 'boundary'), \
+                 patch.object(R, 'release_evidence', return_value=(release, {'crates': [entry]}, {'example': data})), \
+                 patch.object(R, 'registry_state', return_value='absent'), patch.object(R, 'api', return_value=changed), \
+                 patch.object(R, 'put_once', return_value=True) as put, patch.object(R, 'confirm'), \
+                 patch.dict(os.environ, {'CARGO_REGISTRY_TOKEN': 'test-token'}):
+                if permitted:
+                    R.upload(CONFIG, 10, REVISION, 'b' * 64)
+                    put.assert_called_once()
+                else:
+                    with self.assertRaisesRegex(ValueError, 'release changed'):
+                        R.upload(CONFIG, 10, REVISION, 'b' * 64)
+                    put.assert_not_called()
+
     def test_already_present_skips_upload(self):
         entry, data = row()
         with patch.object(R, 'boundary'), patch.object(R, 'release_evidence', return_value=({}, {'crates': [entry]}, {'example': data})), \
@@ -266,6 +288,31 @@ class BoundaryTests(unittest.TestCase):
                     R.bootstrap(CONFIG, 10, REVISION, 'b' * 64, 'owner', '123')
                 self.assertEqual(put.call_count, 0 if existing else 1)
 
+    def test_maintenance_preparation_cannot_claim_coordinates(self):
+        entry, data = row()
+        def command(argv, **_):
+            if argv[0] == 'cargo':
+                target = Path(argv[argv.index('--target-dir') + 1]) / 'package'
+                target.mkdir(parents=True)
+                (target / entry['asset']).write_bytes(data)
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(os.environ, {'ATRINIK_RELEASE_BRANCH': '1.0.x'}, clear=True), \
+             patch.object(P, 'versions', return_value={'example': '0.1.0'}), \
+             patch.object(P, 'known') as known, patch.object(P, 'git', side_effect=lambda *args: REVISION if args[0] == 'rev-parse' else ''), \
+             patch.object(P.subprocess, 'run', side_effect=command):
+            output = Path(temporary)
+            self.assertFalse(P.pending(CONFIG))
+            manifest = P.prepare(CONFIG, 'v1.0.1', output, archives=output)
+            self.assertEqual(manifest['crates'], [])
+            self.assertFalse((output / entry['asset']).exists())
+            known.assert_not_called()
+
+    def test_actions_source_ref_cannot_be_overridden_and_read_token_not_in_build(self):
+        with patch.dict(os.environ, {'GITHUB_ACTIONS': 'true', 'GITHUB_REF': 'refs/heads/1.0.x',
+                                    'ATRINIK_RELEASE_BRANCH': 'main'}, clear=True), self.assertRaises(ValueError):
+            R.registry_source_branch()
+        with patch.dict(os.environ, {'GH_READ_TOKEN': 'read-only-secret'}, clear=True):
+            self.assertNotIn('GH_READ_TOKEN', P.clean_environment())
+
     def test_required_checks_exact_revision_name_app_and_latest_success(self):
         check = {'name': 'Example validation', 'head_sha': REVISION, 'app': {'slug': 'github-actions'},
                  'id': 1, 'status': 'completed', 'conclusion': 'success'}
@@ -292,7 +339,7 @@ class BoundaryTests(unittest.TestCase):
         entry, data = row()
         value = {'schema_version': 1, 'repository': CONFIG['repository'], 'repository_id': '123',
                  'revision': REVISION, 'source_tag': 'v1.0.0', 'crates': [entry]}
-        with tempfile.TemporaryDirectory() as temporary:
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(os.environ, {}, clear=True):
             directory = Path(temporary)
             (directory / R.MANIFEST).write_bytes(R.canonical(value))
             (directory / 'provenance.json').write_bytes(R.canonical({'revision': REVISION, 'version': '1.0.0'}))
@@ -303,6 +350,8 @@ class BoundaryTests(unittest.TestCase):
                  patch.object(R, 'api') as settings_api:
                 R.finalize(CONFIG, 'v1.0.0', directory)
                 settings_api.assert_not_called()
+                with patch.dict(os.environ, {'ATRINIK_RELEASE_BRANCH': '1.0.x'}, clear=True), self.assertRaisesRegex(ValueError, 'maintenance release'):
+                    R.finalize(CONFIG, 'v1.0.0', directory)
                 (directory / 'unchecked').write_text('extra')
                 with self.assertRaisesRegex(ValueError, 'inventory coverage'):
                     R.finalize(CONFIG, 'v1.0.0', directory)

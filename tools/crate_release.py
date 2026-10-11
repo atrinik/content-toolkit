@@ -447,6 +447,28 @@ def put_once(data, metadata_value, token):
     return False
 
 
+def release_snapshot(release):
+    """Immutable identity only; GitHub download counters and notes can change."""
+    identity = {key: release.get(key) for key in ('id', 'node_id', 'url', 'html_url',
+        'tag_name', 'target_commitish', 'draft', 'prerelease', 'immutable', 'published_at')}
+    identity['assets'] = sorted(({key: asset.get(key) for key in ('id', 'node_id',
+        'name', 'size', 'digest', 'state', 'content_type', 'url', 'browser_download_url')}
+        for asset in release.get('assets', [])), key=lambda asset: (str(asset['id']), str(asset['name'])))
+    return identity
+
+
+def registry_source_branch():
+    if os.environ.get('GITHUB_ACTIONS') == 'true':
+        ref = os.environ.get('GITHUB_REF', '')
+        require(ref.startswith('refs/heads/'), 'source release must use a branch')
+        branch = ref.removeprefix('refs/heads/')
+        require(os.environ.get('ATRINIK_RELEASE_BRANCH', branch) == branch, 'source branch identity drift')
+    else:
+        branch = os.environ.get('ATRINIK_RELEASE_BRANCH', 'main')
+    require(branch == 'main' or re.fullmatch(r'[0-9]+\.[0-9]+\.x', branch), 'unsupported source release branch')
+    return branch == 'main'
+
+
 def upload(config, release_id, revision, manifest_sha256):
     boundary(config, upload=True)
     token = os.environ.pop('CARGO_REGISTRY_TOKEN', None)
@@ -458,7 +480,8 @@ def upload(config, release_id, revision, manifest_sha256):
             continue
         require(state == 'absent', 'registry state indeterminate; no write')
         # No source execution, registry credential subprocess or repackaging.
-        require(api(config, f'releases/{release_id}') == release, 'release changed during upload preflight')
+        require(release_snapshot(api(config, f'releases/{release_id}')) == release_snapshot(release),
+                'release changed during upload preflight')
         put_once(snapshots[row['name']], row['metadata'], token)
         # Both acknowledged and uncertain PUTs are reconciled by reads only.
         # A timeout aborts this graph; never perform a second PUT in this run.
@@ -512,6 +535,7 @@ def finalize(config, source_tag, directory):
             os.environ.get('EXPECTED_SOURCE_VERSION', source_tag[1:]) == source_tag[1:], 'source plan drift')
     manifest = validate_manifest(config, json.loads((directory / MANIFEST).read_text()))
     require(manifest['revision'] == revision and manifest['source_tag'] == source_tag, 'prepared source identity')
+    require(registry_source_branch() or not manifest['crates'], 'maintenance release cannot own registry coordinates')
     provenance = json.loads((directory / 'provenance.json').read_text())
     require(provenance['revision'] == revision and provenance['version'] == source_tag[1:], 'prepared provenance')
     checksums = {}
@@ -580,7 +604,8 @@ def bootstrap(config, release_id, revision, manifest_sha256, expected_owner, exp
     token = getpass.getpass('One-use crates.io token (hidden): ')
     require(0 < len(token) <= 8192 and all(33 <= ord(char) <= 126 for char in token), 'invalid bootstrap token')
     for row in to_publish:
-        require(api(config, f'releases/{release_id}') == release, 'bootstrap source changed')
+        require(release_snapshot(api(config, f'releases/{release_id}')) == release_snapshot(release),
+                'bootstrap source changed')
         require(registry_state(row) == 'absent' and
                 get(f"{REGISTRY}/api/v1/crates/{row['name']}", absent=True) is None,
                 'bootstrap coordinate is no longer absent')

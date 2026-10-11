@@ -15,8 +15,12 @@ exact-version dependencies advance together. Change `[workspace.package].version
 and each internal `=VERSION` constraint together when a package's contents change.
 A source-only documentation or CI release can retain the Cargo version if the
 packaged library contents are unchanged. Such releases omit already-owned public
-crate coordinates and their archives; CLI/application archives remain available. PR validation compares crate inputs to
-the base revision. Release preparation compares exact packaged contents to the
+crate coordinates and their archives; CLI/application archives remain available.
+Supported maintenance source releases still verify the complete package graph,
+but omit public registry coordinates and their archives. Only the main source
+branch may reserve crate versions for the publisher. In Actions, the actual
+GitHub branch ref controls this choice and any conflicting branch selector
+fails closed. PR validation compares crate inputs to the base revision. Release preparation compares exact packaged contents to the
 latest release that owns each crate version; an unchanged version with changed
 contents fails before semantic-release creates or publishes a GitHub release.
 
@@ -25,13 +29,16 @@ commit analyzer and the existing release rules. `tools/package-release.sh` packa
 and compiles the complete compatibility set without credentials, then prepares
 `crate-release.json` before checksums and GitHub publication. The separate write
 job repeats semantic-release analysis and validates the exact prepared version
-and revision; its preparation hook performs no build or asset mutation. Its manifest binds the repository identity, immutable source
-revision and source tag, exact archive checksums, complete file inventories,
+and revision; its preparation hook performs no build or asset mutation. The
+manifest binds the repository identity, immutable source revision and source tag,
+exact archive checksums, complete file inventories,
 registry metadata and package dependency graph. The registry publisher downloads
 these already verified bytes and never runs Cargo, build scripts or package code.
 Library dependencies publish in topological order after their exact versions and
 checksums become visible on crates.io. Retries accept only an existing identical
-version; an existing version with a different checksum fails closed.
+version; an existing version with a different checksum fails closed. Mutable
+download counters and release notes do not change the verified release and
+archive identities.
 
 After semantic-release completes, protected-main automation dispatches
 `publish-crate.yml` with the exact source release ID, revision and manifest digest.
