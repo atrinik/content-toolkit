@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Keep Python imports from changing the source revision before package checks.
+export PYTHONDONTWRITEBYTECODE=1
+
 repository=$(git rev-parse --show-toplevel)
 cd "${repository}"
 

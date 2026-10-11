@@ -23,6 +23,7 @@ jobs:
       version: ${{ steps.plan.outputs.version }}
       revision: ${{ steps.plan.outputs.revision }}
     env:
+      PYTHONDONTWRITEBYTECODE: 1
       CARGO_HOME: /tmp/atrinik-content-toolkit-cargo
       CARGO_TARGET_DIR: /tmp/atrinik-content-toolkit-target
       ATRINIK_RELEASE_BRANCH: ${{ github.ref_name }}
@@ -64,13 +65,13 @@ jobs:
         if: steps.plan.outputs.version != ''
         env:
           SOURCE_VERSION: ${{ steps.plan.outputs.version }}
-        run: tools/package-release.sh build/release "${SOURCE_VERSION}"
+        run: tools/package-release.sh "${RUNNER_TEMP}/source-release" "${SOURCE_VERSION}"
       - name: Retain the complete verified release payload
         if: steps.plan.outputs.version != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: source-release-${{ github.sha }}
-          path: build/release/
+          path: ${{ runner.temp }}/source-release/
           if-no-files-found: error
           retention-days: 7
 
@@ -138,8 +139,11 @@ jobs:
           semantic-release@25.0.9 @semantic-release/exec@7.1.0
           @semantic-release/github@12.0.6
           conventional-changelog-conventionalcommits@9.3.1
+      - name: Test pinned semantic-release Git authentication without credentials
+        run: NODE_PATH="${RUNNER_TEMP}/semantic-release/node_modules" node scripts/release/test-git-auth.mjs
       - name: Reanalyze and publish only the verified prepared payload
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           GH_TOKEN: ${{ github.token }}
           GH_READ_TOKEN: ${{ github.token }}
           ATRINIK_RELEASE_BRANCH: ${{ github.ref_name }}

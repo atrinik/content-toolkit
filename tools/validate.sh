@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Keep Python imports from changing the source revision before package checks.
+export PYTHONDONTWRITEBYTECODE=1
+
 repository=$(git rev-parse --show-toplevel)
 cd "${repository}"
 
@@ -11,6 +14,7 @@ cargo fmt --all --check
 cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo test --locked --workspace --all-targets
 cargo test --locked --workspace --doc
+python3 tools/test_writable_source.py
 cargo build --locked --release --package atrinik-content
 cargo run --locked --quiet --package atrinik-content -- --version
 cargo run --locked --quiet --package atrinik-content -- \
