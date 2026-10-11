@@ -27,9 +27,15 @@ contents fails before semantic-release creates or publishes a GitHub release.
 The read-only source-package job calculates the source version with the pinned
 commit analyzer and the existing release rules. `tools/package-release.sh` packages
 and compiles the complete compatibility set without credentials, then prepares
-`crate-release.json` before checksums and GitHub publication. The separate write
+`crate-release.json` before checksums and GitHub publication. Source preparation
+uses runner temporary storage outside the checkout; validation and packaging
+disable Python bytecode writes before imports. The clean-revision gate still
+rejects both tracked edits and unexpected untracked source inputs. The separate write
 job repeats semantic-release analysis and validates the exact prepared version
-and revision; its preparation hook performs no build or asset mutation. A separate
+and revision; its preparation hook performs no build or asset mutation. Its final
+execution step supplies the Actions token under both `GITHUB_TOKEN` and `GH_TOKEN`
+so the pinned semantic-release resolver uses the installation-token Git identity.
+A credential-free behavior fixture checks this resolver before token exposure. A separate
 inert job finalizes the same payload and signs `crate-release.json` through the
 pinned official GitHub provenance action before source publication. This job has
 OIDC and attestation-write permissions and runs no Cargo, npm or installation. The
