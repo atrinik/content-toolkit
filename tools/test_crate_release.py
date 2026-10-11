@@ -1,0 +1,575 @@
+#!/usr/bin/env python3
+"""Negative tests for the portable exact-archive publication boundary."""
+from __future__ import annotations
+
+import copy
+from contextlib import ExitStack
+import gzip
+import io
+import json
+import os
+from pathlib import Path
+import tarfile
+import tempfile
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from types import SimpleNamespace
+import unittest
+from unittest.mock import MagicMock, patch
+
+from tools import crate_release as R
+from tools import crate_prepare as P
+
+REVISION = 'a' * 40
+CONFIG = {'schema_version': 1, 'repository': 'atrinik/example', 'repository_id': '123',
+          'workflow': 'publish-crate.yml', 'environment': 'crates-io-release', 'toolchain': '1.97.1',
+          'required_checks': ['Example validation'], 'crates': [{'name': 'example', 'path': 'crates/example'}], 'historical': []}
+
+
+def files():
+    return {'Cargo.toml': b'''[package]
+name="example"
+version="0.1.0"
+publish=["crates-io"]
+license="MIT"
+readme="README.md"
+[lib]
+path="src/lib.rs"
+[dependencies.alias]
+package="actual"
+version="^1.2"
+optional=true
+features=["feature"]
+default-features=false
+[target.'cfg(windows)'.build-dependencies]
+cc="1"
+[dev-dependencies]
+testing="2"
+[features]
+default=["dep:alias"]
+''', 'Cargo.toml.orig': b'[package]\n', 'Cargo.lock': b'''version = 4
+[[package]]
+name = "example"
+version = "0.1.0"
+[[package]]
+name = "actual"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+''', '.cargo_vcs_info.json': R.canonical({'git': {'sha1': REVISION}, 'path_in_vcs': 'crates/example'}),
+        'README.md': b'Example.', 'src/lib.rs': b'pub fn example() {}\n'}
+
+
+def make_archive(members=None, special=None):
+    output = io.BytesIO()
+    with tarfile.open(fileobj=output, mode='w:gz') as stream:
+        for name, data in (files() if members is None else members).items():
+            member = tarfile.TarInfo('example-0.1.0/' + name)
+            member.size = len(data)
+            stream.addfile(member, io.BytesIO(data))
+        if special:
+            stream.addfile(special)
+    return output.getvalue()
+
+
+def row():
+    data = make_archive()
+    contents = R.archive(data, 'example', '0.1.0')
+    return {'name': 'example', 'version': '0.1.0', 'path': 'crates/example',
+            'asset': 'example-0.1.0.crate', 'sha256': R.digest(data),
+            'content_sha256': R.content_digest(contents), 'inventory': sorted(contents),
+            'metadata': R.metadata(contents, 'example', '0.1.0')}, data
+
+
+class MetadataTests(unittest.TestCase):
+    def test_full_dependency_mapping(self):
+        value = R.metadata(files(), 'example', '0.1.0')
+        alias, dev, build = value['deps']
+        self.assertEqual((alias['name'], alias['explicit_name_in_toml']), ('actual', 'alias'))
+        self.assertTrue(alias['optional']); self.assertFalse(alias['default_features'])
+        self.assertEqual(alias['features'], ['feature'])
+        self.assertEqual((dev['kind'], build['kind'], build['target']), ('dev', 'build', 'cfg(windows)'))
+        self.assertEqual(value['features'], {'default': ['dep:alias']})
+
+    def test_no_path_git_or_unknown_dependency_field(self):
+        for addition in ('path="../sibling"', 'git="https://example.org/repo"', 'registry="other"', 'future=true'):
+            with self.subTest(addition=addition):
+                value = files()
+                value['Cargo.toml'] = value['Cargo.toml'].replace(b'package="actual"', ('package="actual"\n' + addition).encode())
+                with self.assertRaisesRegex(ValueError, 'dependency source'):
+                    R.metadata(value, 'example', '0.1.0')
+
+    def test_metadata_cannot_lie_about_archive(self):
+        entry, data = row()
+        entry['metadata']['deps'][0]['optional'] = False
+        with self.assertRaisesRegex(ValueError, 'metadata mismatch'):
+            R.verify_archive(entry, data, REVISION)
+
+
+class ArchiveTests(unittest.TestCase):
+    def test_valid_snapshot(self):
+        entry, data = row()
+        R.verify_archive(entry, data, REVISION)
+
+    def test_revision_inventory_and_hash_must_match(self):
+        entry, data = row()
+        for key, value in [('sha256', '0' * 64), ('inventory', ['Cargo.toml']), ('content_sha256', '0' * 64)]:
+            changed = dict(entry, **{key: value})
+            with self.assertRaises(ValueError):
+                R.verify_archive(changed, data, REVISION)
+        with self.assertRaisesRegex(ValueError, 'source provenance'):
+            R.verify_archive(entry, data, 'b' * 40)
+
+    def test_unsafe_links_duplicates_and_paths_rejected(self):
+        for name, kind in [('example-0.1.0/../outside', tarfile.REGTYPE),
+                           ('example-0.1.0/src/lib.rs', tarfile.REGTYPE),
+                           ('example-0.1.0/link', tarfile.SYMTYPE)]:
+            with self.subTest(name=name):
+                member = tarfile.TarInfo(name); member.type = kind
+                with self.assertRaises(ValueError):
+                    R.archive(make_archive(special=member), 'example', '0.1.0')
+
+    def test_pax_expansion_is_bounded_before_parser(self):
+        output = io.BytesIO()
+        with tarfile.open(fileobj=output, mode='w', format=tarfile.PAX_FORMAT,
+                          pax_headers={'comment': 'a' * 100000}) as stream:
+            member = tarfile.TarInfo('example-0.1.0/Cargo.toml')
+            stream.addfile(member)
+        compressed = gzip.compress(output.getvalue())
+        with patch.object(R, 'MAX_BYTES', 64000), self.assertRaisesRegex(ValueError, 'tar stream bound'):
+            R.archive(compressed, 'example', '0.1.0')
+
+    def test_content_hash_ignores_only_revision_metadata(self):
+        value = files(); original = R.content_digest(value)
+        value['.cargo_vcs_info.json'] = b'different revision'
+        self.assertEqual(R.content_digest(value), original)
+        value['Cargo.lock'] += b'\n# dependency graph changed\n'
+        self.assertNotEqual(R.content_digest(value), original)
+
+    def test_locked_git_dependency_rejected(self):
+        entry, _ = row(); contents = files()
+        contents['Cargo.lock'] = contents['Cargo.lock'].replace(b'registry+https://github.com/rust-lang/crates.io-index', b'git+https://example.com')
+        data = make_archive(contents)
+        entry.update(sha256=R.digest(data), content_sha256=R.content_digest(contents))
+        with self.assertRaisesRegex(ValueError, 'nonregistry'):
+            R.verify_archive(entry, data, REVISION)
+
+
+class GraphTests(unittest.TestCase):
+    def test_leaves_before_optional_target_build_dependency(self):
+        leaf = {'name': 'leaf', 'metadata': {'deps': []}}
+        top = {'name': 'top', 'metadata': {'deps': [{'name': 'leaf', 'kind': 'build', 'optional': True}]}}
+        self.assertEqual([item['name'] for item in R.ordered([top, leaf])], ['leaf', 'top'])
+
+    def test_cycles_fail_before_upload(self):
+        values = [{'name': a, 'metadata': {'deps': [{'name': b, 'kind': 'normal'}]}}
+                  for a, b in [('a', 'b'), ('b', 'a')]]
+        with self.assertRaisesRegex(ValueError, 'cyclic'):
+            R.ordered(values)
+
+
+class RegistryTests(unittest.TestCase):
+    def observations(self, entry, data, api=True, index=True, checksum=None, yanked=False):
+        checksum = checksum or entry['sha256']
+        return [R.canonical({'version': {'crate': entry['name'], 'num': entry['version'], 'checksum': checksum, 'yanked': yanked}}) if api else None,
+                R.canonical({'name': entry['name'], 'vers': entry['version'], 'cksum': checksum, 'yanked': yanked}) if index else None,
+                data]
+
+    def test_registry_requires_both_views_and_download(self):
+        entry, data = row()
+        for api, index, state in [(False, False, 'absent'), (True, False, 'indeterminate'),
+                                  (False, True, 'indeterminate'), (True, True, 'present')]:
+            with self.subTest(api=api, index=index), patch.object(R, 'get', side_effect=self.observations(entry, data, api, index)):
+                self.assertEqual(R.registry_state(entry), state)
+
+    def test_conflicting_checksum_yanked_or_download_mismatch_fail(self):
+        entry, data = row()
+        for observations in [self.observations(entry, data, checksum='0' * 64),
+                             self.observations(entry, data, yanked=True),
+                             self.observations(entry, b'changed')]:
+            with patch.object(R, 'get', side_effect=observations), self.assertRaises(ValueError):
+                R.registry_state(entry)
+
+    def test_uncertain_upload_never_puts_twice_or_advances(self):
+        entry, data = row()
+        manifest = {'crates': [entry]}
+        release = {'id': 10}
+        with patch.object(R, 'boundary'), patch.object(R, 'reserve_upload'), patch.object(R, 'release_evidence', return_value=(release, manifest, {'example': data})), \
+             patch.object(R, 'registry_state', return_value='absent'), patch.object(R, 'api', return_value=release), \
+             patch.object(R, 'put_once', return_value=False) as put, \
+             patch.object(R, 'confirm', side_effect=ValueError('unresolved')), \
+             patch.dict(os.environ, {'CARGO_REGISTRY_TOKEN': 'test-token'}):
+            with self.assertRaisesRegex(ValueError, 'unresolved'):
+                R.upload(CONFIG, 10, REVISION, 'b' * 64)
+            self.assertEqual(put.call_count, 1)
+
+    def test_download_counts_may_change_but_asset_identity_may_not(self):
+        entry, data = row()
+        release = {'id': 10, 'tag_name': 'v1.0.0', 'immutable': True,
+                   'assets': [{'id': 20, 'name': entry['asset'], 'size': len(data),
+                               'digest': 'sha256:' + entry['sha256'], 'state': 'uploaded', 'download_count': 0}]}
+        for key, value, permitted in [('download_count', 4, True), ('digest', 'sha256:' + '0' * 64, False),
+                                      ('name', 'other.crate', False), ('id', 21, False), ('size', 0, False)]:
+            changed = copy.deepcopy(release); changed['assets'][0][key] = value
+            changed['updated_at'] = 'later'; changed['body'] = 'Edited release notes'
+            with self.subTest(key=key), patch.object(R, 'boundary'), patch.object(R, 'reserve_upload'), \
+                 patch.object(R, 'release_evidence', return_value=(release, {'crates': [entry]}, {'example': data})), \
+                 patch.object(R, 'registry_state', return_value='absent'), patch.object(R, 'api', return_value=changed), \
+                 patch.object(R, 'put_once', return_value=True) as put, patch.object(R, 'confirm'), \
+                 patch.dict(os.environ, {'CARGO_REGISTRY_TOKEN': 'test-token'}):
+                if permitted:
+                    R.upload(CONFIG, 10, REVISION, 'b' * 64)
+                    put.assert_called_once()
+                else:
+                    with self.assertRaisesRegex(ValueError, 'release changed'):
+                        R.upload(CONFIG, 10, REVISION, 'b' * 64)
+                    put.assert_not_called()
+
+    def test_already_present_skips_upload(self):
+        entry, data = row()
+        with patch.object(R, 'boundary'), patch.object(R, 'reserve_upload') as reserve, patch.object(R, 'release_evidence', return_value=({}, {'crates': [entry]}, {'example': data})), \
+             patch.object(R, 'registry_state', return_value='present'), patch.object(R, 'put_once') as put, \
+             patch.dict(os.environ, {'CARGO_REGISTRY_TOKEN': 'test-token'}):
+            R.upload(CONFIG, 10, REVISION, 'b' * 64)
+            put.assert_not_called()
+            reserve.assert_not_called()
+
+
+class AttestationTests(unittest.TestCase):
+    def statement(self):
+        repo = 'https://github.com/' + CONFIG['repository']
+        workflow = repo + '/.github/workflows/release.yml@refs/heads/main'
+        return [{'verificationResult': {'signature': {'certificate': {
+            'issuer': 'https://token.actions.githubusercontent.com', 'sourceRepositoryURI': repo,
+            'sourceRepositoryIdentifier': '123', 'sourceRepositoryRef': 'refs/heads/main',
+            'sourceRepositoryDigest': REVISION, 'buildConfigURI': workflow, 'buildConfigDigest': REVISION,
+            'subjectAlternativeName': workflow, 'buildSignerURI': workflow,
+            'buildSignerDigest': REVISION, 'runnerEnvironment': 'github-hosted',
+            'runInvocationURI': repo + '/actions/runs/100/attempts/2'}},
+            'statement': {'predicateType': 'https://slsa.dev/provenance/v1',
+                'subject': [{'name': 'crate-release.json', 'digest': {'sha256': 'b' * 64}}],
+                'predicate': {'runDetails': {'metadata': {'invocationId': 'untrusted'}}}}}}]
+
+    def test_certificate_not_predicate_binds_actual_producing_run(self):
+        statement = self.statement()
+        self.assertEqual(R.attestation_identity(CONFIG, statement, REVISION, 'b' * 64), [{'run_id': 100, 'run_attempt': 2}])
+        for field, value in [('issuer', 'https://attacker.invalid'), ('sourceRepositoryIdentifier', '999'),
+                             ('sourceRepositoryRef', 'refs/pull/1/merge'), ('sourceRepositoryDigest', 'c' * 40),
+                             ('buildConfigDigest', 'c' * 40), ('buildConfigURI', 'other.yml'),
+                             ('buildSignerDigest', 'c' * 40), ('buildSignerURI', 'other.yml'),
+                             ('subjectAlternativeName', 'other.yml'), ('runnerEnvironment', 'self-hosted'),
+                             ('runInvocationURI', 'https://github.com/other/repo/actions/runs/100/attempts/2')]:
+            changed = copy.deepcopy(statement)
+            changed[0]['verificationResult']['signature']['certificate'][field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                R.attestation_identity(CONFIG, changed, REVISION, 'b' * 64)
+        with self.assertRaisesRegex(ValueError, 'subject mismatch'):
+            R.attestation_identity(CONFIG, statement, REVISION, 'c' * 64)
+
+    def test_only_attested_run_attempt_success_is_accepted(self):
+        producer = {'run_id': 100, 'run_attempt': 2}
+        run = dict(producer, id=100, workflow_id=9, head_sha=REVISION, head_branch='main', event='push',
+                   repository={'id': 123}, head_repository={'id': 123}, status='completed', conclusion='success')
+        with patch.object(R, 'api', side_effect=[{'id': 9}, run]):
+            self.assertEqual(R.producing_run(CONFIG, [producer], REVISION), producer)
+        for change in [{'id': 101}, {'run_attempt': 1}, {'head_sha': 'c' * 40}, {'head_branch': '1.0.x'},
+                       {'workflow_id': 8}, {'conclusion': 'failure'}]:
+            with patch.object(R, 'api', side_effect=[{'id': 9}, dict(run, **change)]), self.assertRaises(ValueError):
+                R.producing_run(CONFIG, [producer], REVISION)
+
+    def test_verifier_child_has_no_credentials_or_host_auth_config(self):
+        payload = b'candidate'
+        verified = self.statement()
+        verified[0]['verificationResult']['statement']['subject'][0]['digest']['sha256'] = R.digest(payload)
+        calls = []
+        def command(argv, **kwargs):
+            calls.append((argv, kwargs))
+            if argv == ['gh', 'version']:
+                return SimpleNamespace(returncode=0, stdout=b'gh version 2.102.0 (2026-09-30)\n')
+            kwargs['stdout'].write(R.canonical(verified))
+            return SimpleNamespace(returncode=0)
+        with patch.dict(os.environ, {'CARGO_REGISTRY_TOKEN': 'crate-secret', 'GH_INTENT_TOKEN': 'write-secret',
+                                     'GH_TOKEN': 'host-secret', 'GH_READ_TOKEN': 'read-secret'}), \
+             patch.object(R, 'api', return_value={'attestations': [{'bundle': {'mediaType': 'test-only'}}]}), \
+             patch.object(R.subprocess, 'run', side_effect=command):
+            self.assertEqual(R.verified_attestation(CONFIG, payload, REVISION), [{'run_id': 100, 'run_attempt': 2}])
+        for argv, kwargs in calls:
+            self.assertFalse(any('TOKEN' in name for name in kwargs['env']))
+            self.assertIn('atrinik-crate-attestation-', kwargs['env']['GH_CONFIG_DIR'])
+        self.assertIn('--bundle', calls[-1][0])
+        self.assertIn('--deny-self-hosted-runners', calls[-1][0])
+
+    def test_snappy_all_copy_types_overlap_and_malformed_bounds(self):
+        # Literal abc, COPY_1 adds abcabc, COPY_2 adds abc, COPY_4 adds abc.
+        encoded = bytes([15, 8]) + b'abc' + bytes([9, 3, 10, 3, 0, 11, 3, 0, 0, 0])
+        self.assertEqual(R.decode_snappy(encoded), b'abcabcabcabcabc')
+        self.assertEqual(R.decode_snappy(bytes([70, 240, 69]) + b'a' * 70), b'a' * 70)
+        for raw in [b'', bytes([129, 0, 0, 97]), bytes([128]) * 6, bytes([128, 128, 128, 1]),
+                    bytes([1, 240]), bytes([1, 4, 97]), bytes([1, 1]), bytes([1, 2, 0]),
+                    bytes([1, 3, 0, 0]), bytes([5, 0, 97, 1, 0]), bytes([5, 0, 97, 1, 2]),
+                    bytes([4, 0, 97, 1, 1]), bytes([1, 0, 97, 0, 98]), bytes([2, 0, 97])]:
+            with self.subTest(raw=raw), self.assertRaises(ValueError):
+                R.decode_snappy(raw)
+
+    def test_current_storage_bundle_is_bounded_and_host_restricted(self):
+        raw = b'{"mediaType":"test"}'
+        compressed = bytes([len(raw), (len(raw) - 1) << 2]) + raw
+        url = 'https://tmaproduction.blob.core.windows.net/attestations/123/2026/10/11/42.json.sn?sig=public'
+        item = {'repository_id': 123, 'bundle': None, 'bundle_url': url}
+        with patch.object(R, 'get', return_value=compressed) as fetch:
+            self.assertEqual(R.attestation_bundle(CONFIG, item), {'mediaType': 'test'})
+            fetch.assert_called_once_with(url, maximum=R.MAX_JSON)
+        for other in [url.replace('https:', 'http:'), url.replace('.net/', '.net:443/'),
+                      url.replace('.net/', '.net.evil/'), url.replace('//tma', '//user@tma'),
+                      url.replace('/123/', '/456/'), url + '#fragment']:
+            with patch.object(R, 'get') as fetch, self.assertRaises(ValueError):
+                R.attestation_bundle(CONFIG, dict(item, bundle_url=other))
+            fetch.assert_not_called()
+        with self.assertRaises(ValueError):
+            R.attestation_bundle(CONFIG, dict(item, repository_id=456))
+
+    def test_missing_or_failed_signature_verification_fails_closed(self):
+        with patch.object(R, 'api', return_value={'attestations': []}), self.assertRaises(ValueError):
+            R.verified_attestation(CONFIG, b'forged-manifest', REVISION)
+        with patch.object(R, 'api', return_value={'attestations': [{'bundle': {}}]}), \
+             patch.object(R.subprocess, 'run', side_effect=[SimpleNamespace(returncode=0, stdout=b'gh version 2.102.0'),
+                                                         SimpleNamespace(returncode=1)]), self.assertRaises(ValueError):
+            R.verified_attestation(CONFIG, b'forged-manifest', REVISION)
+
+
+class IntentTests(unittest.TestCase):
+    def intent_fixture(self):
+        entry, _ = row()
+        release = {'id': 10, '_verified_producer': {'run_id': 100, 'run_attempt': 2}}
+        return entry, release
+
+    def test_two_interleaved_claimers_only_one_can_upload(self):
+        entry, release = self.intent_fixture()
+        barrier, lock = threading.Barrier(2), threading.Lock()
+        state = {'ref': None, 'commits': 0, 'puts': 0}
+        def absent(*args, **kwargs):
+            barrier.wait(timeout=5)
+            return None
+        def api(config, suffix):
+            if suffix.startswith('git/commits/'):
+                return {'tree': {'sha': 'c' * 40}}
+            with lock:
+                return copy.deepcopy(state['ref'])
+        def write(config, suffix, body, token):
+            with lock:
+                if suffix == 'git/commits':
+                    state['commits'] += 1
+                    return {'sha': str(state['commits']) * 40}
+                if state['ref'] is not None:
+                    raise ValueError('ref already exists')
+                state['ref'] = {'ref': body['ref'], 'object': {'sha': body['sha'], 'type': 'commit'}}
+                return copy.deepcopy(state['ref'])
+        def caller():
+            try:
+                R.reserve_upload(CONFIG, release, entry, REVISION, 'b' * 64, 'github-token')
+                with lock:
+                    state['puts'] += 1
+            except ValueError:
+                pass
+        with patch.object(R, 'get', side_effect=absent), patch.object(R, 'api', side_effect=api), \
+             patch.object(R, 'github_write', side_effect=write), ThreadPoolExecutor(max_workers=2) as pool:
+            list(pool.map(lambda _: caller(), range(2)))
+        self.assertEqual(state['puts'], 1)
+        self.assertEqual(state['commits'], 2)
+        self.assertEqual(state['ref']['ref'], 'refs/tags/crate-upload-intent/example/0.1.0')
+
+    def test_lost_claim_acknowledgement_and_new_source_cannot_retry(self):
+        entry, release = self.intent_fixture()
+        state = {'exists': False}
+        def write(config, suffix, body, token):
+            if suffix == 'git/commits': return {'sha': 'd' * 40}
+            state['exists'] = True
+            raise TimeoutError('response lost after server committed')
+        with patch.object(R, 'get', side_effect=lambda *a, **k: b'existing' if state['exists'] else None), \
+             patch.object(R, 'api', return_value={'tree': {'sha': 'c' * 40}}), \
+             patch.object(R, 'github_write', side_effect=write) as writer:
+            with self.assertRaises(TimeoutError):
+                R.reserve_upload(CONFIG, release, entry, REVISION, 'b' * 64, 'github-token')
+            for revision, checksum in [(REVISION, 'b' * 64), ('e' * 40, 'f' * 64)]:
+                with self.assertRaisesRegex(ValueError, 'existing upload intent'):
+                    R.reserve_upload(CONFIG, release, dict(entry, sha256=checksum), revision, checksum, 'github-token')
+            self.assertEqual(writer.call_count, 2)
+
+    def test_only_explicit_201_response_acknowledges_creation(self):
+        for status in (200, 201, 202):
+            response = MagicMock()
+            response.__enter__.return_value = response
+            response.status = status
+            response.read.return_value = b'{"sha":"test"}'
+            opener = MagicMock()
+            opener.open.return_value = response
+            with patch.object(R.urllib.request, 'build_opener', return_value=opener):
+                if status == 201:
+                    self.assertEqual(R.github_write(CONFIG, 'git/refs', {}, 'test-token'), {'sha': 'test'})
+                else:
+                    with self.assertRaisesRegex(ValueError, 'not acknowledged'):
+                        R.github_write(CONFIG, 'git/refs', {}, 'test-token')
+                self.assertEqual(opener.open.call_count, 1)
+
+    def test_claim_readback_must_match_acknowledged_commit(self):
+        entry, release = self.intent_fixture()
+        ref = 'refs/tags/crate-upload-intent/example/0.1.0'
+        with patch.object(R, 'get', return_value=None), \
+             patch.object(R, 'api', side_effect=[{'tree': {'sha': 'c' * 40}}, {'ref': ref, 'object': {'type': 'commit', 'sha': 'e' * 40}}]), \
+             patch.object(R, 'github_write', side_effect=[{'sha': 'd' * 40}, {'ref': ref, 'object': {'sha': 'd' * 40}}]), \
+             self.assertRaisesRegex(ValueError, 'readback mismatch'):
+            R.reserve_upload(CONFIG, release, entry, REVISION, 'b' * 64, 'github-token')
+
+
+class BoundaryTests(unittest.TestCase):
+    def test_no_registry_or_oidc_credentials_during_preparation(self):
+        for name in ['CARGO_REGISTRY_TOKEN', 'ACTIONS_ID_TOKEN_REQUEST_TOKEN', 'GH_TOKEN', 'GH_INTENT_TOKEN']:
+            with patch.dict(os.environ, {name: 'secret'}, clear=True), self.assertRaises(ValueError):
+                P.preparation_boundary()
+
+    def test_upload_disallows_local_pr_fork_and_other_ref(self):
+        expected = {'GITHUB_ACTIONS': 'true', 'GITHUB_REPOSITORY': CONFIG['repository'],
+                    'GITHUB_REPOSITORY_ID': '123', 'GITHUB_REF': 'refs/heads/main',
+                    'GITHUB_EVENT_NAME': 'workflow_dispatch',
+                    'GITHUB_WORKFLOW_REF': 'atrinik/example/.github/workflows/publish-crate.yml@refs/heads/main',
+                    'GITHUB_SHA': REVISION, 'GITHUB_WORKFLOW_SHA': REVISION}
+        for change in [{}, {'GITHUB_EVENT_NAME': 'pull_request'}, {'GITHUB_EVENT_NAME': 'workflow_run'},
+                       {'GITHUB_REPOSITORY_ID': '456'}, {'GITHUB_REF': 'refs/tags/v1.0.0'}]:
+            environment = {} if not change else dict(expected, **change)
+            with patch.dict(os.environ, environment, clear=True), self.assertRaises(ValueError):
+                R.boundary(CONFIG, upload=True)
+
+    def test_manifest_name_allowlist_and_source_identity(self):
+        entry, _ = row()
+        value = {'schema_version': 1, 'repository': CONFIG['repository'], 'repository_id': '123',
+                 'revision': REVISION, 'source_tag': 'v1.0.0', 'crates': [entry]}
+        R.validate_manifest(CONFIG, value)
+        for key, other in [('repository_id', '456'), ('revision', 'main'), ('source_tag', 'latest')]:
+            with self.assertRaises(ValueError):
+                R.validate_manifest(CONFIG, dict(value, **{key: other}))
+        changed = copy.deepcopy(value); changed['crates'][0]['name'] = 'not-allowed'
+        with self.assertRaises(ValueError):
+            R.validate_manifest(CONFIG, changed)
+
+    def test_bootstrap_cannot_run_in_actions_or_noninteractive_context(self):
+        for environment in ({'GITHUB_ACTIONS': 'true'}, {'CARGO_REGISTRY_TOKEN': 'secret'}, {}):
+            with patch.dict(os.environ, environment, clear=True), patch.object(R.sys.stdin, 'isatty', return_value=False):
+                with self.assertRaises(ValueError):
+                    R.bootstrap(CONFIG, 10, REVISION, 'b' * 64, 'owner', '123')
+
+    def test_bootstrap_existing_name_and_uncertain_upload_fail_closed(self):
+        entry, data = row()
+        release = {'id': 10}
+        for existing, uncertain in [(True, False), (False, True)]:
+            with self.subTest(existing=existing), ExitStack() as stack:
+                stack.enter_context(patch.dict(os.environ, {}, clear=True))
+                stack.enter_context(patch.object(R.sys.stdin, 'isatty', return_value=True))
+                stack.enter_context(patch.object(R.sys.stderr, 'isatty', return_value=True))
+                stack.enter_context(patch.object(R.subprocess, 'check_output', side_effect=[b'', REVISION]))
+                stack.enter_context(patch.object(R, 'api', side_effect=[{'status': 'identical'}, release]))
+                stack.enter_context(patch.object(R, 'release_evidence', return_value=(release, {'crates': [entry]}, {'example': data})))
+                stack.enter_context(patch.object(R, 'registry_state', return_value='absent'))
+                stack.enter_context(patch.object(R, 'get', side_effect=[R.canonical({'user': {'id': 123, 'login': 'owner'}}),
+                    b'existing' if existing else None, None]))
+                stack.enter_context(patch('builtins.input', return_value='PUBLISH AS owner'))
+                stack.enter_context(patch.object(R.getpass, 'getpass', return_value='test-only-token'))
+                stack.enter_context(patch.object(R, 'host_write_authority', return_value='test-github-token'))
+                stack.enter_context(patch.object(R, 'reserve_upload'))
+                stack.enter_context(patch.object(R, 'confirm', side_effect=ValueError('unresolved')))
+                put = stack.enter_context(patch.object(R, 'put_once', return_value=False))
+                with self.assertRaisesRegex(ValueError, 'name already exists' if existing else 'unresolved'):
+                    R.bootstrap(CONFIG, 10, REVISION, 'b' * 64, 'owner', '123')
+                self.assertEqual(put.call_count, 0 if existing else 1)
+
+    def test_maintenance_preparation_cannot_claim_coordinates(self):
+        entry, data = row()
+        def command(argv, **_):
+            if argv[0] == 'cargo':
+                target = Path(argv[argv.index('--target-dir') + 1]) / 'package'
+                target.mkdir(parents=True)
+                (target / entry['asset']).write_bytes(data)
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(os.environ, {'ATRINIK_RELEASE_BRANCH': '1.0.x'}, clear=True), \
+             patch.object(P, 'versions', return_value={'example': '0.1.0'}), \
+             patch.object(P, 'known') as known, patch.object(P, 'git', side_effect=lambda *args: REVISION if args[0] == 'rev-parse' else ''), \
+             patch.object(P.subprocess, 'run', side_effect=command):
+            output = Path(temporary)
+            self.assertFalse(P.pending(CONFIG))
+            manifest = P.prepare(CONFIG, 'v1.0.1', output, archives=output)
+            self.assertEqual(manifest['crates'], [])
+            self.assertFalse((output / entry['asset']).exists())
+            known.assert_not_called()
+
+    def test_version_gate_covers_policy_path_toolchain_and_cargo_config(self):
+        for change in ('path', 'toolchain', 'rust-toolchain.toml', '.cargo/config.toml'):
+            config = copy.deepcopy(CONFIG)
+            changed = ''
+            if change == 'path': config['crates'][0]['path'] = 'moved/example'
+            elif change == 'toolchain': config['toolchain'] = '1.98.0'
+            else: changed = change
+            def git(*args):
+                if args[0] == 'diff': return changed
+                if args[0] == 'cat-file': return ''
+                if args[1].endswith(':policy/crate-release.json'): return json.dumps(CONFIG)
+                if args[1] == REVISION + ':Cargo.toml': return '[workspace.package]\nversion="0.1.0"\n'
+                return '[package]\nversion="0.1.0"\n'
+            with self.subTest(change=change), patch.object(P, 'git', side_effect=git), \
+                 patch.object(P.subprocess, 'run') as command, \
+                 patch.object(P, 'versions', return_value={'example': '0.1.0'}):
+                command.return_value.returncode = 0
+                with self.assertRaisesRegex(ValueError, 'without reviewed version bump'):
+                    P.check_version(config, REVISION)
+                with patch.object(P, 'versions', return_value={'example': '0.1.1'}):
+                    P.check_version(config, REVISION)
+
+    def test_actions_source_ref_cannot_be_overridden_and_read_token_not_in_build(self):
+        with patch.dict(os.environ, {'GITHUB_ACTIONS': 'true', 'GITHUB_REF': 'refs/heads/1.0.x',
+                                    'ATRINIK_RELEASE_BRANCH': 'main'}, clear=True), self.assertRaises(ValueError):
+            R.registry_source_branch()
+        with patch.dict(os.environ, {'GH_READ_TOKEN': 'read-only-secret'}, clear=True):
+            self.assertNotIn('GH_READ_TOKEN', P.clean_environment())
+
+    def test_required_checks_exact_revision_name_app_and_latest_success(self):
+        check = {'name': 'Example validation', 'head_sha': REVISION, 'app': {'slug': 'github-actions'},
+                 'id': 1, 'status': 'completed', 'conclusion': 'success'}
+        with patch.object(R, 'api', return_value={'total_count': 1, 'check_runs': [check]}):
+            R.verify_checks(CONFIG, REVISION)
+        for altered in [dict(check, head_sha='b' * 40), dict(check, name='Other validation'),
+                        dict(check, app={'slug': 'other-app'}), dict(check, status='in_progress'),
+                        dict(check, conclusion='failure')]:
+            with patch.object(R, 'api', return_value={'total_count': 1, 'check_runs': [altered]}), self.assertRaises(ValueError):
+                R.verify_checks(CONFIG, REVISION)
+        newer_failure = dict(check, id=2, conclusion='failure')
+        with patch.object(R, 'api', return_value={'total_count': 2, 'check_runs': [check, newer_failure]}), self.assertRaises(ValueError):
+            R.verify_checks(CONFIG, REVISION)
+
+    def test_mutable_release_refused_before_bootstrap_or_oidc_evidence(self):
+        release = {'draft': False, 'prerelease': False, 'published_at': '2026-10-11T00:00:00Z',
+                   'immutable': False, 'tag_name': 'v1.0.0'}
+        for immutable in (False, None):
+            with patch.object(R, 'api') as api, self.assertRaisesRegex(ValueError, 'public and immutable'):
+                R.release_identity(CONFIG, dict(release, immutable=immutable))
+            api.assert_not_called()
+
+    def test_inert_finalizer_requires_complete_prepared_inventory(self):
+        entry, data = row()
+        value = {'schema_version': 1, 'repository': CONFIG['repository'], 'repository_id': '123',
+                 'revision': REVISION, 'source_tag': 'v1.0.0', 'crates': [entry]}
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(os.environ, {}, clear=True):
+            directory = Path(temporary)
+            (directory / R.MANIFEST).write_bytes(R.canonical(value))
+            (directory / 'provenance.json').write_bytes(R.canonical({'revision': REVISION, 'version': '1.0.0'}))
+            (directory / entry['asset']).write_bytes(data)
+            sums = ''.join(f'{R.digest(path.read_bytes())}  {path.name}\n' for path in sorted(directory.iterdir()))
+            (directory / 'SHA256SUMS').write_text(sums)
+            with patch.object(R.subprocess, 'check_output', return_value=REVISION), \
+                 patch.object(R, 'api') as settings_api:
+                R.finalize(CONFIG, 'v1.0.0', directory)
+                settings_api.assert_not_called()
+                with patch.dict(os.environ, {'ATRINIK_RELEASE_BRANCH': '1.0.x'}, clear=True), self.assertRaisesRegex(ValueError, 'maintenance release'):
+                    R.finalize(CONFIG, 'v1.0.0', directory)
+                (directory / 'unchecked').write_text('extra')
+                with self.assertRaisesRegex(ValueError, 'inventory coverage'):
+                    R.finalize(CONFIG, 'v1.0.0', directory)
+
+
+if __name__ == '__main__':
+    unittest.main()

@@ -1,0 +1,122 @@
+name: Publish immutable Rust library graph
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Publish the immutable source release graph
+        type: choice
+        options: [automatic]
+        default: automatic
+        required: true
+      source_release_id:
+        description: Exact immutable GitHub source release ID
+        type: string
+        required: true
+      source_revision:
+        description: Full source revision bound by the release manifest
+        type: string
+        required: true
+      manifest_sha256:
+        description: Exact crate-release.json digest
+        type: string
+        required: true
+  schedule:
+    - cron: '17 * * * *'
+
+permissions:
+  contents: read
+
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
+
+concurrency:
+  group: content-toolkit-crate-publication
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    if: github.repository == 'atrinik/content-toolkit' && github.repository_id == '1327107043' && github.ref == 'refs/heads/main' && github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Redispatch incomplete immutable crate graphs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_READ_TOKEN: ${{ github.token }}
+        run: python3 tools/crate_release.py reconcile
+
+  verify:
+    if: github.repository == 'atrinik/content-toolkit' && github.repository_id == '1327107043' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.operation == 'automatic'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+      checks: read
+      attestations: read
+    env:
+      GH_READ_TOKEN: ${{ github.token }}
+      SOURCE_RELEASE_ID: ${{ inputs.source_release_id }}
+      SOURCE_REVISION: ${{ inputs.source_revision }}
+      MANIFEST_SHA256: ${{ inputs.manifest_sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify immutable release, complete inventory and registry state
+        run: >-
+          python3 tools/crate_release.py verify --release-id "${SOURCE_RELEASE_ID}"
+          --revision "${SOURCE_REVISION}" --manifest-sha256 "${MANIFEST_SHA256}"
+
+  publish:
+    needs: verify
+    if: github.repository == 'atrinik/content-toolkit' && github.repository_id == '1327107043' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.operation == 'automatic'
+    environment: crates-io-release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      actions: read
+      checks: read
+      attestations: read
+      id-token: write
+    env:
+      GH_READ_TOKEN: ${{ github.token }}
+      SOURCE_RELEASE_ID: ${{ inputs.source_release_id }}
+      SOURCE_REVISION: ${{ inputs.source_revision }}
+      MANIFEST_SHA256: ${{ inputs.manifest_sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Revalidate the exact release before requesting OIDC
+        run: >-
+          python3 tools/crate_release.py verify --release-id "${SOURCE_RELEASE_ID}"
+          --revision "${SOURCE_REVISION}" --manifest-sha256 "${MANIFEST_SHA256}"
+      - id: auth
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+      - name: Upload verified archives in dependency order without builds
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+          GH_INTENT_TOKEN: ${{ github.token }}
+        run: >-
+          python3 tools/crate_release.py upload --release-id "${SOURCE_RELEASE_ID}"
+          --revision "${SOURCE_REVISION}" --manifest-sha256 "${MANIFEST_SHA256}"
+      - name: Confirm complete registry checksums after success or uncertain upload
+        if: ${{ !cancelled() }}
+        run: >-
+          python3 tools/crate_release.py confirm --release-id "${SOURCE_RELEASE_ID}"
+          --revision "${SOURCE_REVISION}" --manifest-sha256 "${MANIFEST_SHA256}"

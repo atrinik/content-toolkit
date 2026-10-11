@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "repository": "atrinik/content-toolkit",
+  "repository_id": "1327107043",
+  "workflow": "publish-crate.yml",
+  "environment": "crates-io-release",
+  "toolchain": "1.97.1",
+  "crates": [
+    {
+      "name": "atrinik-artifact",
+      "path": "crates/atrinik-artifact"
+    },
+    {
+      "name": "atrinik-catalog",
+      "path": "crates/atrinik-catalog"
+    },
+    {
+      "name": "atrinik-diagnostics",
+      "path": "crates/atrinik-diagnostics"
+    },
+    {
+      "name": "atrinik-schema",
+      "path": "crates/atrinik-schema"
+    },
+    {
+      "name": "atrinik-source",
+      "path": "crates/atrinik-source"
+    },
+    {
+      "name": "atrinik-testkit",
+      "path": "crates/atrinik-testkit"
+    },
+    {
+      "name": "atrinik-transaction",
+      "path": "crates/atrinik-transaction"
+    }
+  ],
+  "historical": [],
+  "required_checks": [
+    "Content toolkit validation",
+    "Content toolkit corpus"
+  ]
+}

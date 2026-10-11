@@ -71,7 +71,15 @@
   repository validation and explicit conformance/corpus commands; do not route
   toolkit builds or runtime through Classic code. Update the wrapper
   supply-chain inventory whenever dependency inputs or validation paths change.
-- Commits/PR titles use Conventional Commits and semantic-release owns versioned
-  crates, CLI, schemas, fixtures, and artifacts. Every handoff states exact
-  validation and any unavailable integration; runtime topology is not
-  applicable to a toolkit-only change.
+- Commits/PR titles use Conventional Commits. Semantic-release owns GitHub
+  source, CLI, schema, fixture and artifact versions. Public library Cargo
+  versions advance together through reviewed manifest changes independently of
+  source versions; `policy/crate-release.json` is the explicit registry allowlist.
+  The read-only build job prepares the complete immutable release graph and the
+  separate publisher verifies official main-source manifest attestations and
+  reserves durable coordinate intents before exact-byte OIDC uploads, without
+  building. Only the inert signing job has source OIDC/attestation authority;
+  compiler jobs remain credential-free. Preserve uncertain intents for explicit
+  owner recovery. See
+  [the release contract](CRATE_RELEASE.md). Every handoff states exact validation
+  and unavailable integration; runtime topology is not applicable to toolkit work.
