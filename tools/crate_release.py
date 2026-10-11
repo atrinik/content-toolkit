@@ -157,7 +157,8 @@ def get(url, absent=False, maximum=MAX_JSON, token=None):
 
 
 def api(config, suffix):
-    return json.loads(get(f"https://api.github.com/repos/{config['repository']}/{suffix}"))
+    root = f"https://api.github.com/repos/{config['repository']}"
+    return json.loads(get(root + ('/' + suffix if suffix else '')))
 
 
 def github_write(config, suffix, body, token):

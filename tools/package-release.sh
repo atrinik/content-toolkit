@@ -25,19 +25,6 @@ source_archive="atrinik-content-toolkit-${version}.tar.gz"
 git archive --format=tar --prefix="atrinik-content-toolkit-${version}/" HEAD \
   | gzip -n >"${output}/${source_archive}"
 
-# The workspace crates depend on one another by path. Cargo 1.97 verifies each
-# package before it has checksums for later workspace packages, which makes a
-# workspace-wide offline package operation fail inside Cargo's temporary
-# registry. Assemble without Cargo's broken per-package pass, then compile the
-# exact staged compatibility set below.
-cargo package --locked --offline --allow-dirty --no-verify \
-  --package atrinik-artifact --package atrinik-catalog \
-  --package atrinik-diagnostics --package atrinik-schema --package atrinik-source \
-  --package atrinik-testkit --package atrinik-transaction \
-  --package atrinik-content --package atrinik-content-mcp
-cp "${target_directory}"/package/*.crate "${output}/crates/"
-tools/verify-packages.sh "${output}/crates"
-
 cargo build --locked --release --package atrinik-content --package atrinik-content-mcp
 cp "${target_directory}/release/atrinik-content" "${output}/"
 cp "${target_directory}/release/atrinik-content-mcp" "${output}/"
@@ -62,12 +49,6 @@ jq -n \
     tools: {rust: $rust}, headless: true}' \
   >"${output}/provenance.json"
 
-cargo_version=$(cargo metadata --locked --offline --no-deps --format-version 1 | jq -er '[.packages[].version] | unique | if length == 1 then .[0] else error("workspace versions differ") end')
-tar -tf "${output}/crates/atrinik-testkit-${cargo_version}.crate" \
-  | grep -Fx "atrinik-testkit-${cargo_version}/fixtures/minimal.arc" >/dev/null
-tar -tf "${output}/crates/atrinik-schema-${cargo_version}.crate" \
-  | grep -Fx \
-    "atrinik-schema-${cargo_version}/schemas/foundation-artifact.schema.json" >/dev/null
 test -s "${output}/policy/classic-authored-limits.json"
 test -s "${output}/schemas/classic-diagnostic.schema.json"
 
@@ -76,10 +57,12 @@ test -s "${output}/mcp-schemas/input.schema.json"
 test -s "${output}/mcp-schemas/output.schema.json"
 test -s "${output}/third-party-licenses/manifest.json"
 
-# Registry preparation binds the exact already-compiled archives before any
-# GitHub source release is created. Local aggregate validation remains offline.
+# Package the public candidate set with both source-only application crates.
+# Shared preparation preserves published dependency checksums and verifies the
+# complete extracted graph before omitting already owned public coordinates.
 crate_prepare_arguments=(prepare --source-tag "v${version}"
-  --output "${output}/crates" --archives "${output}/crates")
+  --output "${output}/crates" --archives "${output}/crates"
+  --source-package atrinik-content --source-package atrinik-content-mcp)
 if [[ $# -lt 2 ]]; then
   crate_prepare_arguments+=(--dry-run)
 fi

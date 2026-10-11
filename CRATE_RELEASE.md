@@ -43,6 +43,17 @@ manifest binds the repository identity, immutable source revision and source tag
 exact archive checksums, complete file inventories,
 registry metadata and package dependency graph. The registry publisher downloads
 these already verified bytes and never runs Cargo, build scripts or package code.
+Previously owned library coordinates must already be available through the
+production registry API, sparse index and exact archive bytes. Preparation
+packages each such coordinate twice on its own, preserving production dependency
+checksums in the full canonical `Cargo.lock`, compares every member except its
+own VCS revision to the original, and verifies the original published bytes in
+the compatibility graph. Only new coordinates and the explicitly nonpublishable
+`atrinik-content` and `atrinik-content-mcp` packages share a new-package overlay.
+Both applications remain source assets and never become registry manifest rows.
+Maintenance releases verify their current nine-package graph without consulting
+main registry ownership, then retain only the application archives.
+
 Library dependencies publish in topological order after their exact versions and
 checksums become visible on crates.io. Retries accept only an existing identical
 version; an existing version with a different checksum fails closed. Mutable

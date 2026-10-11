@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise validation imports and the real dirty-source gate in writable Git."""
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -42,7 +43,8 @@ class WritableSourceTests(unittest.TestCase):
             result = subprocess.run(['bash', 'tools/validate.sh'], cwd=root,
                 env=environment, capture_output=True, text=True, timeout=60)
             self.assertEqual(result.returncode, 73, result.stdout + result.stderr)
-            self.assertIn('Ran 37 tests', result.stderr)
+            counts = [int(value) for value in re.findall(r'Ran (\d+) tests?', result.stderr)]
+            self.assertTrue(any(count >= 37 for count in counts), result.stderr)
             self.assertIn('Ran 4 tests', result.stderr)
             self.assertEqual(git('status', '--porcelain'), b'')
             self.assertEqual(list(root.rglob('*.pyc')), [])

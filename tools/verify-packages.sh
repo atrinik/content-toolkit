@@ -28,6 +28,11 @@ for crate in "${crates[@]}"; do
   tar -xzf "${packages}/${crate}-${version}.crate" -C "${verification}"
 done
 
+# These authored contracts must exist in the exact archives, including when
+# published library assets are omitted from a later source release.
+test -s "${verification}/atrinik-testkit-${version}/fixtures/minimal.arc"
+test -s "${verification}/atrinik-schema-${version}/schemas/foundation-artifact.schema.json"
+
 patches=()
 for crate in "${crates[@]}"; do
   patches+=(

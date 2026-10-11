@@ -80,6 +80,16 @@ def row():
             'metadata': R.metadata(contents, 'example', '0.1.0')}, data
 
 
+class ApiEndpointTests(unittest.TestCase):
+    def test_repository_root_has_no_trailing_slash(self):
+        with patch.object(R, 'get', return_value=b'{}') as get:
+            R.api(CONFIG, '')
+            get.assert_called_once_with('https://api.github.com/repos/atrinik/example')
+        with patch.object(R, 'get', return_value=b'{}') as get:
+            R.api(CONFIG, 'releases/123')
+            get.assert_called_once_with('https://api.github.com/repos/atrinik/example/releases/123')
+
+
 class MetadataTests(unittest.TestCase):
     def test_full_dependency_mapping(self):
         value = R.metadata(files(), 'example', '0.1.0')
@@ -569,6 +579,182 @@ class BoundaryTests(unittest.TestCase):
                 (directory / 'unchecked').write_text('extra')
                 with self.assertRaisesRegex(ValueError, 'inventory coverage'):
                     R.finalize(CONFIG, 'v1.0.0', directory)
+
+
+
+class StablePackageTests(unittest.TestCase):
+    def old_fixture(self):
+        old_files = files()
+        old_files['.cargo_vcs_info.json'] = R.canonical({'git': {'sha1': 'b' * 40}, 'path_in_vcs': 'crates/example'})
+        data = make_archive(old_files)
+        entry = P.package_row(CONFIG['crates'][0], '0.1.0', data)
+        return entry, data, ({'id': 1}, {'revision': 'b' * 40}, entry, 'c' * 64)
+
+    def commands(self, data, observed):
+        def command(argv, **_):
+            if argv[0] == 'cargo':
+                observed.append(argv)
+                target = Path(argv[argv.index('--target-dir') + 1]) / 'package'
+                target.mkdir(parents=True)
+                for name, value in data.items():
+                    if name in argv:
+                        (target / (name + '-0.1.0.crate')).write_bytes(value)
+            else:
+                observed.append({p.name: p.read_bytes() for p in Path(argv[-1]).glob('*.crate')})
+        return command
+
+    def named_archive(self, name, publish=True):
+        contents = {key: value.replace(b'example', name.encode()) for key, value in files().items()}
+        if not publish:
+            contents['Cargo.toml'] = contents['Cargo.toml'].replace(b'publish=["crates-io"]', b'publish=false')
+        output = io.BytesIO()
+        with tarfile.open(fileobj=output, mode='w:gz') as stream:
+            for key, data in contents.items():
+                member = tarfile.TarInfo(f'{name}-0.1.0/{key}'); member.size = len(data)
+                stream.addfile(member, io.BytesIO(data))
+        return output.getvalue()
+
+    def test_mixed_graph_is_partitioned_and_cli_stays_source_only(self):
+        old, old_bytes, lineage = self.old_fixture()
+        config = copy.deepcopy(CONFIG)
+        config['crates'].append({'name': 'fresh', 'path': 'crates/fresh'})
+        extras = {'cli': {'name': 'cli', 'version': '0.1.0', 'path': 'crates/cli'}}
+        data = {'example': make_archive(), 'fresh': self.named_archive('fresh'),
+                'cli': self.named_archive('cli', publish=False)}
+        calls = []
+        with tempfile.TemporaryDirectory() as temporary, patch.object(R, 'asset_bytes', return_value=old_bytes), \
+             patch.object(R, 'registry_state', return_value='present'), \
+             patch.object(P.subprocess, 'run', side_effect=self.commands(data, calls)):
+            rows, staged = P.stage_packages(config, {'example': '0.1.0', 'fresh': '0.1.0'},
+                {('example', '0.1.0'): lineage}, REVISION, Path(temporary), source_packages=extras)
+            self.assertEqual(set(rows), {'example', 'fresh'})
+            self.assertEqual(staged['example'], old_bytes)
+            self.assertEqual(set(calls[-1]), {'example-0.1.0.crate', 'fresh-0.1.0.crate', 'cli-0.1.0.crate'})
+            self.assertEqual([arg for arg in calls[0] if arg in data], ['example'])
+            self.assertEqual([arg for arg in calls[2] if arg in data], ['fresh', 'cli'])
+            self.assertEqual(len(calls), 5)
+
+    def test_maintenance_retains_cli_without_looking_up_main_ownership(self):
+        calls = []; data = {'example': make_archive(), 'cli': self.named_archive('cli', publish=False)}
+        with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
+            stack.enter_context(patch.dict(os.environ, {'ATRINIK_RELEASE_BRANCH': '1.0.x'}, clear=True))
+            stack.enter_context(patch.object(P, 'versions', return_value={'example': '0.1.0'}))
+            stack.enter_context(patch.object(P, 'source_only_packages', return_value={
+                'cli': {'name': 'cli', 'version': '0.1.0', 'path': 'crates/cli'}}))
+            known = stack.enter_context(patch.object(P, 'known'))
+            registry = stack.enter_context(patch.object(R, 'registry_state'))
+            stack.enter_context(patch.object(P, 'git', side_effect=lambda *a: REVISION if a[0] == 'rev-parse' else ''))
+            stack.enter_context(patch.object(P.subprocess, 'run', side_effect=self.commands(data, calls)))
+            output = Path(temporary)
+            manifest = P.prepare(CONFIG, 'v1.0.1', output, archives=output, source_packages=['cli'])
+            self.assertEqual(manifest['crates'], [])
+            self.assertEqual({p.name for p in output.glob('*.crate')}, {'cli-0.1.0.crate'})
+            self.assertEqual(set(calls[-1]), {'example-0.1.0.crate', 'cli-0.1.0.crate'})
+            known.assert_not_called(); registry.assert_not_called()
+
+    def test_old_source_only_commit_stages_original_and_emits_no_new_lineage(self):
+        original, old_bytes, lineage = self.old_fixture()
+        candidate = make_archive()
+        calls = []
+        with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
+            stack.enter_context(patch.dict(os.environ, {}, clear=True))
+            stack.enter_context(patch.object(P, 'versions', return_value={'example': '0.1.0'}))
+            stack.enter_context(patch.object(P, 'known', return_value={('example', '0.1.0'): lineage}))
+            stack.enter_context(patch.object(P, 'git', side_effect=lambda *a: REVISION if a[0] == 'rev-parse' else ''))
+            stack.enter_context(patch.object(R, 'asset_bytes', return_value=old_bytes))
+            stack.enter_context(patch.object(R, 'registry_state', return_value='present'))
+            stack.enter_context(patch.object(P.subprocess, 'run', side_effect=self.commands({'example': candidate}, calls)))
+            output = Path(temporary)
+            result = P.prepare(CONFIG, 'v1.0.0', output, archives=output)
+            self.assertEqual(result['crates'], [])
+            self.assertEqual(list(output.glob('*.crate')), [])
+            self.assertEqual(calls[-1], {original['asset']: old_bytes})
+            self.assertEqual(len(calls), 3)  # exactly two individual runs, then full graph proof
+            self.assertNotEqual(calls[0][calls[0].index('--target-dir') + 1],
+                                calls[1][calls[1].index('--target-dir') + 1])
+
+    def test_old_content_inventory_and_current_revision_cannot_change(self):
+        _, old_bytes, lineage = self.old_fixture()
+        mutations = {'code': ('src/lib.rs', b'changed'), 'added-file': ('new.txt', b'new'),
+                     'lock': ('Cargo.lock', files()['Cargo.lock'] + b'# changed\n'),
+                     'metadata': ('Cargo.toml', files()['Cargo.toml'].replace(b'license="MIT"', b'license="Apache-2.0"')),
+                     'revision': ('.cargo_vcs_info.json', b'{}')}
+        for label, (key, value) in mutations.items():
+            changed = files(); changed[key] = value
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as temporary, \
+                 patch.object(R, 'asset_bytes', return_value=old_bytes), \
+                 patch.object(R, 'registry_state', return_value='present'), \
+                 patch.object(P.subprocess, 'run', side_effect=self.commands({'example': make_archive(changed)}, [])):
+                with self.assertRaises(ValueError):
+                    P.stage_packages(CONFIG, {'example': '0.1.0'}, {('example', '0.1.0'): lineage}, REVISION, Path(temporary))
+
+    def test_unready_or_conflicting_original_blocks_before_any_cargo(self):
+        _, old_bytes, lineage = self.old_fixture()
+        for state in ('absent', 'indeterminate', ValueError('checksum/yank conflict')):
+            with self.subTest(state=state), tempfile.TemporaryDirectory() as temporary, \
+                 patch.object(R, 'asset_bytes', return_value=old_bytes), \
+                 patch.object(R, 'registry_state', side_effect=state if isinstance(state, Exception) else None,
+                              return_value=state), patch.object(P.subprocess, 'run') as run:
+                with self.assertRaises(ValueError):
+                    P.stage_packages(CONFIG, {'example': '0.1.0'}, {('example', '0.1.0'): lineage}, REVISION, Path(temporary))
+                run.assert_not_called()
+
+    def test_original_digest_inventory_and_provenance_must_match(self):
+        entry, old_bytes, lineage = self.old_fixture()
+        for field, value in [('sha256', '0' * 64), ('inventory', []), ('path', 'other')]:
+            changed = copy.deepcopy(lineage); changed[2][field] = value
+            with self.subTest(field=field), patch.object(R, 'asset_bytes', return_value=old_bytes), \
+                 patch.object(R, 'registry_state') as registry:
+                with self.assertRaises(ValueError):
+                    P.original_package(CONFIG, CONFIG['crates'][0], '0.1.0', changed)
+                registry.assert_not_called()
+        historical = dict(entry, source_tag='v0.1.0', revision='b' * 40)
+        with patch.object(R, 'api'), patch.object(R, 'asset_bytes', return_value=old_bytes), \
+             patch.object(R, 'registry_state', return_value='present'):
+            self.assertEqual(P.original_package(CONFIG, CONFIG['crates'][0], '0.1.0', historical), (entry, old_bytes))
+            historical['revision'] = REVISION
+            with self.assertRaisesRegex(ValueError, 'source provenance'):
+                P.original_package(CONFIG, CONFIG['crates'][0], '0.1.0', historical)
+
+    def test_preexisting_all_selected_outputs_are_not_adopted(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(os.environ, {}, clear=True), \
+             patch.object(P, 'versions', return_value={'example': '0.1.0'}), \
+             patch.object(P, 'known', return_value={}), patch.object(P, 'git', return_value=REVISION), \
+             patch.object(P, 'stage_packages') as stage:
+            output = Path(temporary); (output / 'example-0.1.0.crate').write_bytes(b'old overlay')
+            with self.assertRaisesRegex(ValueError, 'preexisting package output collision'):
+                P.prepare(CONFIG, 'v1.0.0', output, dry_run=True)
+            stage.assert_not_called()
+
+    def test_reproduction_and_verifier_input_tampering_rejected(self):
+        _, data = row()
+        for tamper in ('repeat', 'verifier'):
+            calls = []
+            ordinary = self.commands({'example': data}, calls)
+            def command(argv, **kwargs):
+                ordinary(argv, **kwargs)
+                if tamper == 'repeat' and argv[0] == 'cargo' and len(calls) == 2:
+                    (Path(argv[argv.index('--target-dir') + 1]) / 'package/example-0.1.0.crate').write_bytes(b'changed')
+                if tamper == 'verifier' and argv[0] == 'bash':
+                    (Path(argv[-1]) / 'example-0.1.0.crate').write_bytes(b'changed')
+            with self.subTest(tamper=tamper), tempfile.TemporaryDirectory() as temporary, \
+                 patch.object(P.subprocess, 'run', side_effect=command):
+                with self.assertRaisesRegex(ValueError, 'reproduction mismatch|staged archive changed'):
+                    P.stage_packages(CONFIG, {'example': '0.1.0'}, {}, REVISION, Path(temporary))
+
+    def test_source_only_selection_must_be_explicit_nonpublishable_workspace_member(self):
+        metadata = {'workspace_members': ['cli-id'], 'packages': [
+            {'id': 'cli-id', 'name': 'example-cli', 'version': '0.1.0', 'publish': [],
+             'manifest_path': str(P.ROOT / 'cli/Cargo.toml')} ]}
+        with patch.object(P.subprocess, 'check_output', return_value=R.canonical(metadata)):
+            self.assertEqual(P.source_only_packages(CONFIG, ['example-cli'])['example-cli']['path'], 'cli')
+            for names in (['example'], ['example-cli', 'example-cli'], ['unknown'], ['--workspace']):
+                with self.subTest(names=names), self.assertRaises(ValueError):
+                    P.source_only_packages(CONFIG, names)
+            metadata['packages'][0]['publish'] = ['crates-io']
+        with patch.object(P.subprocess, 'check_output', return_value=R.canonical(metadata)):
+            with self.assertRaisesRegex(ValueError, 'publish=false'):
+                P.source_only_packages(CONFIG, ['example-cli'])
 
 
 if __name__ == '__main__':
