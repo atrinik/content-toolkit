@@ -76,6 +76,10 @@
   versions advance together through reviewed manifest changes independently of
   source versions; `policy/crate-release.json` is the explicit registry allowlist.
   The read-only build job prepares the complete immutable release graph and the
-  separate publisher uploads exact archives through OIDC without building. See
+  separate publisher verifies official main-source manifest attestations and
+  reserves durable coordinate intents before exact-byte OIDC uploads, without
+  building. Only the inert signing job has source OIDC/attestation authority;
+  compiler jobs remain credential-free. Preserve uncertain intents for explicit
+  owner recovery. See
   [the release contract](CRATE_RELEASE.md). Every handoff states exact validation
   and unavailable integration; runtime topology is not applicable to toolkit work.

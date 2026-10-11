@@ -26,7 +26,7 @@ def git(*args):
 def clean_environment():
     environment = os.environ.copy()
     for name in tuple(environment):
-        if name in ('GH_TOKEN', 'GITHUB_TOKEN', 'GH_READ_TOKEN', 'ACTIONS_ID_TOKEN_REQUEST_URL',
+        if name in ('GH_TOKEN', 'GITHUB_TOKEN', 'GH_READ_TOKEN', 'GH_INTENT_TOKEN', 'ACTIONS_ID_TOKEN_REQUEST_URL',
                     'ACTIONS_ID_TOKEN_REQUEST_TOKEN') or name.startswith('CARGO_REGISTR'):
             environment.pop(name)
     return environment
@@ -35,7 +35,7 @@ def clean_environment():
 def preparation_boundary():
     R.require(not any(os.environ.get(key) for key in ('CARGO_REGISTRY_TOKEN',
         'CARGO_REGISTRIES_CRATES_IO_TOKEN', 'CARGO_REGISTRY_BOOTSTRAP_TOKEN',
-        'ACTIONS_ID_TOKEN_REQUEST_URL', 'ACTIONS_ID_TOKEN_REQUEST_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN')),
+        'ACTIONS_ID_TOKEN_REQUEST_URL', 'ACTIONS_ID_TOKEN_REQUEST_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN', 'GH_INTENT_TOKEN')),
         'preparation requires a credential-free job')
 
 
@@ -93,7 +93,9 @@ def check_version(config, base):
             old_version = old_workspace['version']
         version = current_versions[row['name']]
         R.require(tuple(map(int, version.split('.'))) >= tuple(map(int, old_version.split('.'))), 'crate version moved backward')
-        package_changed = any(path.startswith(row['path'] + '/') for path in changed) or bool(changed & {'Cargo.toml', 'Cargo.lock'})
+        package_changed = (row['path'] != prior['path'] or config['toolchain'] != previous['toolchain']
+            or any(path.startswith((row['path'] + '/', prior['path'] + '/', '.cargo/')) for path in changed)
+            or bool(changed & {'Cargo.toml', 'Cargo.lock', 'rust-toolchain', 'rust-toolchain.toml'}))
         R.require(not package_changed or version != old_version, 'package content changed without reviewed version bump')
 
 

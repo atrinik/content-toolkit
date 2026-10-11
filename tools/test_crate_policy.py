@@ -71,7 +71,9 @@ class PolicyTests(unittest.TestCase):
                 self.fail('unexpected API query: ' + suffix)
             def asset(_config, _release, name, *_args):
                 return (directory / name).read_bytes()
-            with patch.object(R, 'api', side_effect=api), patch.object(R, 'asset_bytes', side_effect=asset):
+            with patch.object(R, 'api', side_effect=api), patch.object(R, 'asset_bytes', side_effect=asset), \
+                 patch.object(R, 'verified_attestation', return_value=[{'run_id': 7, 'run_attempt': 1}]), \
+                 patch.object(R, 'producing_run', return_value={'run_id': 7, 'run_attempt': 1}):
                 R.release_evidence(config, '123', revision, R.digest((directory / R.MANIFEST).read_bytes()))
                 (directory / 'SHA256SUMS').write_bytes(sums.replace(b'  source-', b'  ./source-'))
                 with self.assertRaisesRegex(ValueError, 'checksum inventory invalid'):

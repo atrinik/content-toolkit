@@ -74,9 +74,42 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  attest:
+    name: Attest verified source release manifest
+    needs: package
+    if: needs.package.outputs.version != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.package.outputs.revision }}
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: source-release-${{ github.sha }}
+          path: build/release/
+      - name: Verify complete inert payload before attestation
+        env:
+          ATRINIK_RELEASE_BRANCH: ${{ github.ref_name }}
+          EXPECTED_SOURCE_REVISION: ${{ needs.package.outputs.revision }}
+          EXPECTED_SOURCE_VERSION: ${{ needs.package.outputs.version }}
+        run: >-
+          python3 tools/crate_release.py finalize --source-tag "v${EXPECTED_SOURCE_VERSION}"
+          --archives build/release
+      - name: Bind manifest bytes to this exact source workflow invocation
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: build/release/crate-release.json
+          push-to-registry: false
+
   release:
     name: Release content toolkit
-    needs: package
+    needs: [package, attest]
     if: needs.package.outputs.version != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 15

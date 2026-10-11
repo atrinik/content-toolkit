@@ -58,6 +58,11 @@ jobs:
     if: github.repository == 'atrinik/content-toolkit' && github.repository_id == '1327107043' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.operation == 'automatic'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+      checks: read
+      attestations: read
     env:
       GH_READ_TOKEN: ${{ github.token }}
       SOURCE_RELEASE_ID: ${{ inputs.source_release_id }}
@@ -81,7 +86,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
-      contents: read
+      contents: write
+      actions: read
+      checks: read
+      attestations: read
       id-token: write
     env:
       GH_READ_TOKEN: ${{ github.token }}
@@ -103,6 +111,7 @@ jobs:
       - name: Upload verified archives in dependency order without builds
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+          GH_INTENT_TOKEN: ${{ github.token }}
         run: >-
           python3 tools/crate_release.py upload --release-id "${SOURCE_RELEASE_ID}"
           --revision "${SOURCE_REVISION}" --manifest-sha256 "${MANIFEST_SHA256}"

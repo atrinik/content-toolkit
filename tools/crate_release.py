@@ -19,8 +19,11 @@ import struct
 import subprocess
 import sys
 import tarfile
+import tempfile
 import time
 import tomllib
+import secrets
+import resource
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -132,11 +135,12 @@ class PublicRedirect(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
-def get(url, absent=False, maximum=MAX_JSON):
+def get(url, absent=False, maximum=MAX_JSON, token=None):
     headers = {'User-Agent': 'atrinik-crate-release/1 (https://github.com/atrinik)', 'Accept': 'application/json'}
-    authenticated = url.startswith('https://api.github.com/') and bool(os.environ.get('GH_READ_TOKEN'))
+    token = token or os.environ.get('GH_READ_TOKEN')
+    authenticated = url.startswith('https://api.github.com/') and bool(token)
     if authenticated:
-        headers['Authorization'] = 'Bearer ' + os.environ['GH_READ_TOKEN']
+        headers['Authorization'] = 'Bearer ' + token
     request = urllib.request.Request(url, headers=headers)
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect() if authenticated else PublicRedirect())
     try:
@@ -154,6 +158,212 @@ def get(url, absent=False, maximum=MAX_JSON):
 
 def api(config, suffix):
     return json.loads(get(f"https://api.github.com/repos/{config['repository']}/{suffix}"))
+
+
+def github_write(config, suffix, body, token):
+    """One bounded API mutation. Ambiguous responses are never retried."""
+    require(isinstance(token, str) and token and '\n' not in token, 'missing GitHub intent authority')
+    request = urllib.request.Request(f"https://api.github.com/repos/{config['repository']}/{suffix}",
+        data=canonical(body), method='POST', headers={'Authorization': 'Bearer ' + token,
+        'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json',
+        'User-Agent': 'atrinik-crate-release/1'})
+    with urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect()).open(request, timeout=30) as response:
+        require(response.status == 201, 'GitHub intent creation not acknowledged')
+        raw = response.read(MAX_JSON + 1)
+        require(len(raw) <= MAX_JSON, 'GitHub intent response bound')
+        return json.loads(raw)
+
+
+def verifier_environment(directory):
+    # No registry or GitHub write credential reaches gh or its config files.
+    return {'PATH': os.environ.get('PATH', '/usr/bin:/bin'), 'HOME': str(directory),
+            'GH_CONFIG_DIR': str(directory / 'gh-config'), 'GH_PROMPT_DISABLED': '1',
+            'GH_NO_UPDATE_NOTIFIER': '1', 'NO_COLOR': '1', 'LANG': 'C.UTF-8'}
+
+
+def decode_snappy(raw):
+    """Bounded Snappy raw block, as served by GitHub's attestation storage."""
+    require(0 < len(raw) <= MAX_JSON, 'compressed attestation bound')
+    size, shift, position = 0, 0, 0
+    while True:
+        require(position < len(raw) and shift <= 28, 'Snappy length header')
+        byte = raw[position]; position += 1
+        size |= (byte & 127) << shift
+        if byte < 128:
+            break
+        shift += 7
+    require(0 < size <= MAX_JSON and position == (size.bit_length() + 6) // 7, 'expanded attestation bound')
+    output = bytearray()
+    while position < len(raw):
+        tag = raw[position]; position += 1
+        kind, length = tag & 3, tag >> 2
+        if kind == 0:
+            if length >= 60:
+                count = length - 59
+                require(position + count <= len(raw), 'Snappy literal length')
+                length = int.from_bytes(raw[position:position + count], 'little')
+                position += count
+            length += 1
+            require(position + length <= len(raw) and len(output) + length <= size, 'Snappy literal bound')
+            output.extend(raw[position:position + length]); position += length
+        else:
+            count = {1: 1, 2: 2, 3: 4}[kind]
+            require(position + count <= len(raw), 'Snappy copy offset')
+            offset = int.from_bytes(raw[position:position + count], 'little')
+            position += count
+            if kind == 1:
+                offset |= (tag & 224) << 3
+                length = 4 + ((tag >> 2) & 7)
+            else:
+                length += 1
+            require(0 < offset <= len(output) and len(output) + length <= size, 'Snappy copy bound')
+            while length:
+                chunk = min(offset, length)
+                output.extend(output[len(output) - offset:len(output) - offset + chunk])
+                length -= chunk
+    require(len(output) == size, 'Snappy decoded length mismatch')
+    return bytes(output)
+
+
+def attestation_bundle(config, item):
+    require(str(item.get('repository_id', config['repository_id'])) == config['repository_id'],
+            'attestation repository mismatch')
+    if item.get('bundle_url'):
+        url = urllib.parse.urlparse(item['bundle_url'])
+        require(url.scheme == 'https' and url.netloc == 'tmaproduction.blob.core.windows.net'
+            and not url.fragment and re.fullmatch(r'/attestations/' + config['repository_id']
+                + r'/[0-9]{4}/[0-9]{2}/[0-9]{2}/[1-9][0-9]*\.json\.sn', url.path),
+            'attestation storage URL refused')
+        # GitHub credentials are sent only to api.github.com by get().
+        value = json.loads(decode_snappy(get(item['bundle_url'], maximum=MAX_JSON)))
+    else:
+        value = item.get('bundle')
+    require(isinstance(value, dict) and 0 < len(canonical(value)) <= MAX_JSON, 'attestation bundle bound')
+    return value
+
+
+def verified_attestation(config, raw, revision):
+    """Verify signatures with the preinstalled official CLI, then certificate policy."""
+    envelope = api(config, 'attestations/sha256:' + digest(raw)
+                   + '?per_page=30&predicate_type=https%3A%2F%2Fslsa.dev%2Fprovenance%2Fv1')
+    bundles = envelope.get('attestations', [])
+    require(isinstance(bundles, list) and 0 < len(bundles) <= 30, 'attestation inventory bound')
+    with tempfile.TemporaryDirectory(prefix='atrinik-crate-attestation-') as temporary:
+        directory = Path(temporary)
+        manifest_path, bundle_path, output_path = (directory / name for name in ('crate-release.json', 'bundles.jsonl', 'verified.json'))
+        manifest_path.write_bytes(raw)
+        encoded_bundles = bytearray()
+        for item in bundles:
+            encoded = canonical(attestation_bundle(config, item)) + b'\n'
+            require(len(encoded_bundles) + len(encoded) <= MAX_JSON, 'combined attestation bundle bound')
+            encoded_bundles.extend(encoded)
+        bundle_path.write_bytes(encoded_bundles)
+        version = subprocess.run(['gh', 'version'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            env=verifier_environment(directory), timeout=10)
+        parsed_version = re.match(rb'gh version ([0-9]+)\.([0-9]+)\.([0-9]+)', version.stdout)
+        require(version.returncode == 0 and parsed_version is not None
+            and tuple(map(int, parsed_version.groups())) >= (2, 68, 0), 'GitHub CLI 2.68 or later required')
+        def bounded_output():
+            resource.setrlimit(resource.RLIMIT_FSIZE, (MAX_JSON, MAX_JSON))
+        command = ['gh', 'attestation', 'verify', str(manifest_path), '--bundle', str(bundle_path),
+                   '--repo', config['repository'], '--signer-workflow', config['repository'] + '/.github/workflows/release.yml',
+                   '--source-ref', 'refs/heads/main', '--source-digest', revision, '--signer-digest', revision,
+                   '--deny-self-hosted-runners', '--format', 'json']
+        with output_path.open('wb') as output:
+            result = subprocess.run(command, stdout=output, stderr=subprocess.DEVNULL,
+                env=verifier_environment(directory), timeout=180, preexec_fn=bounded_output)
+        require(result.returncode == 0 and output_path.stat().st_size <= MAX_JSON, 'attestation signature verification failed')
+        verified = json.loads(output_path.read_bytes())
+    return attestation_identity(config, verified, revision, digest(raw))
+
+
+def attestation_identity(config, verified, revision, manifest_sha256):
+    require(isinstance(verified, list) and 0 < len(verified) <= 30, 'verified attestation response')
+    expected_repo = 'https://github.com/' + config['repository']
+    expected_workflow = expected_repo + '/.github/workflows/release.yml@refs/heads/main'
+    producers = set()
+    for item in verified:
+        value = item['verificationResult']
+        cert = value['signature']['certificate']
+        statement = value['statement']
+        require(cert['issuer'] == 'https://token.actions.githubusercontent.com'
+            and cert['sourceRepositoryURI'] == expected_repo
+            and str(cert['sourceRepositoryIdentifier']) == config['repository_id']
+            and cert['sourceRepositoryRef'] == 'refs/heads/main'
+            and cert['sourceRepositoryDigest'] == revision
+            and cert['buildConfigURI'] == expected_workflow
+            and cert['buildConfigDigest'] == revision
+            and cert['subjectAlternativeName'] == expected_workflow
+            and cert['buildSignerURI'] == expected_workflow
+            and cert['buildSignerDigest'] == revision
+            and cert['runnerEnvironment'] == 'github-hosted', 'attested certificate identity mismatch')
+        require(statement['predicateType'] == 'https://slsa.dev/provenance/v1'
+            and any(subject.get('digest') == {'sha256': manifest_sha256} for subject in statement['subject']),
+            'attestation subject mismatch')
+        invocation = re.fullmatch(re.escape(expected_repo) + r'/actions/runs/([1-9][0-9]*)/attempts/([1-9][0-9]*)', cert['runInvocationURI'])
+        require(invocation is not None, 'attested run invocation mismatch')
+        producers.add((int(invocation[1]), int(invocation[2])))
+    return [{'run_id': run_id, 'run_attempt': attempt} for run_id, attempt in sorted(producers, reverse=True)]
+
+
+def producing_run(config, producers, revision):
+    workflow_id = api(config, 'actions/workflows/release.yml')['id']
+    for count in range(24):
+        active = False
+        for producer in producers:
+            suffix = f"actions/runs/{producer['run_id']}/attempts/{producer['run_attempt']}"
+            run = api(config, suffix)
+            require(run['id'] == producer['run_id'] and run['run_attempt'] == producer['run_attempt']
+                and run['workflow_id'] == workflow_id and run['head_sha'] == revision
+                and run['head_branch'] == 'main' and run['event'] in ('push', 'workflow_dispatch')
+                and str(run['repository']['id']) == config['repository_id']
+                and str(run['head_repository']['id']) == config['repository_id'], 'attested producing run identity mismatch')
+            if run['status'] == 'completed' and run['conclusion'] == 'success':
+                return producer
+            active = active or run['status'] != 'completed'
+        require(active, 'no successful attested producing run')
+        require(count < 23, 'attested producing run completion timed out')
+        time.sleep(5)
+
+
+def reserve_upload(config, release, row, revision, manifest_sha256, token):
+    """Coordinate-global, atomic and persistent intent, before any registry PUT."""
+    validate_coordinate(row)
+    ref = f"refs/tags/crate-upload-intent/{row['name']}/{row['version']}"
+    suffix = ref.removeprefix('refs/')
+    url = f"https://api.github.com/repos/{config['repository']}/git/ref/{suffix}"
+    require(get(url, absent=True) is None, 'existing upload intent requires explicit owner recovery')
+    producer = release['_verified_producer']
+    intent = {'schema_version': 1, 'kind': 'atrinik-crate-upload-intent', 'repository_id': config['repository_id'],
+        'name': row['name'], 'version': row['version'], 'archive_sha256': row['sha256'],
+        'manifest_sha256': manifest_sha256, 'source_revision': revision, 'source_release_id': release['id'],
+        'producer': producer, 'nonce': secrets.token_hex(32)}
+    tree = api(config, f'git/commits/{revision}')['tree']['sha']
+    require(SHA.fullmatch(tree), 'intent tree identity')
+    commit = github_write(config, 'git/commits', {'message': canonical(intent).decode(), 'tree': tree, 'parents': [revision]}, token)
+    require(SHA.fullmatch(commit.get('sha', '')), 'intent commit identity')
+    created = github_write(config, 'git/refs', {'ref': ref, 'sha': commit['sha']}, token)
+    require(created.get('ref') == ref and created.get('object', {}).get('sha') == commit['sha'], 'intent acknowledgement mismatch')
+    confirmed = api(config, 'git/ref/' + suffix)
+    require(confirmed.get('ref') == ref and confirmed.get('object', {}).get('type') == 'commit'
+        and confirmed['object']['sha'] == commit['sha'], 'intent readback mismatch')
+    return commit['sha']
+
+
+def host_write_authority(config, expected_owner):
+    """Use the separately authenticated owner GitHub session, never a crate token."""
+    environment = {name: value for name, value in os.environ.items()
+        if not name.startswith(('CARGO_REGISTR', 'ACTIONS_ID_TOKEN')) and name != 'GH_INTENT_TOKEN'}
+    result = subprocess.run(['gh', 'auth', 'token', '--hostname', 'github.com'],
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=environment, timeout=30)
+    require(result.returncode == 0 and 0 < len(result.stdout) <= 8192, 'owner GitHub authentication required')
+    token = result.stdout.decode().strip()
+    owner = json.loads(get('https://api.github.com/user', token=token))
+    repo = json.loads(get('https://api.github.com/repos/' + config['repository'], token=token))
+    require(owner['login'] == expected_owner and str(repo['id']) == config['repository_id']
+        and repo['full_name'] == config['repository'] and repo['permissions']['push'] is True,
+        'owner GitHub identity or write authority mismatch')
+    return token
 
 
 def asset_bytes(config, release, name, maximum=MAX_BYTES):
@@ -393,18 +603,8 @@ def release_evidence(config, release_id, revision, manifest_sha256):
     require(ref['type'] == 'commit' and ref['sha'] == revision, 'tag revision mismatch')
     comparison = api(config, f'compare/{revision}...main')
     require(comparison['status'] in ('identical', 'ahead'), 'source revision is not on main')
-    # Source release only exists after the reviewed workflow's credential-free
-    # aggregate succeeds; verify its exact push/manual run and source revision.
-    runs = api(config, f'actions/workflows/release.yml/runs?head_sha={revision}&per_page=100')['workflow_runs']
-    for attempt in range(24):
-        if any(run['head_sha'] == revision and run['head_branch'] == 'main'
-               and run['event'] in ('push', 'workflow_dispatch') and run['conclusion'] == 'success' for run in runs):
-            break
-        require(any(run['head_sha'] == revision and run['status'] != 'completed' for run in runs),
-                'successful source release workflow absent')
-        require(attempt < 23, 'source workflow completion timed out')
-        time.sleep(5)
-        runs = api(config, f'actions/workflows/release.yml/runs?head_sha={revision}&per_page=100')['workflow_runs']
+    producer = producing_run(config, verified_attestation(config, raw, revision), revision)
+    release['_verified_producer'] = producer
     verify_checks(config, revision)
     sums = asset_bytes(config, release, 'SHA256SUMS', MAX_JSON).decode()
     checksums = {}
@@ -470,8 +670,9 @@ def registry_source_branch():
 
 
 def upload(config, release_id, revision, manifest_sha256):
-    boundary(config, upload=True)
     token = os.environ.pop('CARGO_REGISTRY_TOKEN', None)
+    intent_token = os.environ.pop('GH_INTENT_TOKEN', None)
+    boundary(config, upload=True)
     require(isinstance(token, str) and 0 < len(token) <= 8192 and all(33 <= ord(c) <= 126 for c in token), 'missing upload credential')
     release, manifest, snapshots = release_evidence(config, release_id, revision, manifest_sha256)
     for row in ordered(manifest['crates']):
@@ -482,6 +683,7 @@ def upload(config, release_id, revision, manifest_sha256):
         # No source execution, registry credential subprocess or repackaging.
         require(release_snapshot(api(config, f'releases/{release_id}')) == release_snapshot(release),
                 'release changed during upload preflight')
+        reserve_upload(config, release, row, revision, manifest_sha256, intent_token)
         put_once(snapshots[row['name']], row['metadata'], token)
         # Both acknowledged and uncertain PUTs are reconciled by reads only.
         # A timeout aborts this graph; never perform a second PUT in this run.
@@ -601,6 +803,7 @@ def bootstrap(config, release_id, revision, manifest_sha256, expected_owner, exp
     print(f'First publication of {coordinates} as {expected_owner} ({expected_owner_id}).', file=sys.stderr)
     print('Use a short-lived publish-new token created in this owner account; no token identity API is available.', file=sys.stderr)
     require(input(f'Type PUBLISH AS {expected_owner}: ') == f'PUBLISH AS {expected_owner}', 'bootstrap not confirmed')
+    github_token = host_write_authority(config, expected_owner)
     token = getpass.getpass('One-use crates.io token (hidden): ')
     require(0 < len(token) <= 8192 and all(33 <= ord(char) <= 126 for char in token), 'invalid bootstrap token')
     for row in to_publish:
@@ -609,6 +812,7 @@ def bootstrap(config, release_id, revision, manifest_sha256, expected_owner, exp
         require(registry_state(row) == 'absent' and
                 get(f"{REGISTRY}/api/v1/crates/{row['name']}", absent=True) is None,
                 'bootstrap coordinate is no longer absent')
+        reserve_upload(config, release, row, revision, manifest_sha256, github_token)
         put_once(snapshots[row['name']], row['metadata'], token)
         confirm([row])
         owned(row['name'])

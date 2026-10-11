@@ -29,7 +29,10 @@ commit analyzer and the existing release rules. `tools/package-release.sh` packa
 and compiles the complete compatibility set without credentials, then prepares
 `crate-release.json` before checksums and GitHub publication. The separate write
 job repeats semantic-release analysis and validates the exact prepared version
-and revision; its preparation hook performs no build or asset mutation. The
+and revision; its preparation hook performs no build or asset mutation. A separate
+inert job finalizes the same payload and signs `crate-release.json` through the
+pinned official GitHub provenance action before source publication. This job has
+OIDC and attestation-write permissions and runs no Cargo, npm or installation. The
 manifest binds the repository identity, immutable source revision and source tag,
 exact archive checksums, complete file inventories,
 registry metadata and package dependency graph. The registry publisher downloads
@@ -38,7 +41,14 @@ Library dependencies publish in topological order after their exact versions and
 checksums become visible on crates.io. Retries accept only an existing identical
 version; an existing version with a different checksum fails closed. Mutable
 download counters and release notes do not change the verified release and
-archive identities.
+archive identities. Before publication, the verifier checks the manifest
+attestation signature using the preinstalled official GitHub CLI (2.68 or later)
+with an empty configuration and no child-process credentials. GitHub
+attestation-storage bundles use bounded Snappy decoding; the certificate must
+identify this repository, protected main, the exact source revision, hosted
+runner and `release.yml` signer. The exact attested run attempt must have
+succeeded. An unrelated green run or an attestation's unverified run claim
+cannot substitute for producer proof.
 
 After semantic-release completes, protected-main automation dispatches
 `publish-crate.yml` with the exact source release ID, revision and manifest digest.
@@ -46,6 +56,25 @@ The publisher uses the `crates-io-release` environment and a short-lived crates.
 OIDC credential. Hourly reconciliation repairs a missed dispatch or interrupted
 publication from immutable GitHub release assets. A draft, prerelease, moved tag,
 changed asset or mismatched source revision cannot authorize publication.
+
+## Durable publication intent
+
+Before its first registry PUT, the publisher atomically creates a typed intent
+commit and reserves `refs/tags/crate-upload-intent/CRATE/VERSION` in this
+repository. Its GitHub contents-write token is available only to the inert
+upload step and is never given to Cargo or the cryptographic verifier. The
+intent records the exact source release, producer run, archive and manifest
+digests and a random nonce. Only acknowledged ref creation and matching
+readback permit publication. The namespace does not modify main or create a
+source release.
+
+An existing intent blocks every subsequent PUT for that coordinate across
+workflow runs and source releases. Matching confirmed registry bytes can be
+skipped; a crash, ambiguous response or public registry absence cannot
+authorize another write. Owner-reviewed recovery preserves the intent evidence
+and requires authoritative confirmation that no publication was accepted
+before explicitly removing the reservation and authorizing a fresh attempt.
+Automation never deletes or resets an intent.
 
 ## One-time owner setup
 
@@ -80,7 +109,10 @@ The helper verifies the complete release first, requires terminal confirmation,
 and reads the token through a hidden prompt. It accepts only initially absent
 names and verifies owner identity after publication. crates.io exposes no token
 identity API, so the owner must create the short-lived token in that verified
-account. Never supply it in environment variables or workflow secrets.
+account. The owner also needs a separate existing `gh` login with repository
+contents-write permission; its GitHub actor must match the expected owner before
+reserving the intent. The registry token never reaches `gh`. Never supply the
+registry token in environment variables or workflow secrets.
 
 Use the helper's `--help` for read-only verification and reconciliation interfaces.
 Retain the exact source release coordinates and successful checksum evidence for
