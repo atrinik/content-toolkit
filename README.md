@@ -174,3 +174,6 @@ authoring policy at `policy/classic-authored-limits.json` and diagnostic schema
 at `schemas/classic-diagnostic.schema.json`. Their exact historical MIT grant,
 identity, source, unchanged 1.x copy, destination, and attribution evidence is
 in `provenance/linked-content-materials.json`.
+
+Reusable library publication and owner bootstrap are documented in
+[CRATE_RELEASE.md](CRATE_RELEASE.md).

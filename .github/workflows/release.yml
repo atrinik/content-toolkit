@@ -8,43 +8,106 @@ on:
       - '[0-9]+.[0-9]+.x'
 
 permissions:
-  contents: write
-  issues: write
-  pull-requests: write
+  contents: read
 
 concurrency:
   group: content-toolkit-semantic-release
   cancel-in-progress: false
 
 jobs:
-  release:
-    name: Release content toolkit
+  package:
+    name: Prepare credential-free source release
     runs-on: ubuntu-24.04
     timeout-minutes: 40
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      revision: ${{ steps.plan.outputs.revision }}
     env:
       CARGO_HOME: /tmp/atrinik-content-toolkit-cargo
       CARGO_TARGET_DIR: /tmp/atrinik-content-toolkit-target
+      ATRINIK_RELEASE_BRANCH: ${{ github.ref_name }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24.18.1
       - name: Verify release branch policy
         run: node scripts/release/test-release-policy.cjs
+      - name: Install inert commit analysis dependencies
+        run: >-
+          npm install --prefix "${RUNNER_TEMP}/crate-analysis"
+          --ignore-scripts --no-audit --no-fund --package-lock=false
+          @semantic-release/commit-analyzer@13.0.1
+          conventional-changelog-conventionalcommits@9.3.1 semver@7.7.3
+      - name: Test exact source version analysis
+        run: NODE_PATH="${RUNNER_TEMP}/crate-analysis/node_modules" node scripts/release/test-source-version.mjs
+      - name: Plan the actual source version without write credentials
+        id: plan
+        run: |
+          NODE_PATH="${RUNNER_TEMP}/crate-analysis/node_modules" \
+            node scripts/release/source-version.mjs > "${RUNNER_TEMP}/source-plan.json"
+          jq -r '"revision=" + .revision, "version=" + (.version // "")' \
+            "${RUNNER_TEMP}/source-plan.json" >> "${GITHUB_OUTPUT}"
       - name: Install pinned release dependencies
+        if: steps.plan.outputs.version != ''
         run: tools/install-ci-dependencies.sh
       - name: Fetch the complete locked cross-target graph
+        if: steps.plan.outputs.version != ''
         run: cargo fetch --locked
       - name: Revalidate exact release revision
+        if: steps.plan.outputs.version != ''
         run: tools/validate.sh
-      - name: Analyze commits, package, and publish
+      - name: Prepare every immutable source and crate asset
+        if: steps.plan.outputs.version != ''
+        env:
+          SOURCE_VERSION: ${{ steps.plan.outputs.version }}
+        run: tools/package-release.sh build/release "${SOURCE_VERSION}"
+      - name: Retain the complete verified release payload
+        if: steps.plan.outputs.version != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: source-release-${{ github.sha }}
+          path: build/release/
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Release content toolkit
+    needs: package
+    if: needs.package.outputs.version != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      actions: write
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.package.outputs.revision }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.18.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: source-release-${{ github.sha }}
+          path: build/release/
+      - name: Install pinned source release dependencies without lifecycle scripts
+        run: >-
+          npm install --prefix "${RUNNER_TEMP}/semantic-release"
+          --ignore-scripts --no-audit --no-fund --package-lock=false
+          semantic-release@25.0.9 @semantic-release/exec@7.1.0
+          conventional-changelog-conventionalcommits@9.3.1
+      - name: Reanalyze and publish only the verified prepared payload
         env:
           GH_TOKEN: ${{ github.token }}
-        run: >-
-          npx --yes
-          --package=semantic-release@25.0.9
-          --package=@semantic-release/exec@7.1.0
-          --package=conventional-changelog-conventionalcommits@9.3.1
-          semantic-release
+          ATRINIK_RELEASE_BRANCH: ${{ github.ref_name }}
+          EXPECTED_SOURCE_REVISION: ${{ needs.package.outputs.revision }}
+          EXPECTED_SOURCE_VERSION: ${{ needs.package.outputs.version }}
+        run: '"${RUNNER_TEMP}/semantic-release/node_modules/.bin/semantic-release"'
