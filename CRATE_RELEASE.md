@@ -48,8 +48,13 @@ locally using a crates.io API token and the same verified release archives, then
 configure each crate's Trusted Publishing identity for the repository ID in the
 policy, workflow `publish-crate.yml`, environment `crates-io-release`, and GitHub
 OIDC audience. The token stays on the owner's machine; CI accepts only OIDC.
-Enable owner-enforced immutable GitHub releases before the first source tag;
-the inert finalizer checks that setting before publication. Configure the
+Enable owner-enforced immutable GitHub releases before the first source tag
+through repository governance. Every registry write requires a published source
+release whose public API record reports `immutable: true`. The source workflow
+does not query administration-only settings. If repository setup produces a
+mutable source release, publication fails closed; preserve its assets and obtain
+explicit owner review for recovery. Automation never deletes or rewrites it.
+Configure the
 protected environment and workflow permissions before activating publication. Preparing this source does not perform bootstrap, change repository
 settings or activate a publisher.
 

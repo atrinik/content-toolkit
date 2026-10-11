@@ -512,10 +512,6 @@ def finalize(config, source_tag, directory):
             os.environ.get('EXPECTED_SOURCE_VERSION', source_tag[1:]) == source_tag[1:], 'source plan drift')
     manifest = validate_manifest(config, json.loads((directory / MANIFEST).read_text()))
     require(manifest['revision'] == revision and manifest['source_tag'] == source_tag, 'prepared source identity')
-    if manifest['crates']:
-        immutable = api(config, 'immutable-releases')
-        require(immutable.get('enabled') is True and immutable.get('enforced_by_owner') is True,
-                'owner-enforced immutable releases must be enabled before tagging')
     provenance = json.loads((directory / 'provenance.json').read_text())
     require(provenance['revision'] == revision and provenance['version'] == source_tag[1:], 'prepared provenance')
     checksums = {}

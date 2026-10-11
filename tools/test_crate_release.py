@@ -280,6 +280,14 @@ class BoundaryTests(unittest.TestCase):
         with patch.object(R, 'api', return_value={'total_count': 2, 'check_runs': [check, newer_failure]}), self.assertRaises(ValueError):
             R.verify_checks(CONFIG, REVISION)
 
+    def test_mutable_release_refused_before_bootstrap_or_oidc_evidence(self):
+        release = {'draft': False, 'prerelease': False, 'published_at': '2026-10-11T00:00:00Z',
+                   'immutable': False, 'tag_name': 'v1.0.0'}
+        for immutable in (False, None):
+            with patch.object(R, 'api') as api, self.assertRaisesRegex(ValueError, 'public and immutable'):
+                R.release_identity(CONFIG, dict(release, immutable=immutable))
+            api.assert_not_called()
+
     def test_inert_finalizer_requires_complete_prepared_inventory(self):
         entry, data = row()
         value = {'schema_version': 1, 'repository': CONFIG['repository'], 'repository_id': '123',
@@ -292,12 +300,9 @@ class BoundaryTests(unittest.TestCase):
             sums = ''.join(f'{R.digest(path.read_bytes())}  {path.name}\n' for path in sorted(directory.iterdir()))
             (directory / 'SHA256SUMS').write_text(sums)
             with patch.object(R.subprocess, 'check_output', return_value=REVISION), \
-                 patch.object(R, 'api', return_value={'enabled': True, 'enforced_by_owner': True}):
+                 patch.object(R, 'api') as settings_api:
                 R.finalize(CONFIG, 'v1.0.0', directory)
-                for settings in ({'enabled': False, 'enforced_by_owner': True},
-                                 {'enabled': True, 'enforced_by_owner': False}):
-                    with patch.object(R, 'api', return_value=settings), self.assertRaisesRegex(ValueError, 'before tagging'):
-                        R.finalize(CONFIG, 'v1.0.0', directory)
+                settings_api.assert_not_called()
                 (directory / 'unchecked').write_text('extra')
                 with self.assertRaisesRegex(ValueError, 'inventory coverage'):
                     R.finalize(CONFIG, 'v1.0.0', directory)
