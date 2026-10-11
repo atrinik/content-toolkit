@@ -551,7 +551,7 @@ def registry_state(row):
         return 'absent'
     if api_row is None or index_row is None:
         return 'indeterminate'
-    data = get(f"{REGISTRY}/api/v1/crates/{row['name']}/{row['version']}/download", maximum=MAX_BYTES)
+    data = get(f"https://static.crates.io/crates/{row['name']}/{row['name']}-{row['version']}.crate", maximum=MAX_BYTES)
     require(digest(data) == row['sha256'], 'registry download mismatch')
     return 'present'
 
