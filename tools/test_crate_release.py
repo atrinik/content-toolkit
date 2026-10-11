@@ -237,6 +237,20 @@ class BoundaryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             R.validate_manifest(CONFIG, changed)
 
+    def test_required_checks_exact_revision_name_app_and_latest_success(self):
+        check = {'name': 'Example validation', 'head_sha': REVISION, 'app': {'slug': 'github-actions'},
+                 'id': 1, 'status': 'completed', 'conclusion': 'success'}
+        with patch.object(R, 'api', return_value={'total_count': 1, 'check_runs': [check]}):
+            R.verify_checks(CONFIG, REVISION)
+        for altered in [dict(check, head_sha='b' * 40), dict(check, name='Other validation'),
+                        dict(check, app={'slug': 'other-app'}), dict(check, status='in_progress'),
+                        dict(check, conclusion='failure')]:
+            with patch.object(R, 'api', return_value={'total_count': 1, 'check_runs': [altered]}), self.assertRaises(ValueError):
+                R.verify_checks(CONFIG, REVISION)
+        newer_failure = dict(check, id=2, conclusion='failure')
+        with patch.object(R, 'api', return_value={'total_count': 2, 'check_runs': [check, newer_failure]}), self.assertRaises(ValueError):
+            R.verify_checks(CONFIG, REVISION)
+
     def test_inert_finalizer_requires_complete_prepared_inventory(self):
         entry, data = row()
         value = {'schema_version': 1, 'repository': CONFIG['repository'], 'repository_id': '123',

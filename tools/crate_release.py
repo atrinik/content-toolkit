@@ -361,6 +361,17 @@ def release_identity(config, release):
     require(branch['protected'] is True, 'main is not protected')
 
 
+def verify_checks(config, revision):
+    check_runs = api(config, f'commits/{revision}/check-runs?per_page=100&filter=latest')
+    require(check_runs['total_count'] <= 100, 'source check inventory exceeds bound')
+    for name in config['required_checks']:
+        matching = [check for check in check_runs['check_runs'] if check['name'] == name
+                    and check['head_sha'] == revision and check['app']['slug'] == 'github-actions']
+        require(matching, 'required source check absent')
+        latest = max(matching, key=lambda check: check['id'])
+        require(latest['status'] == 'completed' and latest['conclusion'] == 'success', 'required source check not successful')
+
+
 def release_evidence(config, release_id, revision, manifest_sha256):
     require(str(release_id).isdigit() and SHA.fullmatch(revision) and DIGEST.fullmatch(manifest_sha256), 'release selectors')
     release = api(config, f'releases/{release_id}')
@@ -390,14 +401,7 @@ def release_evidence(config, release_id, revision, manifest_sha256):
         require(attempt < 23, 'source workflow completion timed out')
         time.sleep(5)
         runs = api(config, f'actions/workflows/release.yml/runs?head_sha={revision}&per_page=100')['workflow_runs']
-    check_runs = api(config, f'commits/{revision}/check-runs?per_page=100&filter=latest')
-    require(check_runs['total_count'] <= 100, 'source check inventory exceeds bound')
-    for name in config['required_checks']:
-        matching = [check for check in check_runs['check_runs'] if check['name'] == name
-                    and check['head_sha'] == revision and check['app']['slug'] == 'github-actions']
-        require(matching, 'required source check absent')
-        latest = max(matching, key=lambda check: check['id'])
-        require(latest['status'] == 'completed' and latest['conclusion'] == 'success', 'required source check not successful')
+    verify_checks(config, revision)
     sums = asset_bytes(config, release, 'SHA256SUMS', MAX_JSON).decode()
     checksums = {}
     for line in sums.splitlines():
