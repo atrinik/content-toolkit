@@ -78,7 +78,9 @@
   The read-only build job prepares the complete immutable release graph and the
   separate publisher verifies official main-source manifest attestations and
   reserves durable coordinate intents before exact-byte OIDC uploads, without
-  building. Only the inert signing job has source OIDC/attestation authority;
+  building. Already owned libraries are reproduced individually against
+  production registry checksums and their original bytes enter the exact graph;
+  only new libraries and explicit nonpublishable applications share an overlay. Only the inert signing job has source OIDC/attestation authority;
   compiler jobs remain credential-free. Preserve uncertain intents for explicit
   owner recovery. See
   [the release contract](CRATE_RELEASE.md). Every handoff states exact validation

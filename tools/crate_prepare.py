@@ -6,10 +6,13 @@ import argparse
 import json
 import os
 from pathlib import Path
-import shutil
 import subprocess
+import sys
 import tempfile
 import tomllib
+
+# Set before importing local modules: even a read-only command must not dirty source.
+sys.dont_write_bytecode = True
 
 if __package__:
     from . import crate_release as R
@@ -106,19 +109,135 @@ def write_exact(path, data):
         path.write_bytes(data)
 
 
-def old_content(config, entry):
+def package_row(crate, version, data):
+    files = R.archive(data, crate['name'], version)
+    return {'name': crate['name'], 'version': version, 'path': crate['path'],
+            'asset': f"{crate['name']}-{version}.crate", 'sha256': R.digest(data),
+            'content_sha256': R.content_digest(files), 'inventory': sorted(files),
+            'metadata': R.metadata(files, crate['name'], version)}
+
+
+def original_package(config, crate, version, entry):
+    """Authenticate the owning source bytes and require their registry readiness."""
     if isinstance(entry, dict):
         release = R.api(config, 'releases/tags/' + entry['source_tag'])
         data = R.asset_bytes(config, release, entry['asset'])
         R.require(R.digest(data) == entry['sha256'], 'historical artifact changed')
-        return R.content_digest(R.archive(data, entry['name'], entry['version']))
-    release, manifest, row, _ = entry
-    data = R.asset_bytes(config, release, row['asset'])
-    R.verify_archive(row, data, manifest['revision'])
-    return row['content_sha256']
+        row = package_row(crate, version, data)
+        revision = entry['revision']
+    else:
+        release, manifest, row, _ = entry
+        data = R.asset_bytes(config, release, row['asset'])
+        revision = manifest['revision']
+    R.require((row['name'], row['version'], row['path']) ==
+              (crate['name'], version, crate['path']), 'owned package identity changed')
+    R.verify_archive(row, data, revision)
+    R.require(R.registry_state(row) == 'present', 'owned crate registry readiness unresolved')
+    return row, data
 
 
-def prepare(config, tag, output, archives=None, dry_run=False):
+def source_only_packages(config, names):
+    """Explicit nonpublishable workspace packages are source assets, never registry rows."""
+    R.require(len(names) == len(set(names)) and all(R.NAME.fullmatch(name) for name in names),
+              'invalid source-only package selection')
+    R.require(not set(names) & {crate['name'] for crate in config['crates']}, 'source/public package overlap')
+    if not names:
+        return {}
+    value = json.loads(subprocess.check_output(['cargo', '+' + config['toolchain'], 'metadata',
+        '--locked', '--offline', '--no-deps', '--format-version', '1'], cwd=ROOT,
+        env=clean_environment(), timeout=120))
+    members = {row['name']: row for row in value['packages'] if row['id'] in value['workspace_members']}
+    result = {}
+    for name in names:
+        R.require(name in members and members[name]['publish'] == [], 'source-only package must have publish=false')
+        row = members[name]
+        path = Path(row['manifest_path']).resolve().parent.relative_to(ROOT.resolve()).as_posix()
+        R.require(R.VERSION.fullmatch(row['version']), 'source-only package version')
+        result[name] = {'name': name, 'version': row['version'], 'path': path}
+    return result
+
+
+def package_twice(config, names, current, target, dry_run):
+    R.require(names, 'empty package selection')
+    sets = []
+    for number in (1, 2):
+        destination = target / str(number)
+        command = ['cargo', '+' + config['toolchain'], 'package', '--locked', '--no-verify',
+                   '--registry', 'crates-io', '--target-dir', str(destination)]
+        for name in names:
+            command += ['--package', name]
+        if dry_run:
+            command += ['--allow-dirty', '--offline']
+        subprocess.run(command, cwd=ROOT, env=clean_environment(), check=True, timeout=1200)
+        sets.append(destination / 'package')
+    result = {}
+    for name in names:
+        asset = f'{name}-{current[name]}.crate'
+        first = (sets[0] / asset).read_bytes()
+        R.require(first == (sets[1] / asset).read_bytes(), 'package reproduction mismatch')
+        result[name] = first
+    return result
+
+
+def stage_packages(config, current, previous, revision, destination, dry_run=False, source_packages=None):
+    """Published coordinates stay out of Cargo's new-package registry overlay."""
+    source_packages = source_packages or {}
+    originals = {}
+    for crate in config['crates']:
+        key = (crate['name'], current[crate['name']])
+        if key in previous:
+            originals[crate['name']] = original_package(config, crate, key[1], previous[key])
+    # Resolve ALL original provenance/readiness before building or staging anything.
+    rows, data = {}, {}
+    for crate in config['crates']:
+        name = crate['name']
+        if name not in originals:
+            continue
+        candidate = package_twice(config, [name], current, destination / ('old-' + name), dry_run)[name]
+        candidate_row = package_row(crate, current[name], candidate)
+        R.verify_archive(candidate_row, candidate, revision)
+        original_row, original_bytes = originals[name]
+        R.require(candidate_row['inventory'] == original_row['inventory'] and
+                  candidate_row['content_sha256'] == original_row['content_sha256'],
+                  'owned crate version has changed package contents')
+        rows[name], data[name] = original_row, original_bytes
+    selected = [crate['name'] for crate in config['crates'] if crate['name'] not in originals]
+    selected += list(source_packages)
+    if selected:
+        data.update(package_twice(config, selected,
+            dict(current, **{name: row['version'] for name, row in source_packages.items()}),
+            destination / 'new', dry_run))
+    for crate in config['crates']:
+        name = crate['name']
+        if name not in originals:
+            rows[name] = package_row(crate, current[name], data[name])
+            if not dry_run:
+                R.verify_archive(rows[name], data[name], revision)
+    for name, crate in source_packages.items():
+        files = R.archive(data[name], name, crate['version'])
+        if not dry_run:
+            R.require(json.loads(files['.cargo_vcs_info.json']) ==
+                {'git': {'sha1': revision}, 'path_in_vcs': crate['path']}, 'source-only archive provenance')
+    staged = destination / 'verified-graph'
+    staged.mkdir()
+    for name, archive in data.items():
+        version = current[name] if name in current else source_packages[name]['version']
+        (staged / f'{name}-{version}.crate').write_bytes(archive)
+    verifier = ROOT / 'tools/verify-packages.sh'
+    R.require(verifier.is_file(), 'independent packaged graph verifier required')
+    subprocess.run(['bash', str(verifier), str(staged)], cwd=ROOT,
+                   env=clean_environment(), check=True, timeout=1800)
+    # A verifier may compile extracted archives, but cannot change the proven input bytes.
+    R.require({path.name for path in staged.glob('*.crate')} ==
+        {f"{name}-{current[name] if name in current else source_packages[name]['version']}.crate" for name in data},
+        'staged archive inventory changed')
+    for name, archive in data.items():
+        version = current[name] if name in current else source_packages[name]['version']
+        R.require((staged / f'{name}-{version}.crate').read_bytes() == archive, 'staged archive changed')
+    return rows, data
+
+
+def prepare(config, tag, output, archives=None, dry_run=False, source_packages=()):
     preparation_boundary()
     R.require(dry_run or not git('status', '--porcelain'), 'source packaging requires clean revision')
     revision = git('rev-parse', 'HEAD')
@@ -127,72 +246,33 @@ def prepare(config, tag, output, archives=None, dry_run=False):
     R.require(__import__('re').fullmatch(r'v[0-9]+\.[0-9]+\.[0-9]+', tag), 'source version')
     output.mkdir(parents=True, exist_ok=True)
     current = versions(config)
+    extras = source_only_packages(config, source_packages)
     eligible = dry_run or R.registry_source_branch()
     previous = {} if dry_run or not eligible else known(config)
     manifest = {'schema_version': 1, 'repository': config['repository'],
                 'repository_id': config['repository_id'], 'revision': revision, 'source_tag': tag, 'crates': []}
-    # Cargo packages the complete public graph together, resolving internal
-    # dependencies through its packaging overlay for the production registry.
+    # Existing caller-generated .crate files are not authoritative graph inputs.
+    # Reject them rather than let an all-selected overlay replace published bytes.
+    for directory in {output, archives} - {None}:
+        R.require(not any(directory.glob('*.crate')), 'preexisting package output collision')
     with tempfile.TemporaryDirectory(prefix='atrinik-crate-prepare-') as temporary:
-        package_sets = []
-        for number in (1, 2):
-            target = Path(temporary) / str(number)
-            command = ['cargo', '+' + config['toolchain'], 'package', '--locked', '--no-verify', '--registry', 'crates-io',
-                       '--target-dir', str(target)]
-            for crate in config['crates']:
-                command += ['--package', crate['name']]
-            if dry_run:
-                command += ['--allow-dirty', '--offline']
-            subprocess.run(command, cwd=ROOT, env=clean_environment(), check=True, timeout=1200)
-            package_sets.append(target / 'package')
-        # Byte reproduction precedes one independent build of the exact staged graph.
-        for crate in config['crates']:
-            asset = f"{crate['name']}-{current[crate['name']]}.crate"
-            R.require((package_sets[0] / asset).read_bytes() == (package_sets[1] / asset).read_bytes(), 'package reproduction mismatch')
-        if archives is not None:
-            for extra in archives.glob('*.crate'):
-                if not (package_sets[0] / extra.name).exists():
-                    shutil.copyfile(extra, package_sets[0] / extra.name)
-        verifier = ROOT / 'tools/verify-packages.sh'
-        R.require(verifier.is_file(), 'independent packaged graph verifier required')
-        subprocess.run(['bash', str(verifier), str(package_sets[0])], cwd=ROOT,
-                       env=clean_environment(), check=True, timeout=1800)
+        rows, data = stage_packages(config, current, previous, revision, Path(temporary), dry_run, extras)
         for crate in config['crates']:
             name, version = crate['name'], current[crate['name']]
-            asset = f'{name}-{version}.crate'
-            first = (package_sets[0] / asset).read_bytes()
-            second = (package_sets[1] / asset).read_bytes()
-            R.require(first == second, 'package reproduction mismatch')
-            files = R.archive(first, name, version)
-            metadata = R.metadata(files, name, version)
-            row = {'name': name, 'version': version, 'path': crate['path'], 'asset': asset,
-                   'sha256': R.digest(first), 'content_sha256': R.content_digest(files),
-                   'inventory': sorted(files), 'metadata': metadata}
-            if not dry_run:
-                R.verify_archive(row, first, revision)
-            if archives is not None:
-                write_exact(archives / asset, first)
-            if not eligible:
-                # Maintenance still verifies its complete source package graph,
-                # but cannot reserve names/versions for the main-only publisher.
-                if archives is not None:
-                    (archives / asset).unlink()
-                continue
-            key = (name, version)
-            if key in previous:
-                R.require(old_content(config, previous[key]) == row['content_sha256'], 'owned crate version has changed package contents')
-                # Verification used the complete staged graph. A later source
-                # release must not attach this version with new VCS metadata.
-                if archives is not None:
-                    (archives / asset).unlink()
+            if not eligible or (name, version) in previous:
                 continue
             if not dry_run:
-                state = R.registry_state(row)
-                R.require(state == 'absent', 'new crate coordinate already exists or is unresolved')
-            write_exact(output / asset, first)
-            manifest['crates'].append(row)
-    R.validate_manifest(config, manifest)
-    manifest['crates'] = R.ordered(manifest['crates'])
+                R.require(R.registry_state(rows[name]) == 'absent', 'new crate coordinate already exists or is unresolved')
+            manifest['crates'].append(rows[name])
+        R.validate_manifest(config, manifest)
+        manifest['crates'] = R.ordered(manifest['crates'])
+        # Only after the complete graph proof may selected assets leave staging.
+        for row in manifest['crates']:
+            write_exact(output / row['asset'], data[row['name']])
+            if archives is not None and archives != output:
+                write_exact(archives / row['asset'], data[row['name']])
+        for name, crate in extras.items():
+            write_exact(output / f"{name}-{crate['version']}.crate", data[name])
     write_exact(output / R.MANIFEST, R.canonical(manifest) + b'\n')
     R.require(dry_run or not git('status', '--porcelain'), 'preparation changed source')
     return manifest
@@ -204,6 +284,7 @@ def main():
     parser.add_argument('--base'); parser.add_argument('--source-tag')
     parser.add_argument('--output', type=Path); parser.add_argument('--archives', type=Path)
     parser.add_argument('--dry-run', action='store_true')
+    parser.add_argument('--source-package', action='append', default=[])
     args = parser.parse_args()
     config = R.policy()
     if args.operation == 'check-version':
@@ -212,7 +293,7 @@ def main():
         print(json.dumps({'pending': pending(config)}))
     else:
         R.require(args.output is not None, 'output required')
-        prepare(config, args.source_tag, args.output, args.archives, args.dry_run)
+        prepare(config, args.source_tag, args.output, args.archives, args.dry_run, args.source_package)
 
 
 if __name__ == '__main__':

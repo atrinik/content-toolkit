@@ -10,6 +10,7 @@ cd "${repository}"
 test "$(rustc --version | cut -d' ' -f2)" = 1.97.1
 python3 tools/test_crate_policy.py
 python3 -m unittest tools.test_crate_release
+python3 tools/test_toolkit_package_graph.py
 cargo fmt --all --check
 cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo test --locked --workspace --all-targets
