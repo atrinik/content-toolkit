@@ -85,3 +85,9 @@
   owner recovery. See
   [the release contract](CRATE_RELEASE.md). Every handoff states exact validation
   and unavailable integration; runtime topology is not applicable to toolkit work.
+- `Dependency review` is nonblocking advisory feedback for PRs to `main` across
+  runtime, development, and unknown dependency scopes at every severity.
+  Implementing agents must read its PR comment or job summary and fix actionable
+  introduced risks, or record an explicit maintainer acceptance of existing risk,
+  before merge. This adds no required human approval gate; preserve all other
+  validation and security checks.
