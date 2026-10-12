@@ -85,9 +85,12 @@
   owner recovery. See
   [the release contract](CRATE_RELEASE.md). Every handoff states exact validation
   and unavailable integration; runtime topology is not applicable to toolkit work.
-- `Dependency review` is nonblocking advisory feedback for PRs to `main` across
-  runtime, development, and unknown dependency scopes at every severity.
-  Implementing agents must read its PR comment or job summary and fix actionable
-  introduced risks, or record an explicit maintainer acceptance of existing risk,
-  before merge. This adds no required human approval gate; preserve all other
-  validation and security checks.
+- `Dependency review` provides nonblocking advisory feedback on eligible ordinary
+  PR runs where this workflow exists on the relevant revision, with no target-branch
+  filter, across runtime, development, and unknown scopes at every severity.
+  Implementing agents must read the latest job summary for the current PR head,
+  even when a PR comment exists, because comments may be stale. If that summary
+  is unavailable, treat results as unknown and inspect annotations and logs.
+  Fix actionable introduced risks, or record an explicit maintainer acceptance
+  of existing risk, before merge. This adds no required human approval gate;
+  preserve all other validation and security checks.
