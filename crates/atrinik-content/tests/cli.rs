@@ -92,7 +92,7 @@ fn prints_the_pinned_package_version() {
     assert!(output.status.success());
     assert_eq!(
         String::from_utf8(output.stdout).unwrap(),
-        "atrinik-content 0.1.0\n"
+        concat!("atrinik-content ", env!("CARGO_PKG_VERSION"), "\n")
     );
 }
 

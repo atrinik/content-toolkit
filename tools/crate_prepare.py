@@ -73,19 +73,21 @@ def pending(config):
     return any((name, version) not in existing for name, version in versions(config).items())
 
 
-def check_version(config, base):
+def check_version(config, base, enforce=True):
+    """Return the crates whose packaged inputs changed without a version bump."""
     R.require(R.SHA.fullmatch(base), 'base must be immutable revision')
     git('cat-file', '-e', base + '^{commit}')
     # First onboarding has no previous public-package policy. Real preparation
     # still compares every coordinate against public release/registry history.
     if subprocess.run(['git', 'cat-file', '-e', base + ':policy/crate-release.json'],
                       cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode:
-        return
+        return []
     previous = json.loads(git('show', base + ':policy/crate-release.json'))
     previous_names = {row['name']: row for row in previous['crates']}
     current_versions = versions(config)
     changed = set(git('diff', '--name-only', base, '--').splitlines())
     old_workspace = tomllib.loads(git('show', base + ':Cargo.toml')).get('workspace', {}).get('package', {})
+    unbumped = []
     for row in config['crates']:
         if row['name'] not in previous_names:
             continue
@@ -99,7 +101,50 @@ def check_version(config, base):
         package_changed = (row['path'] != prior['path'] or config['toolchain'] != previous['toolchain']
             or any(path.startswith((row['path'] + '/', prior['path'] + '/', '.cargo/')) for path in changed)
             or bool(changed & {'Cargo.toml', 'Cargo.lock', 'rust-toolchain', 'rust-toolchain.toml'}))
-        R.require(not package_changed or version != old_version, 'package content changed without reviewed version bump')
+        if package_changed and version == old_version:
+            unbumped.append(row['name'])
+    R.require(not enforce or not unbumped, 'package content changed without reviewed version bump')
+    return unbumped
+
+
+def bump_version(config, base, root=ROOT):
+    """Apply the patch bump that check-version requires, if it requires one.
+
+    Public crates share the workspace version, so this advances
+    [workspace.package].version, every internal =VERSION constraint and the
+    workspace entries in Cargo.lock together. Dependency-only changes such as
+    Dependabot updates use it; the result is still reviewed in the PR.
+    """
+    if not check_version(config, base, enforce=False):
+        return None
+    manifest_path, lock_path = root / 'Cargo.toml', root / 'Cargo.lock'
+    manifest = manifest_path.read_text()
+    workspace = tomllib.loads(manifest).get('workspace', {}).get('package', {})
+    for crate in config['crates']:
+        package = tomllib.loads((root / crate['path'] / 'Cargo.toml').read_text())['package']
+        R.require(package['version'] == {'workspace': True}, 'automatic bump requires workspace version inheritance')
+    old = workspace['version']
+    major, minor, patch = map(int, old.split('.'))
+    new = f'{major}.{minor}.{patch + 1}'
+    lines, section = [], None
+    for line in manifest.splitlines(keepends=True):
+        stripped = line.strip()
+        if stripped.startswith('['):
+            section = stripped
+        elif section == '[workspace.package]' and stripped == f'version = "{old}"':
+            line = line.replace(f'"{old}"', f'"{new}"')
+        elif section == '[workspace.dependencies]' and 'path = "' in line:
+            line = line.replace(f'version = "={old}"', f'version = "={new}"')
+        lines.append(line)
+    updated = ''.join(lines)
+    R.require(tomllib.loads(updated)['workspace']['package']['version'] == new, 'workspace version rewrite')
+    blocks = lock_path.read_text().split('\n\n')
+    for index, block in enumerate(blocks):
+        if block.startswith('[[package]]') and '\nsource = ' not in block:
+            blocks[index] = block.replace(f'\nversion = "{old}"', f'\nversion = "{new}"', 1)
+    manifest_path.write_text(updated)
+    lock_path.write_text('\n\n'.join(blocks))
+    return old, new
 
 
 def write_exact(path, data):
@@ -280,7 +325,7 @@ def prepare(config, tag, output, archives=None, dry_run=False, source_packages=(
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('operation', choices=['check-version', 'prepare', 'pending'])
+    parser.add_argument('operation', choices=['check-version', 'bump-version', 'prepare', 'pending'])
     parser.add_argument('--base'); parser.add_argument('--source-tag')
     parser.add_argument('--output', type=Path); parser.add_argument('--archives', type=Path)
     parser.add_argument('--dry-run', action='store_true')
@@ -289,6 +334,9 @@ def main():
     config = R.policy()
     if args.operation == 'check-version':
         check_version(config, args.base)
+    elif args.operation == 'bump-version':
+        bumped = bump_version(config, args.base)
+        print(json.dumps({'bumped': bumped is not None, 'from': bumped and bumped[0], 'to': bumped and bumped[1]}))
     elif args.operation == 'pending':
         print(json.dumps({'pending': pending(config)}))
     else:

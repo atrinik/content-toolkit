@@ -547,6 +547,35 @@ class BoundaryTests(unittest.TestCase):
                 with patch.object(P, 'versions', return_value={'example': '0.1.1'}):
                     P.check_version(config, REVISION)
 
+    def test_bump_version_advances_workspace_constraints_and_lock_together(self):
+        manifest = ('[workspace]\nmembers = ["crates/example"]\n\n[workspace.package]\nversion = "0.1.0"\n\n'
+                    '[workspace.dependencies]\nexample = { path = "crates/example", version = "=0.1.0" }\n'
+                    'serde = { version = "=0.1.0" }\n')
+        lock = ('version = 4\n\n[[package]]\nname = "example"\nversion = "0.1.0"\n\n'
+                '[[package]]\nname = "serde"\nversion = "0.1.0"\nsource = "registry+https://github.com/rust-lang/crates.io-index"\n')
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'crates/example').mkdir(parents=True)
+            (root / 'crates/example/Cargo.toml').write_text('[package]\nname = "example"\nversion.workspace = true\n')
+            (root / 'Cargo.toml').write_text(manifest)
+            (root / 'Cargo.lock').write_text(lock)
+            with patch.object(P, 'check_version', return_value=[]) as check:
+                self.assertIsNone(P.bump_version(CONFIG, REVISION, root=root))
+                check.assert_called_once_with(CONFIG, REVISION, enforce=False)
+            self.assertEqual((root / 'Cargo.toml').read_text(), manifest)
+            with patch.object(P, 'check_version', return_value=['example']):
+                self.assertEqual(P.bump_version(CONFIG, REVISION, root=root), ('0.1.0', '0.1.1'))
+            self.assertEqual((root / 'Cargo.toml').read_text(), manifest.replace(
+                'version = "0.1.0"', 'version = "0.1.1"').replace('path = "crates/example", version = "=0.1.0"',
+                                                                  'path = "crates/example", version = "=0.1.1"'))
+            # Registry packages keep their versions even when they match the workspace version.
+            self.assertEqual((root / 'Cargo.lock').read_text(),
+                             lock.replace('name = "example"\nversion = "0.1.0"', 'name = "example"\nversion = "0.1.1"'))
+            (root / 'crates/example/Cargo.toml').write_text('[package]\nname = "example"\nversion = "0.1.1"\n')
+            with patch.object(P, 'check_version', return_value=['example']), \
+                 self.assertRaisesRegex(ValueError, 'workspace version inheritance'):
+                P.bump_version(CONFIG, REVISION, root=root)
+
     def test_actions_source_ref_cannot_be_overridden_and_read_token_not_in_build(self):
         with patch.dict(os.environ, {'GITHUB_ACTIONS': 'true', 'GITHUB_REF': 'refs/heads/1.0.x',
                                     'ATRINIK_RELEASE_BRANCH': 'main'}, clear=True), self.assertRaises(ValueError):

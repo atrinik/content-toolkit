@@ -4,6 +4,11 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # One pull request per run, so each run needs a single crate version bump.
+    groups:
+      rust:
+        patterns:
+          - "*"
   - package-ecosystem: github-actions
     directory: /
     schedule:

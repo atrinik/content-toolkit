@@ -18,13 +18,15 @@ from tools import crate_release as R
 REVISION = 'a' * 40
 OLD_REVISION = 'b' * 40
 APPLICATIONS = ('atrinik-content', 'atrinik-content-mcp')
+# Follow the workspace version so reviewed version bumps keep this fixture valid.
+VERSION = P.versions(R.policy())['atrinik-artifact']
 
 
 def archive(name, revision):
     publish = 'false' if name in APPLICATIONS else '["crates-io"]'
     files = {
-        'Cargo.toml': f'[package]\nname="{name}"\nversion="0.1.0"\npublish={publish}\n'.encode(),
-        'Cargo.lock': f'version=4\n[[package]]\nname="{name}"\nversion="0.1.0"\n'.encode(),
+        'Cargo.toml': f'[package]\nname="{name}"\nversion="{VERSION}"\npublish={publish}\n'.encode(),
+        'Cargo.lock': f'version=4\n[[package]]\nname="{name}"\nversion="{VERSION}"\n'.encode(),
         'src/lib.rs': b'pub fn fixture() {}\n',
         '.cargo_vcs_info.json': R.canonical({'git': {'sha1': revision}, 'path_in_vcs': 'crates/' + name}),
     }
@@ -32,7 +34,7 @@ def archive(name, revision):
     output = io.BytesIO()
     with tarfile.open(fileobj=output, mode='w:gz') as stream:
         for path, data in sorted(files.items()):
-            member = tarfile.TarInfo(f'{name}-0.1.0/{path}')
+            member = tarfile.TarInfo(f'{name}-{VERSION}/{path}')
             member.size = len(data)
             stream.addfile(member, io.BytesIO(data))
     return output.getvalue()
@@ -48,9 +50,9 @@ class ToolkitPackageGraphTests(unittest.TestCase):
         for crate in config['crates']:
             name = crate['name']
             if name in originals:
-                row = P.package_row(crate, '0.1.0', originals[name])
-                previous[(name, '0.1.0')] = ({'id': 1}, {'revision': OLD_REVISION}, row, 'c' * 64)
-        extras = {name: {'name': name, 'version': '0.1.0', 'path': 'crates/' + name}
+                row = P.package_row(crate, VERSION, originals[name])
+                previous[(name, VERSION)] = ({'id': 1}, {'revision': OLD_REVISION}, row, 'c' * 64)
+        extras = {name: {'name': name, 'version': VERSION, 'path': 'crates/' + name}
                   for name in APPLICATIONS}
         selections, graphs = [], []
         def command(argv, **_):
@@ -60,7 +62,7 @@ class ToolkitPackageGraphTests(unittest.TestCase):
                 directory = Path(argv[argv.index('--target-dir') + 1]) / 'package'
                 directory.mkdir(parents=True)
                 for name in names:
-                    (directory / f'{name}-0.1.0.crate').write_bytes(candidates[name])
+                    (directory / f'{name}-{VERSION}.crate').write_bytes(candidates[name])
             else:
                 graphs.append({path.name: path.read_bytes() for path in Path(argv[-1]).glob('*.crate')})
         branch = '2.9.x' if maintenance else 'main'
@@ -77,17 +79,17 @@ class ToolkitPackageGraphTests(unittest.TestCase):
             manifest = P.prepare(config, 'v1.0.1', output, archives=output, source_packages=APPLICATIONS)
             retained = {path.name: path.read_bytes() for path in output.glob('*.crate')}
             self.assertEqual(len(graphs), 1)
-            self.assertEqual(set(graphs[0]), {name + '-0.1.0.crate' for name in candidates})
+            self.assertEqual(set(graphs[0]), {f'{name}-{VERSION}.crate' for name in candidates})
             self.assertTrue(all(name not in {row['name'] for row in manifest['crates']} for name in APPLICATIONS))
             for name in APPLICATIONS:
-                self.assertEqual(retained[name + '-0.1.0.crate'], candidates[name])
+                self.assertEqual(retained[f'{name}-{VERSION}.crate'], candidates[name])
             if maintenance:
                 known.assert_not_called()
                 registry.assert_not_called()
             else:
                 for name in originals:
-                    self.assertEqual(graphs[0][name + '-0.1.0.crate'], originals[name])
-                    self.assertNotIn(name + '-0.1.0.crate', retained)
+                    self.assertEqual(graphs[0][f'{name}-{VERSION}.crate'], originals[name])
+                    self.assertNotIn(f'{name}-{VERSION}.crate', retained)
             return manifest, retained, selections
 
     def test_known_libraries_are_original_bytes_and_both_apps_remain_source_assets(self):
