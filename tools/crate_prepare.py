@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import signal
 import subprocess
 import sys
 import tempfile
@@ -142,9 +143,43 @@ def bump_version(config, base, root=ROOT):
     for index, block in enumerate(blocks):
         if block.startswith('[[package]]') and '\nsource = ' not in block:
             blocks[index] = block.replace(f'\nversion = "{old}"', f'\nversion = "{new}"', 1)
-    manifest_path.write_text(updated)
-    lock_path.write_text('\n\n'.join(blocks))
+    publish_together({manifest_path: updated.encode(), lock_path: '\n\n'.join(blocks).encode()})
     return old, new
+
+
+def publish_together(outputs):
+    """Replace every file in outputs, or none of them.
+
+    All outputs are staged and synced beside their destinations first. The
+    renames then run with SIGINT/SIGTERM held, and a failed rename restores the
+    files already replaced, so cancellation leaves the old or the new set.
+    """
+    staged, published = {}, []
+    try:
+        for path, data in outputs.items():
+            descriptor, name = tempfile.mkstemp(prefix='.' + path.name + '.', dir=path.parent)
+            staged[path] = Path(name)
+            with os.fdopen(descriptor, 'wb') as handle:
+                handle.write(data)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.chmod(name, path.stat().st_mode & 0o7777)
+        originals = {path: path.read_bytes() for path in outputs}
+        held = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT, signal.SIGTERM})
+        try:
+            for path, name in staged.items():
+                os.replace(name, path)
+                published.append(path)
+        except BaseException:
+            for path in published:
+                path.write_bytes(originals[path])
+            raise
+        finally:
+            signal.pthread_sigmask(signal.SIG_SETMASK, held)
+    finally:
+        for path, name in staged.items():
+            if path not in published:
+                name.unlink(missing_ok=True)
 
 
 def write_exact(path, data):

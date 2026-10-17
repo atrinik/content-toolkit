@@ -576,6 +576,27 @@ class BoundaryTests(unittest.TestCase):
                  self.assertRaisesRegex(ValueError, 'workspace version inheritance'):
                 P.bump_version(CONFIG, REVISION, root=root)
 
+    def test_publish_together_restores_every_output_when_a_rename_fails(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'Cargo.toml').write_text('old manifest')
+            (root / 'Cargo.lock').write_text('old lock')
+            replace, calls = os.replace, []
+
+            def fail_second(source, destination):
+                calls.append(destination)
+                if len(calls) == 2:
+                    raise OSError('injected rename failure')
+                replace(source, destination)
+
+            with patch.object(P.os, 'replace', side_effect=fail_second), self.assertRaises(OSError):
+                P.publish_together({root / 'Cargo.toml': b'new manifest', root / 'Cargo.lock': b'new lock'})
+            self.assertEqual((root / 'Cargo.toml').read_text(), 'old manifest')
+            self.assertEqual((root / 'Cargo.lock').read_text(), 'old lock')
+            self.assertEqual(sorted(path.name for path in root.iterdir()), ['Cargo.lock', 'Cargo.toml'])
+            P.publish_together({root / 'Cargo.toml': b'new manifest', root / 'Cargo.lock': b'new lock'})
+            self.assertEqual((root / 'Cargo.lock').read_text(), 'new lock')
+
     def test_actions_source_ref_cannot_be_overridden_and_read_token_not_in_build(self):
         with patch.dict(os.environ, {'GITHUB_ACTIONS': 'true', 'GITHUB_REF': 'refs/heads/1.0.x',
                                     'ATRINIK_RELEASE_BRANCH': 'main'}, clear=True), self.assertRaises(ValueError):

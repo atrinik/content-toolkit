@@ -4,7 +4,11 @@ updates:
     directory: /
     schedule:
       interval: weekly
-    # One pull request per run, so each run needs a single crate version bump.
+    # Groups version updates into one pull request. Security updates are never
+    # grouped with them, so two Cargo pull requests can still be open at once.
+    # The strict required-checks ruleset makes the second one update from main
+    # before it merges, and that update re-runs the Dependabot crate version
+    # workflow against the new base, so it takes the next version.
     groups:
       rust:
         patterns:
