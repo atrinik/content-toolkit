@@ -4,14 +4,14 @@ version = 4
 
 [[package]]
 name = "atrinik-artifact"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "sha2",
 ]
 
 [[package]]
 name = "atrinik-catalog"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "atrinik-diagnostics",
  "atrinik-source",
@@ -20,7 +20,7 @@ dependencies = [
 
 [[package]]
 name = "atrinik-content"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "atrinik-artifact",
  "atrinik-catalog",
@@ -35,7 +35,7 @@ dependencies = [
 
 [[package]]
 name = "atrinik-content-mcp"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "atrinik-catalog",
  "atrinik-diagnostics",
@@ -50,11 +50,11 @@ dependencies = [
 
 [[package]]
 name = "atrinik-diagnostics"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "atrinik-schema"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "atrinik-diagnostics",
  "atrinik-source",
@@ -62,7 +62,7 @@ dependencies = [
 
 [[package]]
 name = "atrinik-source"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "atrinik-diagnostics",
  "sha2",
@@ -70,14 +70,14 @@ dependencies = [
 
 [[package]]
 name = "atrinik-testkit"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "atrinik-source",
 ]
 
 [[package]]
 name = "atrinik-transaction"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "atrinik-catalog",
  "atrinik-diagnostics",
@@ -251,9 +251,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.151"
+version = "1.0.154"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c841b55ecdae098c80dcae9cf767f6f8a0c2cdb3416bbef72181df4d0fe73f14"
+checksum = "e7e9cc8b1b85264074fbcc02a88680c4096b1e47df8f739dceb03bf482f04bd6"
 dependencies = [
  "itoa",
  "memchr",
