@@ -1,0 +1,86 @@
+name: Dependabot crate version
+
+# Dependabot changes Cargo.toml/Cargo.lock without the reviewed Cargo version
+# bump that `crate_prepare.py check-version` requires, so its cargo pull
+# requests always failed validation. This applies the mechanical bump to the
+# pull request branch; the result is still reviewed before merge.
+#
+# pull_request_target runs this base-branch definition. Pull request content is
+# only parsed as TOML by the base revision's crate_prepare.py; nothing from the
+# pull request is executed. Dependabot-triggered runs only receive Dependabot
+# secrets, so CRATE_DEPENDENCY_UPDATE_APP_ID and
+# CRATE_DEPENDENCY_UPDATE_APP_PRIVATE_KEY must be Dependabot secrets for a
+# GitHub App with contents write access to this repository. A push with that
+# App token re-runs validation; the default token's pushes would not.
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependabot-crate-version-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  bump:
+    name: Bump crate version for Dependabot
+    if: >-
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      startsWith(github.event.pull_request.head.ref, 'dependabot/cargo/') &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check for update App credentials
+        id: credentials
+        env:
+          APP_ID: ${{ secrets.CRATE_DEPENDENCY_UPDATE_APP_ID }}
+        run: |
+          if [ -n "${APP_ID}" ]; then
+            echo "available=true" >>"${GITHUB_OUTPUT}"
+          else
+            echo "::warning title=Crate version bump skipped::Add the CRATE_DEPENDENCY_UPDATE_APP_ID and CRATE_DEPENDENCY_UPDATE_APP_PRIVATE_KEY Dependabot secrets, or run 'python3 tools/crate_prepare.py bump-version --base BASE_SHA' on this branch."
+          fi
+
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        if: steps.credentials.outputs.available == 'true'
+        id: app
+        with:
+          app-id: ${{ secrets.CRATE_DEPENDENCY_UPDATE_APP_ID }}
+          private-key: ${{ secrets.CRATE_DEPENDENCY_UPDATE_APP_PRIVATE_KEY }}
+          owner: atrinik
+          repositories: content-toolkit
+
+      - name: Check out pull request branch
+        if: steps.credentials.outputs.available == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          token: ${{ steps.app.outputs.token }}
+          fetch-depth: 0
+
+      - name: Apply the required version bump with base-revision tooling
+        if: steps.credentials.outputs.available == 'true'
+        env:
+          BASE_REVISION: ${{ github.event.pull_request.base.sha }}
+          HEAD_REVISION: ${{ github.event.pull_request.head.sha }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          test "$(git rev-parse HEAD)" = "${HEAD_REVISION}"
+          git checkout "${BASE_REVISION}" -- tools/crate_prepare.py tools/crate_release.py
+          result=$(python3 tools/crate_prepare.py bump-version --base "${BASE_REVISION}")
+          git checkout HEAD -- tools/crate_prepare.py tools/crate_release.py
+          echo "${result}"
+          if [ "$(jq -r .bumped <<<"${result}")" != true ]; then
+            exit 0
+          fi
+          test -z "$(git status --porcelain -- . ':!Cargo.toml' ':!Cargo.lock')"
+          git config user.name 'atrinik-crate-version[bot]'
+          git config user.email 'atrinik-crate-version[bot]@users.noreply.github.com'
+          git commit --quiet --all --message \
+            "fix(deps): bump public crate versions to $(jq -r .to <<<"${result}") for the dependency update"
+          git push origin "HEAD:${HEAD_REF}"

@@ -13,6 +13,10 @@ Cargo versions are a separate contract from the semantic-release source version.
 The workspace starts at Cargo version `0.1.0`, and its public crates and internal
 exact-version dependencies advance together. Change `[workspace.package].version`
 and each internal `=VERSION` constraint together when a package's contents change.
+`python3 tools/crate_prepare.py bump-version --base BASE_SHA` applies the patch
+bump that `check-version` requires, including the workspace `Cargo.lock`
+entries, and does nothing when no bump is needed. The `Dependabot crate version`
+workflow runs it on Dependabot cargo pull requests.
 A source-only documentation or CI release can retain the Cargo version if the
 packaged library contents are unchanged. Such releases omit already-owned public
 crate coordinates and their archives; CLI/application archives remain available.
