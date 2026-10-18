@@ -21,11 +21,12 @@ Steps, all deterministic (sorted iteration, lexicographic tie-breaks):
      tile is underground, its cave moves down instead;
    - caves stay underground: no tile from a negative layer may reach layer 0;
    - a cave that must move down is lowered as a whole (its raised regions land
-     back on their layer and its internal slopes stay intact) when that breaks
-     no more stairs and makes no more steep steps than lowering only the raised
-     regions in place, and pushes nothing below it. Otherwise only the raised
-     regions are lowered in place: they keep their layer and their floor keeps
-     z - 50 q.
+     back on their layer and its internal slopes stay intact) when that pushes
+     nothing below it and, compared with lowering only the raised regions in
+     place, changes no more stairs and makes no more steep steps, and is
+     better on at least one of the two. Otherwise (including a tie) only the
+     raised regions are lowered in place: they keep their layer and their
+     floor keeps z - 50 q.
 4. Continuity: a walkable edge (both tiles have a floor, neither holds a
    no_pass object, |dz| < WALKABLE_DZ so the classic server counts no fall,
    round(dz / 50) = 0 in server/src/server/move.c:151) whose ends end on
@@ -265,8 +266,11 @@ class Relayering:
         brokenB = self._exit_changes(utiles, self.du, drB) if feasible_b else None
         steepB = self._steep(utiles, self.du, drB) if feasible_b else None
         regions = sorted(need_r)
-        if feasible_b and (cascade or (brokenA, steepA) > (brokenB, steepB)
-                           or (brokenA, steepA) == (brokenB, steepB)):
+        # The whole cave wins only when it pushes nothing below it, is no worse on
+        # either measure and better on at least one; a tie keeps the smaller change.
+        whole_better = (not cascade and brokenA <= brokenB and steepA <= steepB
+                        and (brokenA, steepA) != (brokenB, steepB)) if feasible_b else True
+        if not whole_better:
             choice = "lower-regions-in-place"
             self.dr = collections.Counter(drB)
             for r, a in sorted(need_r.items()):
@@ -464,13 +468,98 @@ class Relayering:
                 piece = {"cell": list(cell), "edges": n,
                          "low_tiles": len(lows), "high_tiles": len(highs),
                          "representative_edge": [list(rep[0]), list(rep[1])]}
+                piece["stairs"] = []
+                piece["edge_list"] = [(list(e[0]), list(e[1])) for e in pe]
                 if joined is not None:
                     piece["continuity"] = "existing exit"
                     piece["exit"] = list(joined["key"])
                 else:
                     piece["continuity"] = "new stairs"
-                    piece["stairs"] = {"low": [rep[0][1], rep[0][2], lo_layer], "high": [rep[1][1], rep[1][2], hi_layer],
-                                       "low_tile": list(rep[0]), "high_tile": list(rep[1])}
+                    piece["stairs"].append(self._stairs(rep, "representative edge of the seam piece"))
                 seam["pieces"].append(piece)
             seams.append(seam)
+        # Continuity: the two tiles of every cut edge must stay connected (walking on
+        # the final layers, legacy exits, the new stairs) inside the affected maps; a
+        # cut edge whose tiles are still apart gets stairs of its own, in edge order.
+        uf = self.final_graph(self.affected_maps())
+        piece_of = {}
+        for sm in seams:
+            for pc in sm["pieces"]:
+                for st in pc["stairs"]:
+                    uf.union(tuple(st["low_tile"]), tuple(st["high_tile"]))
+                for lo, hi in pc["edge_list"]:
+                    piece_of[(tuple(lo), tuple(hi))] = pc
+        for lo, hi in edges:
+            if uf.find(lo) != uf.find(hi):
+                pc = piece_of[(lo, hi)]
+                pc["stairs"].append(self._stairs((lo, hi), "its tiles were still apart: a pocket the seam piece's "
+                                                            "stairs do not reach"))
+                pc["continuity"] = "new stairs"
+                uf.union(lo, hi)
+        for sm in seams:
+            for pc in sm["pieces"]:
+                del pc["edge_list"]
         return seams
+
+    def _stairs(self, edge, why):
+        lo, hi = edge
+        return {"low": [lo[1], lo[2], self.final_layer[lo]], "high": [hi[1], hi[2], self.final_layer[hi]],
+                "low_tile": list(lo), "high_tile": list(hi), "why": why}
+
+    def affected_maps(self):
+        """Maps holding a raised region (relayered or kept), a moved tile, or a neighbour of either."""
+        out = set()
+        for k in set(self.moved) | set(self.q):
+            out.add(self.tiles[k][0])
+            for n in self._n8(k):
+                if n in self.tiles:
+                    out.add(self.tiles[n][0])
+        return out
+
+    def final_graph(self, maps):
+        """Union-find over the final walk graph of the tiles of `maps`.
+
+        Nodes are legacy tiles (their main part) and ("ground",) + tile for the
+        ground part of a split tile. Two nodes on one final layer are joined when
+        they are 8-neighbours with floors, hold no no_pass object and their tile
+        heights differ by less than WALKABLE_DZ; legacy exits join their ends."""
+        uf = UnionFind()
+        pos = collections.defaultdict(list)
+        for k, (m, _f, blocked) in self.tiles.items():
+            if m not in maps or k not in self.H or blocked:
+                continue
+            pos[(self.final_layer[k], k[1], k[2])].append((k, self.rest(k)))
+            if k in self.split:
+                pos[(self.split[k], k[1], k[2])].append((("ground",) + k, self.H0[k]))
+        for (L, x, y), here in sorted(pos.items()):
+            for dx, dy in ((1, 0), (-1, 1), (0, 1), (1, 1)):
+                for a, ra in here:
+                    for b, rb in pos.get((L, x + dx, y + dy), ()):
+                        if abs(ra - rb) < WALKABLE_DZ:
+                            uf.union(a, b)
+        for e in self.exits:
+            uf.union(e["src"], e["dst"])
+        return uf
+
+
+class UnionFind:
+    """Union-find over hashable keys; the smallest key of a set is its root."""
+
+    def __init__(self):
+        self.parent = {}
+
+    def find(self, a):
+        p = self.parent
+        p.setdefault(a, a)
+        while p[a] != a:
+            p[a] = p[p[a]]
+            a = p[a]
+        return a
+
+    def union(self, a, b):
+        ra, rb = self.find(a), self.find(b)
+        if ra != rb:
+            if repr(ra) < repr(rb):
+                self.parent[rb] = ra
+            else:
+                self.parent[ra] = rb

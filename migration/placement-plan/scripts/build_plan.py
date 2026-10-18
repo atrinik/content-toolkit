@@ -528,7 +528,7 @@ def build(content: Path, allow_dirty: bool = False):
                                  "src": (so[2], so[0] + e["source_x"], so[1] + e["source_y"]),
                                  "dst": (to[2], to[0] + e["resolved_x"], to[1] + e["resolved_y"])})
         relay[g["id"]] = relayer.Relayering(tiles, internal, LAYER_HEIGHT_Z, overworld=(g["id"] == ow_id))
-    void_exit_ends = []
+    void_exit_ends = {}  # (map, x, y) -> layer, for exit ends on void tiles of a moved map
 
     def tile_layer(gid, m, x, y):
         """Final layer of tile (x, y) of member map m after relayering."""
@@ -547,7 +547,7 @@ def build(content: Path, allow_dirty: bool = False):
                           if n in R.final_layer and R.tiles[n][0] == m)
             if near:
                 if near[0][3] != oz:
-                    void_exit_ends.append({"map": m, "tile": [x, y], "layer": near[0][3]})
+                    void_exit_ends[(m, x, y)] = near[0][3]
                 return near[0][3]
         return oz
 
@@ -1525,7 +1525,16 @@ def build(content: Path, allow_dirty: bool = False):
         rec = {"id": "U{}".format(len(units_out) + 1), "kind": "storey up" if sh > 0 else "cave down",
                "layer_before": R.units[u]["layer"], "shift": sh, "tiles": len(ks), "maps": maps_count(ks),
                "final_layers": finals_count(ks), "regions": sorted({region_of_tile[k] for k in ks if k in region_of_tile},
-                                                                   key=lambda t: int(t[1:]))}
+                                                                   key=lambda t: int(t[1:])),
+               "bbox": [min(k[1] for k in ks), min(k[2] for k in ks), max(k[1] for k in ks), max(k[2] for k in ks)]}
+        # the regions that made it move: raised ground under a storey, raised parts inside a cave
+        linked = set(rec["regions"])
+        if sh > 0:
+            for k in ks:
+                for L in R.columns.get((k[1], k[2]), []):
+                    if L < k[0] and (L, k[1], k[2]) in region_of_tile:
+                        linked.add(region_of_tile[(L, k[1], k[2])])
+        rec["linked_regions"] = sorted(linked, key=lambda t: int(t[1:]))
         if sh > 0:
             under = collections.Counter()
             for k in ks:
@@ -1567,18 +1576,17 @@ def build(content: Path, allow_dirty: bool = False):
         for pc in sm["pieces"]:
             lo, hi = pc["representative_edge"]
             d = {"cell": pc["cell"], "edges": pc["edges"], "continuity": pc["continuity"],
-                 "low_tile": lo, "high_tile": hi}
-            if pc["continuity"] == "new stairs":
-                st_ = pc["stairs"]
+                 "low_tile": lo, "high_tile": hi, "stairs": []}
+            for st_ in pc["stairs"]:
                 rec = {"id": "NS{}".format(len(new_stairs) + 1), "seam": "S{}".format(sm["index"] + 1),
                        "low": st_["low"], "high": st_["high"],
                        "low_map": R.tiles[tuple(st_["low_tile"])][0], "high_map": R.tiles[tuple(st_["high_tile"])][0],
-                       "low_tile_legacy": st_["low_tile"], "high_tile_legacy": st_["high_tile"],
+                       "low_tile_legacy": st_["low_tile"], "high_tile_legacy": st_["high_tile"], "why": st_["why"],
                        "objects": [{"tile": "low", "archetype": "stairs_stone_up", "exit_to": "high"},
                                    {"tile": "high", "archetype": "stairs_stone_down", "exit_to": "low"}]}
                 new_stairs.append(rec)
-                d["stairs"] = rec["id"]
-            else:
+                d["stairs"].append(rec["id"])
+            if "exit" in pc:
                 d["exit"] = pc["exit"]
             pieces.append(d)
         regs_ = sorted({region_of_tile.get(tuple(p_["low_tile"])) or region_of_tile.get(tuple(p_["high_tile"]))
@@ -1627,17 +1635,11 @@ def build(content: Path, allow_dirty: bool = False):
             if k in ev:
                 rec[k] = ev[k]
         relayer_exits.append(rec)
-    relayer_keys = {(r["source_map"], r["line"]) for r in relayer_exits}
-    ow_exit_records = [exit_record(e) for e in ow_internal
-                       if e.get("resolved_map") and (e["key"] in relayer_keys or e["key"] in S.sw_of_exit)]
+    # Every overworld exit with a destination, so the verifier can derive which
+    # exits the relayering touches instead of trusting relayering.exits.
+    ow_exit_records = [exit_record(e) for e in ow_internal if e.get("resolved_map")]
 
-    affected = set(moved_maps)
-    for r in R.regions:
-        affected.update(R.tiles[k][0] for k in r["tiles"])
-    for k in sorted(set(R.moved) | R.relayered):
-        for nb in R._n8(k):
-            if nb in R.tiles:
-                affected.add(R.tiles[nb][0])
+    affected = R.affected_maps()  # the maps the continuity graph uses; their heights go into the JSON
 
     def height_rows(m):
         rec_ = maps[m]
@@ -1683,9 +1685,10 @@ def build(content: Path, allow_dirty: bool = False):
                                                           "height".format(len(kept_out),
                                                                           sum(r["tiles"] for r in kept_out))})
     if new_stairs:
-        judgement.append({"kind": "new stairs", "text": "{} new stair pair(s) keep {} cut seam piece(s) walkable; "
-                                                        "archetypes default to stairs_stone_up/down".format(
-                                                            len(new_stairs), len(new_stairs))})
+        judgement.append({"kind": "new stairs", "text": "{} new stair pair(s) keep the {} cut seam piece(s) and every "
+                                                        "pocket they leave walkable; archetypes default to "
+                                                        "stairs_stone_up/down".format(
+                                                            len(new_stairs), sum(len(sm["pieces"]) for sm in seams_out))})
     group_regions = {gid: [{"layer": r["layer"], "q": r["q"], "tiles": len(r["tiles"]),
                             "maps": sorted({Rg.tiles[k][0] for k in r["tiles"]}), "relayered": r["relayered"]}
                            for r in Rg.regions] for gid, Rg in sorted(relay.items()) if gid != ow_id and Rg.regions}
@@ -1705,7 +1708,8 @@ def build(content: Path, allow_dirty: bool = False):
         "maps_moved": maps_moved, "split_tiles": split_out, "seams": seams_out, "new_stairs": new_stairs,
         "steep_steps": steep_out, "new_contacts": contacts_out, "exits": relayer_exits,
         "stairwells_blocked": S.relayer_blocked, "unresolved": R.unresolved, "overlaps": len(R.overlaps()),
-        "exit_ends_on_void_tiles": sorted(void_exit_ends, key=lambda v: (v["map"], v["tile"])),
+        "exit_ends_on_void_tiles": [{"map": m, "tile": [x, y], "layer": L}
+                                    for (m, x, y), L in sorted(void_exit_ends.items())],
         "group_regions": group_regions, "judgement_calls": judgement,
         "tile_heights": {m: height_rows(m) for m in sorted(affected)},
     }

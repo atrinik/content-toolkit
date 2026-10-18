@@ -10,7 +10,7 @@ Version 2 applies the owner's decisions of 2026-10-18 on top of version 1 (PR #4
 - 3629 map files, 59 groups (connected by tile links / filename coordinates): the overworld (3155 maps, legacy layers -3: 17, -2: 84, -1: 116, 0: 2700, 1: 139, 2: 49, 3: 28, 4: 11, 5: 10, 6: 1) plus **58 other groups**.
 - **Placed: 27 groups (182 maps)** on overworld layers, none overlapping, every one keeping the 16-tile view gap from unrelated areas.
 - **Separate planes: 31 groups (292 maps)**: 13 per_player, 7 other_world, 5 ship, 3 guild, 2 system, 1 unreachable. 1 of them also has a tentative placement: #26 `strakewood_island/rockforge/rockforge_c`.
-- **Relayering applied**: 35,044 overworld tiles with a support height of 50 or more are relayered in 12 regions; 63 storey units move up with the ground under them; 2 caves move down as a whole and 1 cave region is lowered in place, so no cave reaches the surface layer. 173 maps now have tiles on another layer. Of the plain stairs whose ends move, 98 stay plain stairs and 33 become stairwells; 44 new stair pairs keep 26 cut walkable seams connected. See [Relayering](#relayering-applied).
+- **Relayering applied**: 35,044 overworld tiles with a support height of 50 or more are relayered in 12 regions; 63 storey units move up with the ground under them; 2 caves move down as a whole and 1 cave region is lowered in place, so no cave reaches the surface layer. 173 maps now have tiles on another layer. Of the plain stairs whose ends move, 98 stay plain stairs and 33 become stairwells; 46 new stair pairs keep every tile on 26 cut walkable seams connected. See [Relayering](#relayering-applied).
 - Exit objects crossing group boundaries after placement (both directions, every exit object counted): **72 become plain stairs** (11 of them wired dangling exits), **52 are replaced by stairwells**, **19 stay portals**. Another 190 exit objects lead into separate planes and stay portals by definition.
 - **Stairwells: 40**: 14 for placed groups (SW), 4 sloped (SL), 22 for overworld exits the relayering put 2 or more layers apart (SR). Every one is drawn only on the layer the player is on.
 - **Sloped stairwells**: 16 of the 17 near-aligned portal exit objects become 4 sloped stairwells; 1 cannot (see [Sloped stairwells](#sloped-stairwells)).
@@ -18,7 +18,7 @@ Version 2 applies the owner's decisions of 2026-10-18 on top of version 1 (PR #4
 - Placement changes from version 1: `ellamin` layer offset -4 -> -5; `rockforge_a` layer offset -4 -> -5; `rockforge_b` layer offset -5 -> -6; `rockforge_c` layer offset -6 -> -7.
 - Why portals remain: 17 other-entrance-aligned; 1 slope-blocked; 1 stairwell-blocked. See [Portals that remain](#portals-that-remain).
 - View radius: **16 tiles** (the classic server's limit; the shipped client sees 10). With radius 10 the plan would have 65 stairs, 48 stairwell exits and 19 portals; see [View radius](#view-radius).
-- Independent check (`scripts/verify_plan.py`, JSON only): **PASS**: 207 placed member maps, 7 nearby owner pairs measured (closest unrelated pair 22 tiles apart, gap rule needs more than 16), 40 stairwells with 76 intermediate tiles, 576 exit endpoints re-derived; relayering re-derived from 242,824 overworld tiles and 82,133 tile heights (12 regions, 243 units, 47,594 moved tiles, 904 cut edges in 44 seam pieces).
+- Independent check (`scripts/verify_plan.py`, JSON only): **PASS**: 207 placed member maps, 7 nearby owner pairs measured (closest unrelated pair 22 tiles apart, gap rule needs more than 16), 40 stairwells with 76 intermediate tiles, 1468 exit endpoints re-derived; relayering re-derived from 242,824 overworld tiles and 82,133 tile heights (12 regions, 243 units, 47,594 moved tiles, 904 cut edges in 44 seam pieces).
 
 | classification | reason | groups | maps |
 |---|---|---:|---:|
@@ -162,7 +162,7 @@ Owner decision 2026-10-18: fix the conflicts, then relayer. JSON key `relayering
 - **Split**: H = 50 q + rest with q = H div 50 for H >= 50; a relayered tile moves q layers up and keeps rest (0..49) as its tile height. A tile carrying a low floor on sub-layer 0 under a raised floor on a higher sub-layer (a bridge over ground) is split: the raised part moves, the ground part stays (200 tiles).
 - **Regions**: 8-connected tiles of one layer with the same q. A region of at least 24 tiles is relayered, a smaller one only when it touches a relayered region (another step of the same slope); the rest keep z as tile height.
 - **Units**: 8-connected occupied tiles of one layer. The surface (layer 0) is never a unit: only its regions move.
-- **Conflicts first**, repeated until none is left: in every column the tiles keep their vertical order, so a storey above ground that rises moves up with it; a cave whose raised floor would reach the tile above it, or the surface layer, moves down instead. A cave moves down as a whole (its raised regions land back on their layer and its slopes stay intact) when that breaks no more stairs and makes no more steep steps than lowering only the raised regions in place, and pushes nothing below it; otherwise only the raised regions are lowered in place (they keep their layer and their floor keeps z - 50 q).
+- **Conflicts first**, repeated until none is left: in every column the tiles keep their vertical order, so a storey above ground that rises moves up with it; a cave whose raised floor would reach the tile above it, or the surface layer, moves down instead. A cave moves down as a whole (its raised regions land back on their layer and its slopes stay intact) when that pushes nothing below it and, compared with lowering only the raised regions in place, changes no more stairs and makes no more steep steps, and fewer of at least one; otherwise, ties included, only the raised regions are lowered in place (they keep their layer and their floor keeps z - 50 q).
 - **Walkable**: two neighbouring tiles with floors, neither holding a `no_pass` object, less than 25 z apart. That is a step the classic server counts as no fall: it deals fall damage for round(dz / 50) floors (`server/src/server/move.c:151`). A walkable edge whose tiles end on different layers is **cut**; every cut is flagged and joined by stairs ([Cut walkable slopes](#cut-walkable-slopes)).
 
 ### Regions
@@ -506,7 +506,7 @@ They become the stairwells SR1-SR22 (one per stair column, built through the voi
 
 ### Cut walkable slopes
 
-904 walkable edges are cut in 26 seams; each seam piece (the part of a seam inside one 24x24 cell) keeps continuity through an existing exit between its two sides, or gets one new pair of plain stairs on its representative edge (orthogonal first, then nearest the piece's centre). **Every cut is flagged here**; 44 pieces needed new stairs, 0 were already joined by an exit. The stair objects default to `stairs_stone_up` on the low tile and `stairs_stone_down` on the high tile.
+904 walkable edges are cut in 26 seams. Each seam piece (the part of a seam inside one 24x24 cell) keeps continuity through an existing exit between its two sides, or gets a pair of plain stairs on its representative edge (orthogonal first, then nearest the piece's centre). Then every cut edge is checked: its two tiles must still be connected (walking on the final layers, legacy exits, the new stairs), and an edge whose tiles are still apart, a pocket the piece's stairs do not reach, gets stairs of its own. **Every cut is flagged here**: 46 new stair pairs in 44 pieces (2 for pockets), 0 pieces already joined by an exit. The stair objects default to `stairs_stone_up` on the low tile and `stairs_stone_down` on the high tile.
 
 | seam | regions | layers | cut edges | maps | new stairs |
 |---|---|---|---:|---|---|
@@ -515,74 +515,76 @@ They become the stairwells SR1-SR22 (one per stair column, built through the voi
 | S3 | R8 | -2 / -1 | 7 | world_3_82_-1 | NS3 |
 | S4 | R10 | -3 / -2 | 9 | world_3_82_-1 | NS4 |
 | S5 | R1 | 0 / 1 | 6 | world_-1_44 | NS5 |
-| S6 | R2 | 0 / 1 | 30 | world_1_56 | NS6 |
-| S7 | R9 | 0 / 1 | 2 | world_1_73 | NS7 |
-| S8 | R9 | 0 / 1 | 2 | world_1_73 | NS8 |
-| S9 | R9 | 0 / 1 | 3 | world_1_73 | NS9 |
-| S10 | R1 | 0 / 1 | 7 | world_3_46 | NS10 |
-| S11 | R1 | 0 / 1 | 5 | world_4_42 | NS11 |
-| S12 | R1 | 0 / 1 | 1 | world_4_42 | NS12 |
-| S13 | R2 | 1 / 2 | 13 | world_4_57 | NS13 |
-| S14 | R2 | 0 / 1 | 35 | world_4_56 | NS14 |
-| S15 | R1 | 0 / 1 | 9 | world_5_41 | NS15 |
-| S16 | R1 | 0 / 1 | 98 | world_5_40, world_5_41, world_6_40, world_6_41, world_7_40 +1 | NS16, NS17, NS18, NS19, NS20 |
-| S17 | R1 | 0 / 1 | 161 | world_5_47, world_6_47, world_6_48, world_7_47, world_7_48 | NS21, NS22, NS23, NS24, NS25 |
-| S18 | R5 | 0 / 1 | 27 | world_6_64 | NS26 |
-| S19 | R4 | 0 / 1 | 30 | world_6_56 | NS27 |
-| S20 | R4 | 0 / 1 | 41 | world_7_57 | NS28 |
-| S21 | R5 | 0 / 1 | 90 | world_7_63, world_8_63, world_8_64, world_9_63, world_9_64 | NS29, NS30, NS31, NS32 |
-| S22 | R1 | 0 / 1 | 113 | world_7_41, world_8_41, world_8_42, world_9_42 | NS33, NS34, NS35, NS36 |
-| S23 | R1 | 0 / 1 | 6 | world_8_42, world_8_43 | NS37 |
-| S24 | R1 | 0 / 1 | 114 | world_10_45, world_8_46, world_9_45, world_9_46 | NS38, NS39, NS40, NS41 |
-| S25 | R1 | 0 / 1 | 63 | world_10_43, world_10_44 | NS42, NS43 |
-| S26 | R1 | 0 / 1 | 11 | world_10_45 | NS44 |
+| S6 | R2 | 0 / 1 | 30 | world_1_56 | NS6, NS7 |
+| S7 | R9 | 0 / 1 | 2 | world_1_73 | NS8 |
+| S8 | R9 | 0 / 1 | 2 | world_1_73 | NS9 |
+| S9 | R9 | 0 / 1 | 3 | world_1_73 | NS10 |
+| S10 | R1 | 0 / 1 | 7 | world_3_46 | NS11 |
+| S11 | R1 | 0 / 1 | 5 | world_4_42 | NS12 |
+| S12 | R1 | 0 / 1 | 1 | world_4_42 | NS13 |
+| S13 | R2 | 1 / 2 | 13 | world_4_57 | NS14 |
+| S14 | R2 | 0 / 1 | 35 | world_4_56 | NS15 |
+| S15 | R1 | 0 / 1 | 9 | world_5_41 | NS16 |
+| S16 | R1 | 0 / 1 | 98 | world_5_40, world_5_41, world_6_40, world_6_41, world_7_40 +1 | NS17, NS18, NS19, NS20, NS21 |
+| S17 | R1 | 0 / 1 | 161 | world_5_47, world_6_47, world_6_48, world_7_47, world_7_48 | NS22, NS23, NS24, NS25, NS26 |
+| S18 | R5 | 0 / 1 | 27 | world_6_64 | NS27 |
+| S19 | R4 | 0 / 1 | 30 | world_6_56 | NS28, NS29 |
+| S20 | R4 | 0 / 1 | 41 | world_7_57 | NS30 |
+| S21 | R5 | 0 / 1 | 90 | world_7_63, world_8_63, world_8_64, world_9_63, world_9_64 | NS31, NS32, NS33, NS34 |
+| S22 | R1 | 0 / 1 | 113 | world_7_41, world_8_41, world_8_42, world_9_42 | NS35, NS36, NS37, NS38 |
+| S23 | R1 | 0 / 1 | 6 | world_8_42, world_8_43 | NS39 |
+| S24 | R1 | 0 / 1 | 114 | world_10_45, world_8_46, world_9_45, world_9_46 | NS40, NS41, NS42, NS43 |
+| S25 | R1 | 0 / 1 | 63 | world_10_43, world_10_44 | NS44, NS45 |
+| S26 | R1 | 0 / 1 | 11 | world_10_45 | NS46 |
 
-| new stairs | low end (legacy tile, final layer) | high end (legacy tile, final layer) |
-|---|---|---|
-| NS1 | world_2_52_-3 (6,17) L-4 | world_2_52_-3 (6,16) L-3 |
-| NS2 | world_3_81_-1 (8,22) L-4 | world_3_81_-1 (8,23) L-3 |
-| NS3 | world_3_82_-1 (15,1) L-2 | world_3_82_-1 (14,1) L-1 |
-| NS4 | world_3_82_-1 (18,11) L-3 | world_3_82_-1 (19,11) L-2 |
-| NS5 | world_-1_44 (10,6) L0 | world_-1_44 (10,5) L1 |
-| NS6 | world_1_56 (9,8) L0 | world_1_56 (9,9) L1 |
-| NS7 | world_1_73 (5,19) L0 | world_1_73 (5,18) L1 |
-| NS8 | world_1_73 (11,8) L0 | world_1_73 (11,7) L1 |
-| NS9 | world_1_73 (19,10) L0 | world_1_73 (18,10) L1 |
-| NS10 | world_3_46 (22,13) L0 | world_3_46 (22,12) L1 |
-| NS11 | world_4_42 (0,1) L0 | world_4_42 (1,1) L1 |
-| NS12 | world_4_42 (0,9) L0 | world_4_42 (1,10) L1 |
-| NS13 | world_4_57 (2,12) L1 | world_4_57 (3,12) L2 |
-| NS14 | world_4_56 (18,13) L0 | world_4_56 (17,13) L1 |
-| NS15 | world_5_41 (0,1) L0 | world_5_41 (1,1) L1 |
-| NS16 | world_5_40 (23,23) L0 | world_6_41 (0,0) L1 |
-| NS17 | world_5_41 (16,0) L0 | world_5_41 (16,1) L1 |
-| NS18 | world_6_40 (11,23) L0 | world_6_41 (11,0) L1 |
-| NS19 | world_7_40 (0,23) L0 | world_6_41 (23,0) L1 |
-| NS20 | world_7_41 (1,0) L0 | world_7_41 (1,1) L1 |
-| NS21 | world_5_47 (17,15) L0 | world_5_47 (17,14) L1 |
-| NS22 | world_6_47 (15,15) L0 | world_6_47 (15,14) L1 |
-| NS23 | world_6_48 (23,0) L0 | world_6_47 (23,23) L1 |
-| NS24 | world_7_47 (3,18) L0 | world_7_47 (2,18) L1 |
-| NS25 | world_7_48 (1,0) L0 | world_7_47 (1,23) L1 |
-| NS26 | world_6_64 (7,3) L0 | world_6_64 (7,4) L1 |
-| NS27 | world_6_56 (3,11) L0 | world_6_56 (4,11) L1 |
-| NS28 | world_7_57 (12,10) L0 | world_7_57 (12,9) L1 |
-| NS29 | world_7_63 (19,6) L0 | world_7_63 (19,7) L1 |
-| NS30 | world_8_63 (13,13) L0 | world_8_63 (13,14) L1 |
-| NS31 | world_9_63 (0,23) L0 | world_8_64 (23,0) L1 |
-| NS32 | world_9_64 (0,1) L0 | world_8_64 (23,1) L1 |
-| NS33 | world_7_41 (23,21) L0 | world_7_41 (22,21) L1 |
-| NS34 | world_8_41 (0,22) L0 | world_7_41 (23,22) L1 |
-| NS35 | world_8_42 (13,10) L0 | world_8_42 (12,10) L1 |
-| NS36 | world_9_42 (0,18) L0 | world_9_42 (0,19) L1 |
-| NS37 | world_8_43 (17,0) L0 | world_8_42 (17,23) L1 |
-| NS38 | world_8_46 (20,4) L0 | world_8_46 (21,4) L1 |
-| NS39 | world_9_45 (21,22) L0 | world_9_45 (21,21) L1 |
-| NS40 | world_9_46 (10,4) L0 | world_9_46 (9,4) L1 |
-| NS41 | world_10_45 (3,22) L0 | world_10_45 (3,21) L1 |
-| NS42 | world_10_43 (10,16) L0 | world_10_43 (9,16) L1 |
-| NS43 | world_10_44 (8,3) L0 | world_10_44 (7,3) L1 |
-| NS44 | world_10_45 (8,4) L0 | world_10_45 (7,4) L1 |
+| new stairs | seam | low end (legacy tile, final layer) | high end (legacy tile, final layer) | placed for |
+|---|---|---|---|---|
+| NS1 | S1 | world_2_52_-3 (6,17) L-4 | world_2_52_-3 (6,16) L-3 | the seam piece |
+| NS2 | S2 | world_3_81_-1 (8,22) L-4 | world_3_81_-1 (8,23) L-3 | the seam piece |
+| NS3 | S3 | world_3_82_-1 (15,1) L-2 | world_3_82_-1 (14,1) L-1 | the seam piece |
+| NS4 | S4 | world_3_82_-1 (18,11) L-3 | world_3_82_-1 (19,11) L-2 | the seam piece |
+| NS5 | S5 | world_-1_44 (10,6) L0 | world_-1_44 (10,5) L1 | the seam piece |
+| NS6 | S6 | world_1_56 (9,8) L0 | world_1_56 (9,9) L1 | the seam piece |
+| NS7 | S6 | world_1_56 (3,14) L0 | world_1_56 (4,14) L1 | a pocket |
+| NS8 | S7 | world_1_73 (5,19) L0 | world_1_73 (5,18) L1 | the seam piece |
+| NS9 | S8 | world_1_73 (11,8) L0 | world_1_73 (11,7) L1 | the seam piece |
+| NS10 | S9 | world_1_73 (19,10) L0 | world_1_73 (18,10) L1 | the seam piece |
+| NS11 | S10 | world_3_46 (22,13) L0 | world_3_46 (22,12) L1 | the seam piece |
+| NS12 | S11 | world_4_42 (0,1) L0 | world_4_42 (1,1) L1 | the seam piece |
+| NS13 | S12 | world_4_42 (0,9) L0 | world_4_42 (1,10) L1 | the seam piece |
+| NS14 | S13 | world_4_57 (2,12) L1 | world_4_57 (3,12) L2 | the seam piece |
+| NS15 | S14 | world_4_56 (18,13) L0 | world_4_56 (17,13) L1 | the seam piece |
+| NS16 | S15 | world_5_41 (0,1) L0 | world_5_41 (1,1) L1 | the seam piece |
+| NS17 | S16 | world_5_40 (23,23) L0 | world_6_41 (0,0) L1 | the seam piece |
+| NS18 | S16 | world_5_41 (16,0) L0 | world_5_41 (16,1) L1 | the seam piece |
+| NS19 | S16 | world_6_40 (11,23) L0 | world_6_41 (11,0) L1 | the seam piece |
+| NS20 | S16 | world_7_40 (0,23) L0 | world_6_41 (23,0) L1 | the seam piece |
+| NS21 | S16 | world_7_41 (1,0) L0 | world_7_41 (1,1) L1 | the seam piece |
+| NS22 | S17 | world_5_47 (17,15) L0 | world_5_47 (17,14) L1 | the seam piece |
+| NS23 | S17 | world_6_47 (15,15) L0 | world_6_47 (15,14) L1 | the seam piece |
+| NS24 | S17 | world_6_48 (23,0) L0 | world_6_47 (23,23) L1 | the seam piece |
+| NS25 | S17 | world_7_47 (3,18) L0 | world_7_47 (2,18) L1 | the seam piece |
+| NS26 | S17 | world_7_48 (1,0) L0 | world_7_47 (1,23) L1 | the seam piece |
+| NS27 | S18 | world_6_64 (7,3) L0 | world_6_64 (7,4) L1 | the seam piece |
+| NS28 | S19 | world_6_56 (3,11) L0 | world_6_56 (4,11) L1 | the seam piece |
+| NS29 | S19 | world_6_56 (3,19) L0 | world_6_56 (4,18) L1 | a pocket |
+| NS30 | S20 | world_7_57 (12,10) L0 | world_7_57 (12,9) L1 | the seam piece |
+| NS31 | S21 | world_7_63 (19,6) L0 | world_7_63 (19,7) L1 | the seam piece |
+| NS32 | S21 | world_8_63 (13,13) L0 | world_8_63 (13,14) L1 | the seam piece |
+| NS33 | S21 | world_9_63 (0,23) L0 | world_8_64 (23,0) L1 | the seam piece |
+| NS34 | S21 | world_9_64 (0,1) L0 | world_8_64 (23,1) L1 | the seam piece |
+| NS35 | S22 | world_7_41 (23,21) L0 | world_7_41 (22,21) L1 | the seam piece |
+| NS36 | S22 | world_8_41 (0,22) L0 | world_7_41 (23,22) L1 | the seam piece |
+| NS37 | S22 | world_8_42 (13,10) L0 | world_8_42 (12,10) L1 | the seam piece |
+| NS38 | S22 | world_9_42 (0,18) L0 | world_9_42 (0,19) L1 | the seam piece |
+| NS39 | S23 | world_8_43 (17,0) L0 | world_8_42 (17,23) L1 | the seam piece |
+| NS40 | S24 | world_8_46 (20,4) L0 | world_8_46 (21,4) L1 | the seam piece |
+| NS41 | S24 | world_9_45 (21,22) L0 | world_9_45 (21,21) L1 | the seam piece |
+| NS42 | S24 | world_9_46 (10,4) L0 | world_9_46 (9,4) L1 | the seam piece |
+| NS43 | S24 | world_10_45 (3,22) L0 | world_10_45 (3,21) L1 | the seam piece |
+| NS44 | S25 | world_10_43 (10,16) L0 | world_10_43 (9,16) L1 | the seam piece |
+| NS45 | S25 | world_10_44 (8,3) L0 | world_10_44 (7,3) L1 | the seam piece |
+| NS46 | S26 | world_10_45 (8,4) L0 | world_10_45 (7,4) L1 | the seam piece |
 
 ### View gap and void rules
 
@@ -602,7 +604,7 @@ They become the stairwells SR1-SR22 (one per stair column, built through the voi
 - new contacts: 2 tile pair(s) become neighbours on a layer.
 - split tiles: 200 tile(s) carry a low floor on sub-layer 0 and a raised floor on a higher sub-layer; the raised part moves, the ground part stays.
 - kept regions: 7 small raised region(s) (58 tiles) keep z as tile height.
-- new stairs: 44 new stair pair(s) keep 44 cut seam piece(s) walkable; archetypes default to stairs_stone_up/down.
+- new stairs: 46 new stair pair(s) keep the 44 cut seam piece(s) and every pocket they leave walkable; archetypes default to stairs_stone_up/down.
 
 ## Stairwells
 
@@ -728,7 +730,7 @@ Decided semantics: a stairwell is ONE exit for use and pathfinding, in classic a
   - The plane loader must create the stairwell from the plan's record and validate it (continuity of at most one tile per layer, void intermediate tiles, both ends are exits that target each other's end).
 - **Classic client** (`atrinik/classic@b651c55fd0fe`):
   - Linked levels are projected 46 px apart (`client/src/gui/widgets/map.c:1307`, applied at `:4712-4713`) and up to 6 levels each way are streamed (`libatrinik/socket.h:87-89`).
-  - **Off-layer hiding**: when the server does not filter, the client must not draw a stairwell segment whose layer differs from the player's (the per-depth draw loop at `client/src/gui/widgets/map.c:4712-4713`); the stairwell needs a marker in the map protocol for that.
+  - **Off-layer hiding**: when the server does not filter, the client must not draw a stairwell segment whose depth is not 0: `map_should_draw()` (`client/src/gui/widgets/map.c:4703`) already decides per cell and depth whether a tile is drawn, but the stairwell needs a marker in the map protocol for it to know which objects are segments.
   - The exit cue (`MAP2_FLAG2_EXIT`, `server/src/socket/request.c:1831`; `map_render_command_draw_exit()`, `client/src/gui/widgets/map.c:7311`) should mark the stairwell's ends as one exit, not each intermediate tile.
 - **Tilewright world format** (`seraphinastudios/tilewright-world@6fe670f47630`):
   - Today an exit is an object with a `portal` to `(plane, layer, at)` (`docs/spec/FORMAT.md:210`, example at `:176`). There is no way to say that objects on several layers form one exit.
@@ -790,7 +792,7 @@ Read-only source: `atrinik/classic@b651c55fd0fe`.
 4. **Confirm 'below' for groups entered only through neutral exits** (invis_exit/exit, so the direction came from a name keyword): #3 `cave_morlarg`, #16 `lab`, #17 `dark_cave`, #18 `giant_stronghold`. A building interior would rather go above.
 5. **Confirm the judgement calls**: Everlink is other_world (no exit leads in, its region text says nobody knows where it is, only house scripts reach it); the Temple of Loki desert-plane chain incl. `unusual_garden` is other_world (the garden's hole lands on the same (12,15) of world_12_59, so it could instead sit above that map); the three Incuna `ship_lower_deck*` maps are ship (travel decks entered at one port and left at another, also reached by NPC dialog teleports); `hall_of_dms` is system although world_1_68 has an exit into it.
 6. **New: wired exits that land where nobody can walk**: jail (2,1), jail (13,1), jail (2,7), jail (13,7), jail (13,13) land on water (a walking player cannot enter it). They are wired as instructed; every one shares its tile with `bed_1b.111`, `bedpost_b`, so they may be bunk-bed ladders. Keep them wired, retarget them, or keep them as decoration (no destination)?
-7. **New: confirm the relayering judgement calls** ([list](#relayering-judgement-calls)): in particular the cave lowered in place (R3 in R3's cave), the caves moved down as a whole and the placements they push one layer deeper (`ellamin`, `rockforge_a`, `rockforge_b`, `rockforge_c`), and the 44 new seam stairs with their default archetype.
+7. **New: confirm the relayering judgement calls** ([list](#relayering-judgement-calls)): in particular the cave lowered in place (R3 in R3's cave), the caves moved down as a whole and the placements they push one layer deeper (`ellamin`, `rockforge_a`, `rockforge_b`, `rockforge_c`), and the 46 new seam stairs with their default archetype.
 
 Resolved by the 2026-10-18 decisions (version 1's open items): the layer-height relayering (applied), stairwells in view of unrelated areas (hidden in the engine), sloped staircases (built where free) and the dangling stairs (wired).
 
@@ -840,14 +842,16 @@ Resolved by the 2026-10-18 decisions (version 1's open items): the layer-height 
 
 `relayer_<n>.png` shows one relayered area: the top row is every affected layer as it was, aqua marking tiles that move; the bottom row is the same layers in this plan, aqua marking tiles that arrived, with stairwell tiles (diamonds), new seam stairs (`+`) and region labels.
 
-| image | regions |
-|---|---|
-| `relayer_1.png` | R1, R3, R11 (x -24..258, y 984..1151) |
-| `relayer_2.png` | R2, R4, R6 (x 24..191, y 1344..1391) |
-| `relayer_3.png` | R5 (x 144..215, y 1519..1563) |
-| `relayer_4.png` | R7 (x 49..64, y 1253..1265) |
-| `relayer_5.png` | R8, R10, R12 (x 78..99, y 1965..1981) |
-| `relayer_6.png` | R9 (x 29..42, y 1757..1770) |
+Each image covers its regions and every storey or cave unit that moved because of them.
+
+| image | regions | moved units | area |
+|---|---|---|---|
+| `relayer_1.png` | R1, R3, R11 | U1-U27, U29-U49, U51-U56, U58-U63 | x -24..258, y 984..1151 |
+| `relayer_2.png` | R2, R4, R6 | none | x 24..191, y 1344..1391 |
+| `relayer_3.png` | R5 | U28, U50, U57 | x 144..215, y 1519..1563 |
+| `relayer_4.png` | R7 | U64 | x 24..86, y 1152..1271 |
+| `relayer_5.png` | R8, R10, R12 | U65 | x 76..147, y 1935..1981 |
+| `relayer_6.png` | R9 | none | x 29..42, y 1757..1770 |
 
 | layer | legacy overworld maps | overworld tiles moved here | placed groups (* = tentative) | stairwell tiles |
 |---:|---:|---:|---|---|

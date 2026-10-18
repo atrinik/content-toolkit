@@ -228,27 +228,24 @@ def render_layers(plan, maps, G, ow_id, out: Path, relay, ow_split=None):
 
 
 def relayer_areas(plan):
-    """Relayered regions and moved units grouped into areas (boxes closer than 48 tiles merge)."""
+    """Relayered areas: regions whose boxes lie within 48 tiles merge, then every moved unit
+    (storey or cave) joins the area of the regions that made it move and widens its box.
+    Returns [x0, y0, x1, y1, [region and unit ids]] in region order."""
     rl = plan["relayering"]
-    boxes = []
-    for r in rl["regions"]:
-        boxes.append([r["bbox"][0], r["bbox"][1], r["bbox"][2], r["bbox"][3], [r["id"]]])
+
+    def near(a, b, m):
+        return b[0] - m <= a[2] and a[0] - m <= b[2] and b[1] - m <= a[3] and a[1] - m <= b[3]
+
     areas = []
-    for b in sorted(boxes, key=lambda b: (b[1], b[0])):
-        for a in areas:
-            if b[0] - 48 <= a[2] and a[0] - 48 <= b[2] and b[1] - 48 <= a[3] and a[1] - 48 <= b[3]:
-                a[0], a[1], a[2], a[3] = min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3])
-                a[4] += b[4]
-                break
-        else:
-            areas.append(list(b))
+    for r in sorted(rl["regions"], key=lambda r: (r["bbox"][1], r["bbox"][0])):
+        areas.append([r["bbox"][0], r["bbox"][1], r["bbox"][2], r["bbox"][3], [r["id"]]])
     merged = True
     while merged:
         merged = False
         for i in range(len(areas)):
             for j in range(i + 1, len(areas)):
                 a, b = areas[i], areas[j]
-                if b[0] - 48 <= a[2] and a[0] - 48 <= b[2] and b[1] - 48 <= a[3] and a[1] - 48 <= b[3]:
+                if near(a, b, 48):
                     a[0], a[1], a[2], a[3] = min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3])
                     a[4] += b[4]
                     del areas[j]
@@ -256,10 +253,37 @@ def relayer_areas(plan):
                     break
             if merged:
                 break
+    for u in rl["units_moved"]:
+        hit = [a for a in areas if set(a[4]) & set(u["linked_regions"])]
+        if not hit:
+            areas.append([u["bbox"][0], u["bbox"][1], u["bbox"][2], u["bbox"][3], [u["id"]]])
+            continue
+        a = hit[0]
+        for b in hit[1:]:
+            a[0], a[1], a[2], a[3] = min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3])
+            a[4] += b[4]
+            areas.remove(b)
+        b = u["bbox"]
+        a[0], a[1], a[2], a[3] = min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3])
+        a[4].append(u["id"])
+    order = {"R": 0, "U": 1}
     for a in areas:
-        a[4] = sorted(a[4], key=lambda i: int(i[1:]))
-    areas.sort(key=lambda a: int(a[4][0][1:]))
+        a[4] = sorted(a[4], key=lambda i: (order[i[0]], int(i[1:])))
+    areas.sort(key=lambda a: (order[a[4][0][0]], int(a[4][0][1:])))
     return areas
+
+
+def unit_span(ids):
+    """U1 U2 U3 U7 -> U1-U3, U7."""
+    nums = sorted(int(i[1:]) for i in ids)
+    out, i = [], 0
+    while i < len(nums):
+        j = i
+        while j + 1 < len(nums) and nums[j + 1] == nums[j] + 1:
+            j += 1
+        out.append("U{}".format(nums[i]) if i == j else "U{}-U{}".format(nums[i], nums[j]))
+        i = j + 1
+    return ", ".join(out) or "none"
 
 
 def render_relayer(plan, out: Path, relay):
@@ -282,7 +306,11 @@ def render_relayer(plan, out: Path, relay):
         for t in sw["tiles"]:
             sw_tiles[t["layer"]].append((t["x"], t["y"], sw["id"], t["role"]))
     written = []
-    for n, (ax0, ay0, ax1, ay1, ids) in enumerate(relayer_areas(plan), 1):
+    areas = relayer_areas(plan)
+    outside = [k for k in relay.moved if not any(a[0] <= k[1] <= a[2] and a[1] <= k[2] <= a[3] for a in areas)]
+    if outside:
+        raise RuntimeError("{} moved tiles lie outside every relayer image, e.g. {}".format(len(outside), outside[0]))
+    for n, (ax0, ay0, ax1, ay1, ids) in enumerate(areas, 1):
         ax0, ay0, ax1, ay1 = ax0 - 8, ay0 - 8, ax1 + 9, ay1 + 9
         layers = set()
         for k in relay.moved:
@@ -295,7 +323,9 @@ def render_relayer(plan, out: Path, relay):
         pw, ph = w * s, h * s
         gapx, top = 12, 96
         img = Canvas(max(len(layers) * (pw + gapx) + 70, 760), top + 2 * (ph + 24) + 8, SURFACE)
-        img.text(6, 6, "Relayering area {}: {}".format(n, " ".join(ids)), INK, 2)
+        rids = [i for i in ids if i.startswith("R")]
+        units = [i for i in ids if i.startswith("U")]
+        img.text(6, 6, "Relayering area {}: {}".format(n, " ".join(rids) or "-"), INK, 2)
         img.text(6, 26, "x {}..{}  y {}..{}  ({} px per tile); top row: legacy layers, bottom row: this plan".format(
             ax0, ax1 - 1, ay0, ay1 - 1, s), INK2, 1)
         _legend(img, 6, 40, ((OW_FILL, "stays on its layer"), (MOVED, "moves (top row) / moved here (bottom row)")))
@@ -303,7 +333,8 @@ def render_relayer(plan, out: Path, relay):
         img.text(20, 60, "stairwell tile (SRN, SWN, SLN; ends included)", INK2, 1)
         img.cross(311, 63, 4, INK)
         img.text(320, 60, "new stairs on a cut seam (NS in REPORT.MD)", INK2, 1)
-        img.text(6, 77, "RN = relayered region, labelled where it ends up", INK2, 1)
+        img.text(6, 77, "RN = relayered region, labelled where it ends up; moved units in this area: {}".format(
+            unit_span(units)), INK2, 1)
         for row, data in enumerate((tiles_before, tiles_after)):
             oy = top + row * (ph + 24)
             img.text(6, oy + 14, "BEFORE" if row == 0 else "AFTER", INK, 1)
@@ -323,7 +354,7 @@ def render_relayer(plan, out: Path, relay):
                         if ax0 <= x < ax1 and ay0 <= y < ay1:
                             img.diamond(ox + (x - ax0) * s + s // 2, oy + 12 + (y - ay0) * s + s // 2, 1 + s // 2,
                                         INK, ring=SURFACE)
-                    for rid in ids:
+                    for rid in rids:
                         r = region_box[rid]
                         for Ls, cnt in r["final_layers"].items():
                             if int(Ls) == L and cnt:

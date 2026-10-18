@@ -5,7 +5,7 @@ from __future__ import annotations
 import collections
 from pathlib import Path
 
-from render import labels, relayer_areas
+from render import labels, relayer_areas, unit_span
 
 OW_PREFIX = "/shattered_islands/"
 
@@ -153,7 +153,7 @@ def write_report(plan, out: Path):
       "regions; {} storey units move up with the ground under them; {} caves move down as a whole and {} cave "
       "region is lowered in place, so no cave reaches the surface layer. {} maps now have tiles on another layer. "
       "Of the plain stairs whose ends move, {} stay plain stairs and {} become stairwells; {} new stair pairs keep "
-      "{} cut walkable seams connected. See [Relayering](#relayering-applied).".format(
+      "every tile on {} cut walkable seams connected. See [Relayering](#relayering-applied).".format(
           num(rs["tiles_relayered"]), st["layer_height_z"], rs["regions"],
           sum(1 for u in rl["units_moved"] if u["kind"] == "storey up"),
           sum(1 for u in rl["units_moved"] if u["kind"] == "cave down"),
@@ -518,9 +518,10 @@ def write_relayering(plan, w, lab):
     w("- **Conflicts first**, repeated until none is left: in every column the tiles keep their vertical order, "
       "so a storey above ground that rises moves up with it; a cave whose raised floor would reach the tile above "
       "it, or the surface layer, moves down instead. A cave moves down as a whole (its raised regions land back "
-      "on their layer and its slopes stay intact) when that breaks no more stairs and makes no more steep steps "
-      "than lowering only the raised regions in place, and pushes nothing below it; otherwise only the raised "
-      "regions are lowered in place (they keep their layer and their floor keeps z - {} q).".format(hz))
+      "on their layer and its slopes stay intact) when that pushes nothing below it and, compared with lowering "
+      "only the raised regions in place, changes no more stairs and makes no more steep steps, and fewer of at "
+      "least one; otherwise, ties included, only the raised regions are lowered in place (they keep their layer "
+      "and their floor keeps z - {} q).".format(hz))
     w("- **Walkable**: two neighbouring tiles with floors, neither holding a `no_pass` object, less than {} z "
       "apart. That is a step the classic server counts as no fall: it deals fall damage for round(dz / 50) "
       "floors (`server/src/server/move.c:151`). A walkable edge whose tiles end on different layers is **cut**; "
@@ -645,13 +646,18 @@ def write_relayering(plan, w, lab):
     w("### Cut walkable slopes")
     w("")
     ns = {n["id"]: n for n in rl["new_stairs"]}
-    w("{} walkable edges are cut in {} seams; each seam piece (the part of a seam inside one 24x24 cell) keeps "
-      "continuity through an existing exit between its two sides, or gets one new pair of plain stairs on its "
-      "representative edge (orthogonal first, then nearest the piece's centre). **Every cut is flagged here**; "
-      "{} pieces needed new stairs, {} were already joined by an exit. The stair objects default to "
-      "`stairs_stone_up` on the low tile and `stairs_stone_down` on the high tile.".format(
+    pockets = [n for n in rl["new_stairs"] if not n["why"].startswith("representative")]
+    w("{} walkable edges are cut in {} seams. Each seam piece (the part of a seam inside one 24x24 cell) keeps "
+      "continuity through an existing exit between its two sides, or gets a pair of plain stairs on its "
+      "representative edge (orthogonal first, then nearest the piece's centre). Then every cut edge is checked: "
+      "its two tiles must still be connected (walking on the final layers, legacy exits, the new stairs), and an "
+      "edge whose tiles are still apart, a pocket the piece's stairs do not reach, gets stairs of its own. **Every "
+      "cut is flagged here**: {} new stair pairs in {} pieces ({} for pockets), {} pieces already joined by an "
+      "exit. The stair objects default to `stairs_stone_up` on the low tile and `stairs_stone_down` on the high "
+      "tile.".format(
           sum(sm["cut_edges"] for sm in rl["seams"]), len(rl["seams"]), len(rl["new_stairs"]),
-          sum(1 for sm in rl["seams"] for p in sm["pieces"] if p["continuity"] != "new stairs")))
+          sum(len(sm["pieces"]) for sm in rl["seams"]), len(pockets),
+          sum(1 for sm in rl["seams"] for p in sm["pieces"] if not p["stairs"])))
     w("")
     w("| seam | regions | layers | cut edges | maps | new stairs |")
     w("|---|---|---|---:|---|---|")
@@ -660,14 +666,16 @@ def write_relayering(plan, w, lab):
         w("| {} | {} | {} / {} | {} | {} | {} |".format(
             sm["id"], ", ".join(sm["regions"]) or "-", sm["low_layer"], sm["high_layer"], sm["cut_edges"],
             ", ".join(mp[:5]) + (" +{}".format(len(mp) - 5) if len(mp) > 5 else ""),
-            ", ".join(p.get("stairs") or "exit {}".format(p.get("exit")) for p in sm["pieces"])))
+            ", ".join(", ".join(p["stairs"]) or "exit {}".format(p.get("exit")) for p in sm["pieces"])))
     w("")
-    w("| new stairs | low end (legacy tile, final layer) | high end (legacy tile, final layer) |")
-    w("|---|---|---|")
+    w("| new stairs | seam | low end (legacy tile, final layer) | high end (legacy tile, final layer) | placed for |")
+    w("|---|---|---|---|---|")
     for n in rl["new_stairs"]:
         lo, hi = n["low_tile_legacy"], n["high_tile_legacy"]
-        w("| {} | {} L{} | {} L{} |".format(n["id"], plane_name(n["low_map"], lo[1], lo[2]), n["low"][2],
-                                          plane_name(n["high_map"], hi[1], hi[2]), n["high"][2]))
+        w("| {} | {} | {} L{} | {} L{} | {} |".format(
+            n["id"], n["seam"], plane_name(n["low_map"], lo[1], lo[2]), n["low"][2],
+            plane_name(n["high_map"], hi[1], hi[2]), n["high"][2],
+            "the seam piece" if n["why"].startswith("representative") else "a pocket"))
     w("")
     w("### View gap and void rules")
     w("")
@@ -826,8 +834,9 @@ def write_followup(plan, w):
       "`:4712-4713`) and up to 6 levels each way are streamed (`libatrinik/socket.h:87-89`).".format(
           rl["client_level_pixel_height"]))
     w("  - **Off-layer hiding**: when the server does not filter, the client must not draw a stairwell segment "
-      "whose layer differs from the player's (the per-depth draw loop at "
-      "`client/src/gui/widgets/map.c:4712-4713`); the stairwell needs a marker in the map protocol for that.")
+      "whose depth is not 0: `map_should_draw()` (`client/src/gui/widgets/map.c:4703`) already decides per cell "
+      "and depth whether a tile is drawn, but the stairwell needs a marker in the map protocol for it to "
+      "know which objects are segments.")
     w("  - The exit cue (`MAP2_FLAG2_EXIT`, `server/src/socket/request.c:1831`; "
       "`map_render_command_draw_exit()`, `client/src/gui/widgets/map.c:7311`) should mark the stairwell's ends "
       "as one exit, not each intermediate tile.")
@@ -1002,10 +1011,14 @@ def write_images(plan, w, lab, groups, ow, sws):
       "tiles that move; the bottom row is the same layers in this plan, aqua marking tiles that arrived, with "
       "stairwell tiles (diamonds), new seam stairs (`+`) and region labels.")
     w("")
-    w("| image | regions |")
-    w("|---|---|")
+    w("Each image covers its regions and every storey or cave unit that moved because of them.")
+    w("")
+    w("| image | regions | moved units | area |")
+    w("|---|---|---|---|")
     for n, a in enumerate(relayer_areas(plan), 1):
-        w("| `relayer_{}.png` | {} (x {}..{}, y {}..{}) |".format(n, ", ".join(a[4]), a[0], a[2], a[1], a[3]))
+        w("| `relayer_{}.png` | {} | {} | x {}..{}, y {}..{} |".format(
+            n, ", ".join(i for i in a[4] if i[0] == "R") or "-", unit_span([i for i in a[4] if i[0] == "U"]),
+            a[0], a[2], a[1], a[3]))
     w("")
     per_layer = collections.defaultdict(list)
     for g in groups:

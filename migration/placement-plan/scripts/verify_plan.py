@@ -604,17 +604,66 @@ def verify(plan: dict) -> dict:
             if key in seen_pieces or len(pieces[key]) != pc["edges"] or [key[1], key[2]] != pc["cell"]:
                 errors.append("seam piece {} of {} does not match the recomputed piece".format(pc["cell"], s_["id"]))
             seen_pieces.add(key)
-            if pc["continuity"] == "new stairs":
-                n = ns_by_id.get(pc.get("stairs"))
-                lo, hi = e
-                if n is None or n["low"] != [lo[1], lo[2], main[lo]] or n["high"] != [hi[1], hi[2], main[hi]] \
-                        or n["high"][2] - n["low"][2] != 1 or cheb(n["low"], n["high"]) > tol:
-                    errors.append("new stairs of seam piece {} of {} are not plain stairs across its edge".format(
+            if pc["continuity"] == "new stairs" and pc["stairs"] and pc["stairs"][0] in ns_by_id:
+                first = ns_by_id[pc["stairs"][0]]
+                if "exit" not in pc and (first["low_tile_legacy"], first["high_tile_legacy"]) != \
+                        (pc["low_tile"], pc["high_tile"]):
+                    errors.append("seam piece {} of {} does not put its first stairs on its representative edge".format(
                         pc["cell"], s_["id"]))
             elif pc["continuity"] != "existing exit" or tuple(pc.get("exit", ())) not in records:
                 errors.append("seam piece {} of {} has no continuity".format(pc["cell"], s_["id"]))
+            for sid in pc["stairs"]:
+                n = ns_by_id.get(sid)
+                lo, hi = (tuple(n["low_tile_legacy"]), tuple(n["high_tile_legacy"])) if n else (None, None)
+                if n is None or piece_by_edge.get((lo, hi)) != key or n["low"] != [lo[1], lo[2], main[lo]] \
+                        or n["high"] != [hi[1], hi[2], main[hi]] or n["high"][2] - n["low"][2] != 1 \
+                        or cheb(n["low"], n["high"]) > tol:
+                    errors.append("new stairs {} of seam piece {} of {} are not plain stairs across one of its "
+                                  "cut edges".format(sid, pc["cell"], s_["id"]))
     if len(seen_pieces) != len(pieces):
         errors.append("{} seam pieces recomputed, {} recorded".format(len(pieces), len(seen_pieces)))
+    if sorted(n["id"] for n in rl["new_stairs"]) != sorted(i for s_ in rl["seams"] for pc in s_["pieces"]
+                                                           for i in pc["stairs"]):
+        errors.append("new stairs and seam pieces do not list the same stairs")
+    # continuity: the two tiles of every cut edge stay connected on the final layers
+    # (walking, legacy overworld exits, new stairs) within the maps with tile heights
+    hmaps = set(rl["tile_heights"])
+    parent = {}
+
+    def uf_find(a):
+        parent.setdefault(a, a)
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+
+    def uf_union(a, b):
+        ra, rb = uf_find(a), uf_find(b)
+        if ra != rb:
+            parent[rb] = ra
+
+    gpos = collections.defaultdict(list)
+    for k, v in leg.items():
+        if v[0] in hmaps and k in heights and k not in blocked:
+            gpos[(main[k], k[1], k[2])].append((k, rest(k)))
+            if k in split:
+                gpos[(split[k]["ground_layer"], k[1], k[2])].append((("ground",) + k, split[k]["floors"]["0"]))
+    for (L, x, y), here in gpos.items():
+        for dx, dy in ((1, 0), (-1, 1), (0, 1), (1, 1)):
+            for a, ra in here:
+                for b, rb in gpos.get((L, x + dx, y + dy), ()):
+                    if abs(ra - rb) < WDZ:
+                        uf_union(a, b)
+    for r in ow.get("internal_exits", []):
+        X, Y, Z = world_cell(r["source_map"])
+        X2, Y2, Z2 = world_cell(r["target_map"])
+        uf_union((Z, 24 * X + r["source_tile"][0], 24 * Y + r["source_tile"][1]),
+                 (Z2, 24 * X2 + r["target_tile"][0], 24 * Y2 + r["target_tile"][1]))
+    for n in rl["new_stairs"]:
+        uf_union(tuple(n["low_tile_legacy"]), tuple(n["high_tile_legacy"]))
+    apart = [e for e in edges if uf_find(e[0]) != uf_find(e[1])]
+    if apart:
+        errors.append("{} cut walkable edges are left without continuity, e.g. {}".format(len(apart), apart[0]))
     steep = set()
     for k in sorted(set(moved) | relayered):
         for dx, dy in N8:
@@ -636,6 +685,21 @@ def verify(plan: dict) -> dict:
                     contacts.add((min(k, t), max(k, t)))
     if contacts != {(tuple(c["tiles"][0]), tuple(c["tiles"][1])) for c in rl["new_contacts"]}:
         errors.append("new contacts differ: {} recomputed, {} recorded".format(len(contacts), len(rl["new_contacts"])))
+    # every exit with an overworld end on a moved tile must be listed, and nothing else
+    def moved_end(g, mp, t):
+        if g != ow_id:
+            return False
+        X, Y, Z = world_cell(mp)
+        k = (Z, 24 * X + t[0], 24 * Y + t[1])
+        return k in main and main[k] != Z
+
+    expected = {key for key, r in records.items() if "plane_source" in r and "plane_target" in r and (
+        moved_end(r["source_group"], r["source_map"], r["source_tile"]) or
+        moved_end(r["target_group"], r["target_map"], r["target_tile"]))}
+    listed = {(e["source_map"], e["line"]) for e in rl["exits"]}
+    if expected != listed:
+        errors.append("relayering exits differ: {} expected but not listed, {} listed but not expected".format(
+            len(expected - listed), len(listed - expected)))
     for e in rl["exits"]:
         r = records.get((e["source_map"], e["line"]))
         if r is None:
