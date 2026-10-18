@@ -190,6 +190,29 @@ class ExitInventory(VerifierTest):
         group(p, MINE + "mine_entrance_a")["placement"]["main_connection"]["source_tile"] = [0, 0]
         self.assertCaught(p, "main connection of {} is not one of its exit records".format(MINE + "mine_entrance_a"))
 
+    def test_main_connections(self):
+        deck = "/shattered_islands/deserted_tutorial_island/ship_lower_deck"
+        p = self.plan()
+        group(p, deck)["placement"]["main_connection"] = None
+        self.assertCaught(p, "placement of {} has no main connection".format(deck))
+        p = self.plan()
+        group(p, deck)["placement"]["main_connection"]["kind"] = "sideways"
+        self.assertCaught(p, "main connection of {} has kind sideways".format(deck))
+        p = self.plan()
+        group(p, deck)["placement"]["tentative_reason"] = "hint"
+        self.assertCaught(p, "placement of {} has both a main connection and an alignment hint".format(deck))
+        # mine_entrance_a is entered from mine_entrance, placed before it; claim it was placed after
+        p = self.plan()
+        a, b = group(p, MINE + "mine_entrance_a")["placement"], group(p, MINE + "mine_entrance")["placement"]
+        self.assertEqual(a["main_connection"]["source_map"], MINE + "mine_entrance")
+        a["placement_index"], b["placement_index"] = b["placement_index"], a["placement_index"]
+        o = p["summary"]["placement_order"]
+        i, j = o.index(MINE + "mine_entrance_a"), o.index(MINE + "mine_entrance")
+        o[i], o[j] = o[j], o[i]
+        res = verify_plan.verify(p)
+        self.assertIn("main connection of {} leads to {}, which is not placed before it".format(
+            MINE + "mine_entrance_a", MINE + "mine_entrance"), res["errors"])
+
     def test_a_data_problem_that_differs_from_the_inventory(self):
         p = self.plan()
         p["data_problems"]["exits"][0]["source_tile"] = [99, 99]

@@ -44,7 +44,9 @@ Exits:
     severity) and the summary and per-group crossing counts are re-derived
   * every other copy of an exit (blocked sites, relayering exits, wired and
     kept dangling exits, data problems, main connections) equals its record
-    or inventory entry; a blocked site lists only exits that need a stairwell
+    or inventory entry; a blocked site lists only exits that need a stairwell;
+    every placement has a main connection to something placed before it,
+    except one forced by an alignment hint
   * the records of one exit (one per group it touches) are identical; an
     exit labelled stairwell is listed in exactly that stairwell's replaces
   * an exit record has its placement fields (plane ends, distances, label)
@@ -796,16 +798,31 @@ def verify(plan: dict) -> dict:
         if mine != g["placement"].get("crossing_exits_after_placement"):
             errors.append("crossing exits of {} {} differ from its exit records {}".format(
                 g["id"], g["placement"].get("crossing_exits_after_placement"), mine))
-        # the main connection is one of the group's exit records
+        # the main connection is one of the group's exit records, to something placed before it;
+        # only a placement forced by an alignment hint has none
         mc = g["placement"].get("main_connection")
-        if mc is not None:
-            keys = ("entrances_from_overworld", "entrances_from_other_groups") if mc.get("kind") == "in" else \
-                ("exits_to_overworld", "exits_to_other_groups")
-            if not any([e["source_map"], e["source_tile"], e["target_map"], e["target_tile"], e["arch"],
-                        e["vertical"]] == [mc.get("source_map"), mc.get("source_tile"), mc.get("target_map"),
-                                           mc.get("target_tile"), mc.get("arch"), mc.get("vdir")]
-                       for key in keys for e in g.get(key, [])):
-                errors.append("main connection of {} is not one of its exit records".format(g["id"]))
+        hinted = bool(g["placement"].get("tentative_reason"))
+        if mc is None or hinted:
+            if (mc is None) != hinted:
+                errors.append("placement of {} has {}".format(
+                    g["id"], "no main connection" if mc is None else "both a main connection and an alignment hint"))
+            continue
+        if mc.get("kind") not in ("in", "out"):
+            errors.append("main connection of {} has kind {}".format(g["id"], mc.get("kind")))
+            continue
+        keys = ("entrances_from_overworld", "entrances_from_other_groups") if mc["kind"] == "in" else \
+            ("exits_to_overworld", "exits_to_other_groups")
+        match = [e for key in keys for e in g.get(key, [])
+                 if [e["source_map"], e["source_tile"], e["target_map"], e["target_tile"], e["arch"], e["vertical"]]
+                 == [mc.get("source_map"), mc.get("source_tile"), mc.get("target_map"), mc.get("target_tile"),
+                     mc.get("arch"), mc.get("vdir")]]
+        if not match:
+            errors.append("main connection of {} is not one of its exit records".format(g["id"]))
+            continue
+        other = match[0]["source_group"] if mc["kind"] == "in" else match[0]["target_group"]
+        oi, gi = index.get(other), index.get(g["id"])
+        if other != ow_id and not (isinstance(oi, int) and isinstance(gi, int) and oi < gi):
+            errors.append("main connection of {} leads to {}, which is not placed before it".format(g["id"], other))
 
     # ------------------------------------------------- required stairwells
     # Every exit whose ends are 2+ layers apart and at most one tile apart per
