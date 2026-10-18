@@ -320,6 +320,21 @@ class ExitInventory(VerifierTest):
         p["summary"]["by_classification"]["separate:system"] += 1
         self.assertCaught(p, "summary group and map counts differ from the groups")
 
+    def test_the_overworld_map_count(self):
+        p = self.plan()
+        next(g for g in p["groups"] if g["classification"] == "overworld")["map_count"] += 1
+        p["summary"]["maps_total"] += 1
+        self.assertCaught(p, "summary group and map counts differ from the groups")
+
+    def test_a_target_outside_its_map(self):
+        p = self.plan()
+        key = ("/shattered_islands/ships/ship_1", 122)
+        x = next(x for x in p["exit_inventory"] if (x["source_map"], x["line"]) == key)
+        x.update(target_map="/emergency", target_tile=[999, 999])
+        for _g, _lst, e in copies(p, key):
+            e.update(target_map="/emergency", target_tile=[999, 999])
+        self.assertCaught(p, "exit {}:{} targets tile [999, 999] outside /emergency".format(*key))
+
     def test_a_wrong_portal_reason(self):
         p = self.plan()
         e = next(e for g in p["groups"] for e in g.get("entrances_from_other_groups", [])
@@ -379,6 +394,13 @@ class StairwellReplaces(VerifierTest):
         p = self.plan()
         p["stairwells"][0]["tiles"][1]["objects"][0]["walkable"] = True
         self.assertCaught(p, "SW1 intermediate tiles do not show")
+
+    def test_the_bend_limit(self):
+        p = self.plan()
+        p["settings"]["stairwell_max_bend_tiles"] = 0
+        bent = [sw["id"] for sw in p["stairwells"] if sw["shape"] == "column" and sw["max_bend"]]
+        self.assertTrue(bent)
+        self.assertCaught(p, *("{} bends 1 tile(s) from its column".format(i) for i in bent))
 
     def test_series_bend_and_counts(self):
         p = self.plan()

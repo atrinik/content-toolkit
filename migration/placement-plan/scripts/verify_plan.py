@@ -6,6 +6,7 @@
 Groups:
   * one overworld group; every group's classification and reason are known
     values; the summary's group, map and classification counts are re-derived
+    (the overworld's map and per-layer counts from its cells)
 Placement (every placed group, proposed and tentative):
   * every place group has a proposed placement and every uncertain group a
     tentative one (an unreachable group may have one from an alignment hint);
@@ -42,12 +43,15 @@ Stairwells (SW placement, SL sloped, SR relayering):
     exactly the exit objects (archetype, exit flag) that start there (a
     one-way stairwell's far end is a landing); every replaces entry equals its
     exit record (tiles, target, archetype, plane endpoints, direction)
+  * a column stairwell leaves its column by at most stairwell_max_bend_tiles
+    (the same limit the blocked-site chain search uses)
   * kind, shape (from its ends), id series, max_bend, owners (group, owner,
     other, connects: from the exits it replaces) and the intermediate tiles'
     decoration (the exits' stair family) are re-derived; so are the summary's
     stairwell and blocked-site counts
 Exits:
-  * exit_inventory lists every exit object of the content once; the exit
+  * exit_inventory lists every exit object of the content once, each
+    resolved target on a tile of its target map; the exit
     records are exactly the copies it calls for (one per group a crossing exit
     touches, the overworld's own exits in internal_exits; a wired exit as
     data_problems lists it); every content field of a record (tiles, target,
@@ -202,6 +206,7 @@ def flood(keys, same):
 def verify(plan: dict) -> dict:
     st = plan["settings"]
     R, M, tol = st["view_radius_tiles"], st["contact_margin_tiles"], st["stair_tolerance_tiles"]
+    bend = st["stairwell_max_bend_tiles"]
     HZ, MINR, WDZ = st["layer_height_z"], st["relayer_min_region_tiles"], st["walkable_dz"]
     ow = next(g for g in plan["groups"] if g["classification"] == "overworld")
     ow_id = ow["id"]
@@ -274,6 +279,8 @@ def verify(plan: dict) -> dict:
     if summ.get("groups_total") != len(plan["groups"]) or summ.get("non_overworld_groups") != len(others) or \
             summ.get("maps_total") != sum(g["map_count"] for g in plan["groups"]) or \
             any(g["map_count"] != len(g["maps"]) for g in others) or \
+            ow["map_count"] != sum(len(c) for c in ow["cells_by_layer"].values()) or \
+            ow.get("layers") != {z: len(c) for z, c in sorted(ow["cells_by_layer"].items(), key=lambda kv: int(kv[0]))} or \
             summ.get("by_classification") != dict(sorted(collections.Counter(
                 "{}:{}".format(g["classification"], g["reason"]) for g in others).items())):
         errors.append("summary group and map counts differ from the groups")
@@ -570,6 +577,11 @@ def verify(plan: dict) -> dict:
         w, h = size.get(x["source_map"], (st["overworld_map_size"],) * 2)
         if not (0 <= tile[0] < w and 0 <= tile[1] < h):
             want_dp.append(dict(base, kind="exit-outside-map-bounds"))
+        if "target_map" in x:  # the reader resolves a target onto a tile of its map
+            tw, th = size.get(x["target_map"], (st["overworld_map_size"],) * 2)
+            if not (0 <= x["target_tile"][0] < tw and 0 <= x["target_tile"][1] < th):
+                errors.append("exit {}:{} targets tile {} outside {} ({} x {})".format(
+                    k[0], k[1], x["target_tile"], x["target_map"], tw, th))
         if form == "tiled-unresolved":
             want_dp.append(dict(base, kind="tiled-exit-without-link", detail="last_heal {} ({}) but the map has no "
                                 "such tile link; the exit leads nowhere".format(x.get("tiled_slot"),
@@ -645,6 +657,9 @@ def verify(plan: dict) -> dict:
             errors.append("{} kind {} does not match shape {}".format(sw["id"], sw["kind"], sw["shape"]))
         if sw.get("max_bend") != max([cheb((x_["x"], x_["y"]), top) for x_ in t[1:-1]] or [0]):
             errors.append("{} max_bend {} does not match its tiles".format(sw["id"], sw.get("max_bend")))
+        if sw["shape"] == "column" and sw.get("max_bend", 0) > bend:
+            errors.append("{} bends {} tile(s) from its column, more than stairwell_max_bend_tiles {}".format(
+                sw["id"], sw.get("max_bend"), bend))
         if not sw["replaces"]:
             errors.append("{} replaces no exit".format(sw["id"]))
         # owners, re-derived from the exits it replaces: a placed group's stairwell joins that group
@@ -1052,7 +1067,7 @@ def verify(plan: dict) -> dict:
                     for dy in (-1, 0, 1):
                         p_ = (x + dx, y + dy)
                         if shape == "column":
-                            ok = cheb(p_, top) <= 2  # STAIRWELL_MAX_BEND
+                            ok = cheb(p_, top) <= bend
                         else:
                             ok = cheb(p_, top) <= i and cheb(p_, bottom) <= n - i
                         if ok and void_at(z, *p_):
