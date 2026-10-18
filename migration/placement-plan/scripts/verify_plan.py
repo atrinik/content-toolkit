@@ -327,6 +327,8 @@ def verify(plan: dict) -> dict:
     chain = collections.defaultdict(dict)  # layer -> owner -> Rows
     sw_by_id = {}
     for sw in plan["stairwells"]:
+        if sw["id"] in sw_by_id:
+            errors.append("stairwell id {} is used twice".format(sw["id"]))
         sw_by_id[sw["id"]] = sw
         for x in sw["tiles"][1:-1]:
             chain[x["layer"]].setdefault(sw["owner"], Rows()).add(x["x"], x["y"])
@@ -471,7 +473,19 @@ def verify(plan: dict) -> dict:
                 errors.append("wired exit {}:{} verdict {} does not follow from its evidence ({})".format(
                     src_map, line, w.get("verdict"), want))
 
-    # exits the owner keeps as decoration are not wired and carry their decision
+    # exits the owner keeps as decoration are not wired and carry their decision; the
+    # list matches the owner decision recorded in settings and its data-problem copy
+    decided = {(m, tuple(t), a) for m, t, a in st.get("owner_keep_as_decoration", [])}
+    listed_kept = {(d["source_map"], tuple(d["source_tile"]), d["arch"]) for d in plan.get("exits_kept_as_decoration", [])}
+    copied = {(d["source_map"], tuple(d["source_tile"]), d["arch"])
+              for d in plan["data_problems"].get("dangling_exits_kept_as_decoration", [])}
+    dangling = {(x["source_map"], tuple(x["source_tile"]), x["arch"]) for x in plan["data_problems"]["exits"]
+                if x["kind"] == "tiled-exit-without-link"}
+    if not decided == listed_kept == copied:
+        errors.append("exits kept as decoration ({}) differ from the owner decision ({}) or its data-problem copy "
+                      "({})".format(len(listed_kept), len(decided), len(copied)))
+    if listed_kept - dangling:
+        errors.append("an exit kept as decoration is not a legacy dangling exit: {}".format(sorted(listed_kept - dangling)[0]))
     kept = [(d["source_map"], d["line"]) for d in plan.get("exits_kept_as_decoration", [])]
     if len(kept) != len(set(kept)):
         errors.append("an exit is listed twice as kept decoration")
@@ -508,6 +522,12 @@ def verify(plan: dict) -> dict:
         if (src_map, line) in blocked_keys:
             if e.get("becomes") != "portal":
                 errors.append("exit {}:{} is listed as blocked but becomes {}".format(src_map, line, e.get("becomes")))
+            b = blocked_keys[(src_map, line)][1]
+            up, low = (s_, d_) if s_[2] > d_[2] else (d_, s_)
+            if up[2] != b["top"][2] or low[2] != b["bottom"][2] or cheb(up, b["top"]) > tol or \
+                    cheb(low, b["bottom"]) > tol:
+                errors.append("exit {}:{} does not end at its blocked site {} -> {}".format(
+                    src_map, line, b["top"], b["bottom"]))
         elif e.get("becomes") != "stairwell":
             errors.append("exit {}:{} needs a stairwell ({} layers, {} tiles apart) but becomes {}".format(
                 src_map, line, dl, dist, e.get("becomes")))
@@ -540,7 +560,7 @@ def verify(plan: dict) -> dict:
             errors.append("blocked {} stairwell site at {} has a void chain after all".format(shape, b["top"]))
 
     # ----------------------------------------------------------- relayering
-    heights, blocked = {}, set()
+    heights, blocked, ground = {}, set(), {}
     for path, rows in sorted(rl["tile_heights"].items()):
         X, Y, Z = world_cell(path)
         for y, row in enumerate(rows):
@@ -551,15 +571,16 @@ def verify(plan: dict) -> dict:
                 if tok.endswith("b"):
                     blocked.add(k)
                     tok = tok[:-1]
+                if "/" in tok:
+                    tok, g = tok.split("/")
+                    ground[k] = int(g)
                 heights[k] = int(tok)
     split = {}
     for sp in rl["split_tiles"]:
         X, Y, Z = world_cell(sp["map"])
         split[(Z, 24 * X + sp["tile"][0], 24 * Y + sp["tile"][1])] = sp
-    main = {k: (max(v[1]) if k in split else v[1][0]) for k, v in leg.items()}
-    for k, v in leg.items():
-        if len(v[1]) != (2 if k in split else 1):
-            errors.append("legacy tile {} of {} appears on layers {}".format(k, v[0], v[1]))
+    # a split tile's raised part is its upper layer; which tiles split is derived below
+    main = {k: max(v[1]) for k, v in leg.items()}
     # regions
     q = {k: h // HZ for k, h in heights.items() if h >= HZ}
     comps = flood(q, lambda a, b: q[a] == q[b])
@@ -617,10 +638,24 @@ def verify(plan: dict) -> dict:
             continue
         if k[0] == 0 and main[k] != 0:
             errors.append("surface tile {} of {} moved to layer {} without a region".format(k, leg[k][0], main[k]))
+    # split tiles: a relayered tile whose sub-layer 0 floor stays below its raised floor keeps
+    # that ground part on its unit's layer; derived from the tile heights, not the records
+    derived_split = {}
+    for k in relayered:
+        g = ground.get(k)
+        base_layer = k[0] + (du[unit_of[k]] if k in unit_of else 0)
+        if g is not None and g // HZ < q[k] and base_layer != main[k]:
+            derived_split[k] = base_layer
+    if set(derived_split) != set(split):
+        errors.append("split tiles differ: {} derived from the tile heights, {} recorded".format(
+            len(derived_split), len(split)))
+    for k, v in leg.items():
+        want = sorted({derived_split[k], main[k]}) if k in derived_split else [main[k]]
+        if sorted(v[1]) != want:
+            errors.append("legacy tile {} of {} appears on layers {}, expected {}".format(k, v[0], sorted(v[1]), want))
     for k, sp in split.items():
-        g_layer = k[0] + (du[unit_of[k]] if k in unit_of else 0)
-        if k not in relayered or sp["ground_layer"] != g_layer or sp["upper_layer"] != main[k] or \
-                sorted(leg[k][1]) != sorted({g_layer, main[k]}):
+        if k not in derived_split or sp["ground_layer"] != derived_split[k] or sp["upper_layer"] != main[k] or \
+                sp["floors"].get("0") != ground.get(k):
             errors.append("split tile {} is inconsistent".format(k))
     if sorted((r["layer_before"], r["q"], r["tiles"], r["in_place_adjustment"]) for r in rl["regions"]) != \
             sorted((comps[i][0][0], q[comps[i][0]], len(comps[i]), dr.get(i, 0)) for i in range(len(comps))
@@ -775,8 +810,8 @@ def verify(plan: dict) -> dict:
     for k, v in leg.items():
         if v[0] in hmaps and k in heights and k not in blocked:
             gpos[(main[k], k[1], k[2])].append((k, rest(k)))
-            if k in split:
-                gpos[(split[k]["ground_layer"], k[1], k[2])].append((("ground",) + k, split[k]["floors"]["0"]))
+            if k in derived_split:
+                gpos[(derived_split[k], k[1], k[2])].append((("ground",) + k, ground[k]))
     for (L, x, y), here in gpos.items():
         for dx, dy in ((1, 0), (-1, 1), (0, 1), (1, 1)):
             for a, ra in here:

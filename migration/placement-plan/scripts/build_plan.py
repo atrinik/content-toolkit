@@ -1693,7 +1693,9 @@ def build(content: Path, allow_dirty: bool = False):
             row = []
             for x in range(rec_.width):
                 h = rec_.support_height((x, y))
-                row.append("." if h is None else "{}{}".format(h, "b" if (x, y) in rec_.blocked else ""))
+                f = rec_.floors.get((x, y), {})
+                ground = "/{}".format(f[0]) if len(f) > 1 and 0 in f else ""  # sub-layer 0 floor under others
+                row.append("." if h is None else "{}{}{}".format(h, ground, "b" if (x, y) in rec_.blocked else ""))
             out.append(" ".join(row))
         return out
 
@@ -1763,6 +1765,8 @@ def build(content: Path, allow_dirty: bool = False):
                                     for (m, x, y), L in sorted(void_exit_ends.items())],
         "group_regions": group_regions, "judgement_calls": judgement,
         "tile_heights": {m: height_rows(m) for m in sorted(affected)},
+        "tile_heights_format": "per tile: support height, then /G when the tile has more than one floor and G is "
+                               "its sub-layer 0 floor, then b when it holds a no_pass object; . = no floor",
     }
 
     # -------------------------------------------------------------- output
@@ -1914,6 +1918,7 @@ def build(content: Path, allow_dirty: bool = False):
                      "max_shift_tiles": MAX_SHIFT, "stair_tolerance_tiles": STAIR_TOLERANCE,
                      "stairwell_max_bend_tiles": STAIRWELL_MAX_BEND, "layer_height_z": LAYER_HEIGHT_Z,
                      "relayer_min_region_tiles": relayer.MIN_REGION_TILES, "walkable_dz": relayer.WALKABLE_DZ,
+                     "owner_keep_as_decoration": [[m, list(t), a] for (m, t, a) in sorted(OWNER_KEEP_AS_DECORATION)],
                      "overworld_map_size": 24, "excluded_trees": list(md.EXCLUDED_TOP)},
         "conventions": {
             "plane": "overworld plane; layer 0 surface, negative below, positive above",
