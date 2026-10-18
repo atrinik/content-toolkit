@@ -58,8 +58,9 @@ Stairwells (SW placement, SL sloped, SR relayering):
     decoration (the exits' stair family) are re-derived; so are the summary's
     stairwell and blocked-site counts
 Exits:
-  * exit_inventory lists every exit object of the content once, with a
-    known form and direction and a target exactly when its form resolves one,
+  * exit_inventory lists every exit object of the content once, with values
+    of the right types, a known form and direction, a target exactly when its
+    form resolves one, the data-problem facts its form or problem needs,
     each resolved target on a tile of its target map; the exit
     records are exactly the copies it calls for (one per group a crossing exit
     touches, the overworld's own exits in internal_exits; a wired exit as
@@ -71,9 +72,9 @@ Exits:
   * every other copy of an exit (blocked sites, relayering exits, wired and
     kept dangling exits, data problems, main connections) equals its record
     or inventory entry; a blocked site lists at least one exit, only exits
-    that need a stairwell, between its own two owners (or top and bottom
-    maps), and has the shape of its ends; a kept decoration sits at its tile
-    on the plane;
+    that need a stairwell, between its own two owners (a relayering site:
+    overworld exits between its top and bottom maps), and has the shape of
+    its ends; a kept decoration sits at its tile on the plane;
     every placement has a main connection to something placed before it,
     except one forced by an alignment hint
   * the records of one exit (one per group it touches) are identical; an
@@ -514,6 +515,25 @@ def verify(plan: dict) -> dict:
         if k in inv:
             errors.append("exit {}:{} is listed twice in the exit inventory".format(*k))
         inv[k] = x
+        # value types: map paths and archetypes are text, lines and tiles integers, flags true when present
+        def tile_ok(t_):
+            return isinstance(t_, list) and len(t_) == 2 and all(type(c) is int for c in t_)
+
+        if not (isinstance(x["source_map"], str) and type(x["line"]) is int and tile_ok(x.get("source_tile"))
+                and isinstance(x.get("arch"), str) and x["arch"]
+                and ("target_map" not in x or isinstance(x["target_map"], str) and tile_ok(x.get("target_tile")))
+                and all(x.get(f, True) is True for f in ("target_is_map_default_entry", "per_player_last_eat_1",
+                                                         "explicit_last_heal_0"))
+                and ("event_scripts" not in x or isinstance(x["event_scripts"], list) and x["event_scripts"]
+                     and all(isinstance(v, str) for v in x["event_scripts"]))
+                and all(f not in x or isinstance(x[f], str) and x[f] for f in ("vertical_inferred_from", "problem",
+                                                                                "dynamic_target"))
+                # the facts behind data problems are there exactly for their form or problem
+                and ("dynamic_target" in x) == (x.get("form") == "dynamic")
+                and ("problem_target" in x) == ("problem" in x)
+                and ("problem_target" not in x or isinstance(x["problem_target"], list)
+                     and len(x["problem_target"]) == 3)):
+            errors.append("exit {!r}:{!r} has a value of the wrong type".format(*k))
         # the tile-link slot of a tiled exit without a link: 1..10, and only on that form; wired ones go up or down
         if ("tiled_slot" in x) != (x.get("form") == "tiled-unresolved") or "tiled_slot" in x and \
                 x["tiled_slot"] not in SLOT_NAMES:
@@ -851,6 +871,9 @@ def verify(plan: dict) -> dict:
                     if "plane_source" not in r or "plane_target" not in r or not needs_stairwell(r):
                         errors.append("blocked {} stairwell site lists exit {}:{}, which needs no stairwell".format(
                             key_, *k))
+                    elif key_ == "relayering" and not r["source_group"] == r["target_group"] == ow_id:
+                        errors.append("blocked relayering site lists exit {}:{}, which is not an overworld "
+                                      "exit".format(*k))
                     elif key_ == "relayering":
                         up_src = r["plane_source"][2] > r["plane_target"][2]
                         ends_ = [r["source_map"], r["target_map"]] if up_src else [r["target_map"], r["source_map"]]

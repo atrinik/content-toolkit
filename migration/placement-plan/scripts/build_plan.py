@@ -2095,22 +2095,23 @@ def publish(stage: Path, out: Path) -> list:
     return new
 
 
-MAX_CHECK_ARTIFACTS = 256  # a published set has a few dozen artifacts; more means --out is not one
+MAX_CHECK_ENTRIES = 4096  # the output directory holds a few dozen artifacts and the scripts' folder
 
 
 def compare_artifacts(stage: Path, out: Path):
     """Artifacts that differ between a fresh run in `stage` and the published set in `out`, or None if
-    `out` holds more than MAX_CHECK_ARTIFACTS artifact names.
+    `out` has more than MAX_CHECK_ENTRIES entries (it is then not a plan's output directory).
 
     Sizes are compared first and contents in fixed-size chunks (filecmp), so an
     oversized file in `out` is a difference, not a whole-file read."""
     names = set()
     for d in (stage, out):
-        for p in d.iterdir():
-            if ARTIFACT_RE.match(p.name):
-                names.add(p.name)
-                if len(names) > MAX_CHECK_ARTIFACTS:
+        with os.scandir(d) as it:
+            for n_, entry in enumerate(it):
+                if n_ >= MAX_CHECK_ENTRIES:
                     return None
+                if ARTIFACT_RE.match(entry.name):
+                    names.add(entry.name)
     return [n for n in sorted(names) if not ((stage / n).is_file() and (out / n).is_file()
                                              and filecmp.cmp(stage / n, out / n, shallow=False))]
 
@@ -2153,7 +2154,7 @@ def main(argv=None):
         if args.check:
             differ = compare_artifacts(stage, out)
             if differ is None:
-                print("check FAILED: {} holds more than {} artifact names".format(out, MAX_CHECK_ARTIFACTS))
+                print("check FAILED: {} has more than {} entries".format(out, MAX_CHECK_ENTRIES))
                 return 1
             if differ:
                 print("check FAILED: {} artifact(s) in {} differ from a fresh run: {}{}".format(

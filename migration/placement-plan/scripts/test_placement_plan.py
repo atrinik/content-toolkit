@@ -369,6 +369,31 @@ class ExitInventory(VerifierTest):
         self.assertCaught(p, "exit {}:{} has form unresolved, direction {} and a target".format(
             x["source_map"], x["line"], x["vertical"]))
 
+    def test_value_types(self):
+        for field, value in (("arch", 7), ("source_tile", [1.5, 2]), ("per_player_last_eat_1", "yes"),
+                             ("event_scripts", "script.py"), ("vertical_inferred_from", 3)):
+            with self.subTest(field=field):
+                p = self.plan()
+                next(x for x in p["exit_inventory"] if (x["source_map"], x["line"]) == CROSSING)[field] = value
+                for _g, _lst, e in copies(p, CROSSING):
+                    e[field] = value
+                self.assertCaught(p, "exit {!r}:{!r} has a value of the wrong type".format(*CROSSING))
+
+    def test_a_same_group_exit_with_bad_values(self):
+        key = ("/planes/creation/creation_0501", 427)
+        for change in ({"target_map": None, "target_tile": None}, {"source_tile": [2.5, 1]}):
+            with self.subTest(change=change):
+                p = self.plan()
+                next(x for x in p["exit_inventory"] if (x["source_map"], x["line"]) == key).update(change)
+                self.assertCaught(p, "exit {!r}:{!r} has a value of the wrong type".format(*key))
+
+    def test_a_dynamic_exit_without_its_target(self):
+        key = ("/shattered_islands/world_18_4", 1958)
+        p = self.plan()
+        next(x for x in p["exit_inventory"] if (x["source_map"], x["line"]) == key).pop("dynamic_target")
+        next(d for d in p["data_problems"]["exits"] if (d["source_map"], d["line"]) == key)["detail"] = None
+        self.assertCaught(p, "exit {!r}:{!r} has a value of the wrong type".format(*key))
+
     def test_a_wired_target_outside_its_map(self):
         p = self.plan()
         key = (MINE + "mine_entrance", 181)
@@ -513,6 +538,21 @@ class StairwellReplaces(VerifierTest):
         p = self.plan()
         p["relayering"]["exits"][0]["crosses_to_group"] = "/emergency"
         self.assertCaught(p, "crosses to /emergency")
+
+    def test_a_placement_site_moved_to_the_relayering_sites(self):
+        p = self.plan()
+        site = p["stairwell_sites_blocked"].pop(0)
+        x = site["exits"][0]
+        r = copies(p, (x["source_map"], x["line"]))[0][2]
+        up_src = r["plane_source"][2] > r["plane_target"][2]
+        top, bottom = (r["source_map"], r["target_map"]) if up_src else (r["target_map"], r["source_map"])
+        p["relayering"]["stairwells_blocked"].append(
+            {"top_map": top, "bottom_map": bottom, "top": site["top"], "bottom": site["bottom"],
+             "shape": site["shape"], "exits": site["exits"]})
+        p["summary"]["stairwell_sites_blocked"] -= 1
+        p["summary"]["relayering_stairwell_sites_blocked"] += 1
+        self.assertCaught(p, "blocked relayering site lists exit {}:{}, which is not an overworld exit".format(
+            x["source_map"], x["line"]))
 
     def test_blocked_site_owners(self):
         p = self.plan()
