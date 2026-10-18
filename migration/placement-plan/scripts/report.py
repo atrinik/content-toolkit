@@ -1097,6 +1097,7 @@ def write_reproducing(plan, w):
     w("python3 -I scripts/build_plan.py --content {} --out .".format(plan["content_root"]))
     w("python3 -I scripts/verify_plan.py placement-plan.json")
     w("python3 -I scripts/test_placement_plan.py")
+    w("python3 -I scripts/build_plan.py --content {} --out . --check".format(plan["content_root"]))
     w("```")
     w("")
     w("`--content` must be a clean checkout of `atrinik/content` at `{}` (the shared checkout was behind `main`, "
@@ -1106,7 +1107,10 @@ def write_reproducing(plan, w):
       "directory, the staged JSON is verified again, and only then are `placement-plan.json`, `REPORT.md` and the "
       "PNGs replaced; a failed run leaves the old artifacts in place. A group that cannot be placed stays unplaced "
       "and fails verification, so such a plan is never published. `test_placement_plan.py` tampers with copies of "
-      "the committed JSON and checks that the verifier rejects each one; it needs no content checkout.".format(
+      "the committed JSON and checks that the verifier rejects each one; it needs no content checkout. "
+      "`verify_plan.py` checks the JSON against itself; `--check` checks it against the content: it regenerates in "
+      "a temporary directory and fails unless every artifact is byte-identical, so an edit no JSON-internal check "
+      "can see (an exit dropped from `exit_inventory` together with its count, say) fails there.".format(
           plan["content_git_head"][:12]))
     w("")
     w("The run is deterministic (sorted inputs, lexicographic tie-breaks) and read-only against the content "

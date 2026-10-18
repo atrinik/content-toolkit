@@ -9,7 +9,10 @@ placement-plan.json, REPORT.md, layer_<n>[_zoom].png and relayer_<n>.png in a
 staging directory, verifies the staged plan, and only then replaces the
 artifacts in the output directory. Standard library only.
 
-    python3 -I scripts/build_plan.py [--content DIR] [--out DIR] [--allow-dirty]
+    python3 -I scripts/build_plan.py [--content DIR] [--out DIR] [--allow-dirty] [--check]
+
+--check regenerates in a temporary directory and fails unless every artifact
+in --out is byte-identical; it writes nothing.
 
 Everything is deterministic: inputs are iterated in sorted order and every
 tie is broken lexicographically.
@@ -2088,15 +2091,30 @@ def publish(stage: Path, out: Path) -> list:
     return new
 
 
+def compare_artifacts(stage: Path, out: Path) -> list:
+    """Artifacts that differ between a fresh run in `stage` and the published set in `out`."""
+    names = sorted({p.name for d in (stage, out) for p in d.iterdir() if ARTIFACT_RE.match(p.name)})
+    return [n for n in names if not ((stage / n).is_file() and (out / n).is_file()
+                                     and (stage / n).read_bytes() == (out / n).read_bytes())]
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--content", type=Path, default=DEFAULT_CONTENT)
     ap.add_argument("--out", type=Path, default=DEFAULT_OUT)
     ap.add_argument("--allow-dirty", action="store_true",
                     help="allow uncommitted changes in the content checkout (experiments only; recorded in the JSON)")
+    ap.add_argument("--check", action="store_true",
+                    help="regenerate in a temporary directory and fail unless every artifact in --out is "
+                         "byte-identical (binds the published plan, its exit inventory included, to the content; "
+                         "use the --content path the plan records); writes nothing")
     args = ap.parse_args(argv)
     out = args.out.resolve()
-    out.mkdir(parents=True, exist_ok=True)
+    if not args.check:
+        out.mkdir(parents=True, exist_ok=True)
+    elif not out.is_dir():
+        print("nothing to check: {} is not a directory".format(out))
+        return 1
     plan, maps, G, ow_id, ow_relay = build(args.content.resolve(), allow_dirty=args.allow_dirty)
     print(json.dumps(plan["summary"], indent=1))
     if not plan["verification"]["ok"]:
@@ -2105,7 +2123,7 @@ def main(argv=None):
     import render  # noqa: E402
     import report  # noqa: E402
     import verify_plan  # noqa: E402
-    with tempfile.TemporaryDirectory(prefix=".placement-plan-stage-", dir=out) as tmp:
+    with tempfile.TemporaryDirectory(prefix=".placement-plan-stage-", dir=None if args.check else out) as tmp:
         stage = Path(tmp)
         (stage / "placement-plan.json").write_text(json.dumps(plan, indent=1, sort_keys=False) + "\n",
                                                    encoding="utf-8")
@@ -2115,6 +2133,15 @@ def main(argv=None):
         if not staged["ok"] or staged != plan["verification"]:
             print("staged plan failed verification; nothing written:", staged["errors"][:10])
             return 1
+        if args.check:
+            differ = compare_artifacts(stage, out)
+            if differ:
+                print("check FAILED: {} artifact(s) in {} differ from a fresh run: {}".format(
+                    len(differ), out, ", ".join(differ)))
+                return 1
+            print("check: all {} artifacts in {} are byte-identical to a fresh run".format(
+                sum(1 for p in out.iterdir() if ARTIFACT_RE.match(p.name)), out))
+            return 0
         written = publish(stage, out)
     print("wrote {} artifacts to {}".format(len(written), out))
     print("verification: OK")

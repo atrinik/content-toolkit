@@ -108,6 +108,11 @@ maps, boxes and z ranges listed per region and unit) beyond the re-derived
 regions, units and final layers; placement_changes_from_v1,
 view_radius_sensitivity and conventions; and the tile-link, layout and
 connectivity data problems.
+This check uses only the JSON, so it cannot see an edit that keeps the JSON
+consistent with itself (an exit dropped from exit_inventory together with
+summary.exit_objects, say). `build_plan.py --check` covers that: it
+regenerates from the content and fails unless every artifact is
+byte-identical.
 Exit status 0 when every check passes.
 """
 
