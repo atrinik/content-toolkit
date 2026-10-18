@@ -2,16 +2,21 @@
 """Negative tests for the placement-plan verifier and generator (standard library only).
 
     python3 -I scripts/test_placement_plan.py
+    PLACEMENT_PLAN_CONTENT=DIR python3 -I scripts/test_placement_plan.py
 
 Each verifier test tampers with a copy of the committed placement-plan.json
 and checks that verify_plan.verify() rejects it with the expected error. The
-generator tests drive build_plan.place_pool() with stand-in callbacks, so they
-need no content checkout.
+generator tests drive build_plan.place_pool() with stand-in callbacks. Neither
+needs a content checkout. With PLACEMENT_PLAN_CONTENT naming a checkout at the
+plan's content_git_head, ContentFidelity also checks that verify_content()
+rejects edits that keep the JSON consistent with itself; without it, those
+tests are skipped.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -404,6 +409,15 @@ class ExitInventory(VerifierTest):
             e.update(target_map="/shattered_islands/world_7_79", target_tile=[32, 1])
         self.assertCaught(p, "exit {}:{} targets tile [32, 1] outside /shattered_islands/world_7_79".format(*key))
 
+    def test_a_boolean_wired_coordinate(self):
+        p = self.plan()
+        key = (MINE + "mine_entrance", 181)
+        next(d for d in p["data_problems"]["dangling_exits_wired"] if (d["source_map"], d["line"]) == key)[
+            "target_tile"] = [8, True]
+        for _g, _lst, e in copies(p, key):
+            e["target_tile"] = [8, True]
+        self.assertCaught(p, "exit {}:{} targets tile [8, True] outside".format(*key))
+
     def test_an_invalid_tile_link_slot(self):
         p = self.plan()
         x = next(x for x in p["exit_inventory"] if x["form"] == "tiled-unresolved")
@@ -508,6 +522,13 @@ class StairwellReplaces(VerifierTest):
         p = self.plan()
         p["summary"]["stairwells_by_kind"]["placement"] += 1
         self.assertCaught(p, "summary stairwell and blocked-site counts differ from the lists")
+
+    def test_an_unreachable_blocked_slope(self):
+        p = self.plan()
+        site = p["sloped_stairwell_sites_blocked"][0]
+        self.assertEqual((site["top"], site["bottom"]), ([198, 1895, 0], [194, 1895, -4]))
+        site["top"], site["bottom"] = [199, 1895, 0], [193, 1895, -4]
+        self.assertCaught(p, "blocked sloped stairwell site [199, 1895, 0] -> [193, 1895, -4] is no stairwell site")
 
     def test_an_empty_blocked_site(self):
         for key in ("stairwell_sites_blocked", "sloped_stairwell_sites_blocked"):
@@ -643,6 +664,14 @@ class FailedPlacement(VerifierTest):
         self.assertCaught(p, "alignment hint of {} is not a configured alignment".format(
             p["settings"]["tentative_alignments"][0]["group"]))
 
+    def test_a_layer_outside_the_vertical_bounds(self):
+        p = self.plan()
+        g = group(p, MINE + "mine_unique_a")["placement"]
+        self.assertEqual((g["ideal"]["L"], g["layer_offset"]), (-4, -5))
+        g["vertical_bounds_from_exit_semantics"] = [-4, -4]
+        self.assertCaught(p, "layer offset -5 of {} is outside its vertical bounds [-4, -4]".format(
+            MINE + "mine_unique_a"))
+
     def test_search_limits(self):
         p = self.plan()
         p["settings"]["max_extra_layers"] = 0
@@ -705,6 +734,43 @@ class FailedPlacement(VerifierTest):
         p = self.plan()
         p["summary"].pop("failed_placements")
         self.assertCaught(p, "summary failed_placements")
+
+
+@unittest.skipUnless(os.environ.get("PLACEMENT_PLAN_CONTENT"), "set PLACEMENT_PLAN_CONTENT to a content checkout")
+class ContentFidelity(VerifierTest):
+    """Edits that keep the JSON consistent with itself pass verify() but not verify_content()."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.content = Path(os.environ["PLACEMENT_PLAN_CONTENT"]).resolve()
+        cls.fresh = verify_plan.rebuild(cls.content)
+
+    def assertUnfaithful(self, p):
+        self.assertTrue(verify_plan.verify(p)["ok"], "the JSON-only check should not see this edit")
+        res = verify_plan.verify_content(p, self.content, self.fresh)
+        self.assertFalse(res["ok"])
+        self.assertIn("the plan differs from a rebuild from the content", res["errors"][0])
+
+    def test_the_committed_plan_is_the_rebuild(self):
+        self.assertTrue(verify_plan.verify_content(self.plan(), self.content, self.fresh)["ok"])
+
+    def test_edits_the_json_only_check_cannot_see(self):
+        key = ("/planes/creation/creation_0501", 427)
+        p = self.plan()  # an exit dropped from the inventory together with its count
+        p["exit_inventory"] = [x for x in p["exit_inventory"] if (x["source_map"], x["line"]) != key]
+        p["summary"]["exit_objects"] -= 1
+        self.assertUnfaithful(p)
+        p = self.plan()  # a recordless exit moved to another source line
+        next(x for x in p["exit_inventory"] if (x["source_map"], x["line"]) == key)["line"] = -1
+        self.assertUnfaithful(p)
+        p = self.plan()  # an optional flag present as null in every copy
+        for _g, _lst, e in copies(p, CROSSING):
+            e["target_is_map_default_entry"] = None
+        self.assertUnfaithful(p)
+        p = self.plan()  # a value of another JSON type that compares equal in Python
+        p["summary"]["wired_exits"] = 5.0
+        self.assertUnfaithful(p)
 
 
 class PlacePool(unittest.TestCase):

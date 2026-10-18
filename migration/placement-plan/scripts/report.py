@@ -1095,7 +1095,7 @@ def write_reproducing(plan, w):
     w("```sh")
     w("cd migration/placement-plan")
     w("python3 -I scripts/build_plan.py --content {} --out .".format(plan["content_root"]))
-    w("python3 -I scripts/verify_plan.py placement-plan.json")
+    w("python3 -I scripts/verify_plan.py placement-plan.json --content {}".format(plan["content_root"]))
     w("python3 -I scripts/test_placement_plan.py")
     w("python3 -I scripts/build_plan.py --content {} --out . --check".format(plan["content_root"]))
     w("```")
@@ -1108,9 +1108,12 @@ def write_reproducing(plan, w):
       "PNGs replaced; a failed run leaves the old artifacts in place. A group that cannot be placed stays unplaced "
       "and fails verification, so such a plan is never published. `test_placement_plan.py` tampers with copies of "
       "the committed JSON and checks that the verifier rejects each one; it needs no content checkout. "
-      "`verify_plan.py` checks the JSON against itself; `--check` checks it against the content: it regenerates in "
-      "a temporary directory and fails unless every artifact is byte-identical, so an edit no JSON-internal check "
-      "can see (an exit dropped from `exit_inventory` together with its count, say) fails there.".format(
+      "`verify_plan.py` makes two checks. Without `--content` it re-derives the placement rules from the JSON "
+      "alone. With `--content` it also rebuilds the plan from the content with the generator and requires the "
+      "published JSON to equal the rebuild field for field (the checkout path aside), so an edit that keeps the "
+      "JSON consistent with itself (an exit dropped from `exit_inventory` together with its count, say) fails "
+      "there. `build_plan.py --check` regenerates every artifact in a temporary directory and fails unless each "
+      "is byte-identical (run it with the `--content` path the plan records).".format(
           plan["content_git_head"][:12]))
     w("")
     w("The run is deterministic (sorted inputs, lexicographic tie-breaks) and read-only against the content "

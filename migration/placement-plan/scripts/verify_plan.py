@@ -1,7 +1,25 @@
 #!/usr/bin/env python3
-"""Independent check of placement-plan.json (uses only the JSON).
+"""Check placement-plan.json: its rules from the JSON alone, and its fidelity to the content.
 
-    python3 -I scripts/verify_plan.py [placement-plan.json]
+    python3 -I scripts/verify_plan.py [placement-plan.json] [--content DIR]
+
+Two checks with separate jobs:
+
+  * verify(plan), always: re-derives the placement rules from the plan's own
+    data (the list below). It needs only the JSON, so tests and CI run it.
+  * verify_content(plan, DIR), with --content: rebuilds the plan from the
+    content checkout at content_git_head with the generator and requires the
+    published JSON to equal the rebuild field for field (content_root, the
+    checkout's path, aside). This is the fidelity check: every copied field,
+    source fact, inventory entry and count is compared with what the content
+    produces, so an edit that keeps the JSON consistent with itself (an exit
+    dropped from exit_inventory together with summary.exit_objects, a source
+    value changed in every copy) fails here, even when the rules still hold.
+
+The JSON-only cross-checks of copies below are defence in depth, not the
+fidelity guarantee; that is --content.
+
+verify(plan) checks:
 
 Groups:
   * overworld maps are 24 x 24 (settings.overworld_map_size, every rows grid)
@@ -24,7 +42,7 @@ Placement (every placed group, proposed and tentative):
     configured layers away; every configured alignment is applied (its
     group's tentative placement carries it)
   * no placement goes further from its ideal spot than max_extra_layers and
-    max_shift_tiles allow
+    max_shift_tiles allow, or outside its vertical bounds
   * member plane origin == local_offset + (x_offset, y_offset, layer_offset);
     no placed group has a relayered region (its member maps are recorded on
     one layer each; the generator refuses to publish otherwise)
@@ -74,7 +92,8 @@ Exits:
     or inventory entry; a blocked site lists at least one exit, only exits
     that need a stairwell, between its own two owners (a relayering site:
     overworld exits between its top and bottom maps), and has the shape of
-    its ends; a kept decoration sits at its tile on the plane;
+    its ends, which are 2+ layers and at most one tile per layer apart; a
+    kept decoration sits at its tile on the plane;
     every placement has a main connection to something placed before it,
     except one forced by an alignment hint
   * the records of one exit (one per group it touches) are identical; an
@@ -582,7 +601,7 @@ def verify(plan: dict) -> dict:
         # a target (resolved by the reader, or wired) is a tile of its map
         tw, th = size.get(want["target_map"], (OW_SIZE,) * 2)
         tt = want.get("target_tile")
-        if not (isinstance(tt, list) and len(tt) == 2 and all(isinstance(c, int) for c in tt)
+        if not (isinstance(tt, list) and len(tt) == 2 and all(type(c) is int for c in tt)
                 and 0 <= tt[0] < tw and 0 <= tt[1] < th):
             errors.append("exit {}:{} targets tile {} outside {} ({} x {})".format(
                 k[0], k[1], tt, want["target_map"], tw, th))
@@ -852,6 +871,10 @@ def verify(plan: dict) -> dict:
                         ("relayering", rl["stairwells_blocked"])):
         for b in sites:
             shape_ = "sloped" if cheb(b["top"], b["bottom"]) > tol else "column"
+            span_ = b["top"][2] - b["bottom"][2]
+            if span_ < 2 or cheb(b["top"], b["bottom"]) > span_ * tol:
+                errors.append("blocked {} stairwell site {} -> {} is no stairwell site: its ends are {} tiles apart "
+                              "over {} layers".format(key_, b["top"], b["bottom"], cheb(b["top"], b["bottom"]), span_))
             if not b["exits"] or b.get("shape") != shape_ or key_ != "relayering" and shape_ != key_:
                 errors.append("blocked {} stairwell site at {} lists {} exits with shape {} ({} by its ends)".format(
                     key_, b["top"], len(b["exits"]), b.get("shape"), shape_))
@@ -1065,6 +1088,10 @@ def verify(plan: dict) -> dict:
                           "(max_extra_layers {}, max_shift_tiles {})".format(g["id"], extra, sh,
                                                                              st["max_extra_layers"],
                                                                              st["max_shift_tiles"]))
+        vb = pl.get("vertical_bounds_from_exit_semantics") or [None, None]
+        if vb[0] is not None and pl["layer_offset"] < vb[0] or vb[1] is not None and pl["layer_offset"] > vb[1]:
+            errors.append("layer offset {} of {} is outside its vertical bounds {}".format(
+                pl["layer_offset"], g["id"], vb))
         if step is None or not isinstance(extra, int) or extra < 0 or None in (ideal.get("dx"), ideal.get("dy"),
                                                                                  ideal.get("L"), *sh) or \
                 [pl["x_offset"], pl["y_offset"], pl["layer_offset"]] != [
@@ -1535,10 +1562,90 @@ def verify(plan: dict) -> dict:
                            "steep_steps": len(steep), "new_contacts": len(contacts)}}
 
 
+def canonical(v) -> str:
+    """JSON text of a value with sorted keys: equal texts mean equal JSON (true is not 1, 1.0 is not 1)."""
+    return json.dumps(v, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+
+
+def first_difference(a, b, path="", limit=12):
+    """Paths where two JSON values differ, at most `limit` of them (deepest common path)."""
+    if type(a) is not type(b) or not isinstance(a, (dict, list)):
+        return [path or "/"] if canonical(a) != canonical(b) else []
+    if isinstance(a, dict):
+        out = []
+        for k in sorted(set(a) | set(b)):
+            if k not in a or k not in b:
+                out.append("{}/{}".format(path, k))
+            elif canonical(a[k]) != canonical(b[k]):
+                out += first_difference(a[k], b[k], "{}/{}".format(path, k), limit - len(out))
+            if len(out) >= limit:
+                break
+        return out[:limit]
+    if isinstance(a, list):
+        if len(a) != len(b):
+            return ["{} (length {} != {})".format(path or "/", len(a), len(b))]
+        out = []
+        for i, (x, y) in enumerate(zip(a, b)):
+            if canonical(x) != canonical(y):
+                out += first_difference(x, y, "{}[{}]".format(path, i), limit - len(out))
+            if len(out) >= limit:
+                break
+        return out[:limit]
+    return [path or "/"] if canonical(a) != canonical(b) else []
+
+
+def rebuild(content: Path) -> dict:
+    """The plan the generator builds from `content` (read-only), as JSON data."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import build_plan  # the generator
+
+    return json.loads(json.dumps(build_plan.build(content)[0]))
+
+
+def compare_with_rebuild(plan: dict, fresh: dict) -> list:
+    """Errors unless `plan` equals the rebuild as JSON, content_root (the checkout's path) aside."""
+    published = canonical({k: v for k, v in plan.items() if k != "content_root"})
+    if published == canonical({k: v for k, v in fresh.items() if k != "content_root"}):
+        return []
+    diff = first_difference({k: v for k, v in plan.items() if k != "content_root"},
+                            {k: v for k, v in fresh.items() if k != "content_root"})
+    return ["the plan differs from a rebuild from the content at {}: {}".format(
+        str(fresh.get("content_git_head"))[:12], ", ".join(diff) or "(value types)")]
+
+
+def verify_content(plan: dict, content: Path, fresh: dict = None) -> dict:
+    """Fidelity: rebuild the plan from the content with the generator and compare it with `plan`.
+
+    The checkout must be at the plan's content_git_head and clean under the
+    input trees (the generator also re-checks the inputs digest). Every field
+    must equal the rebuild as JSON, content_root (the checkout's own path)
+    aside. `fresh` is a rebuild already made from the same checkout."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import build_plan  # the generator (reads the content read-only)
+
+    rev = build_plan.content_revision(content)
+    if rev["head"] != plan.get("content_git_head") or not rev["clean"]:
+        return {"ok": False, "errors": ["content checkout {} is at {}{}, the plan was built at {}".format(
+            content, rev["head"][:12], "" if rev["clean"] else " with uncommitted changes",
+            str(plan.get("content_git_head"))[:12])]}
+    errors = compare_with_rebuild(plan, rebuild(content) if fresh is None else fresh)
+    return {"ok": not errors, "errors": errors}
+
+
 def main(argv=None):
-    argv = argv if argv is not None else sys.argv[1:]
-    path = Path(argv[0]) if argv else Path(__file__).resolve().parents[1] / "placement-plan.json"
-    res = verify(json.loads(path.read_text(encoding="utf-8")))
+    import argparse
+
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("plan", nargs="?", type=Path,
+                    default=Path(__file__).resolve().parents[1] / "placement-plan.json")
+    ap.add_argument("--content", type=Path,
+                    help="content checkout at the plan's content_git_head: also check the plan against a rebuild")
+    args = ap.parse_args(argv if argv is not None else sys.argv[1:])
+    plan = json.loads(args.plan.read_text(encoding="utf-8"))
+    res = verify(plan)
+    if args.content is not None:
+        res["content"] = verify_content(plan, args.content.resolve())
+        res["ok"] = res["ok"] and res["content"]["ok"]
     print(json.dumps(res, indent=1))
     return 0 if res["ok"] else 1
 
