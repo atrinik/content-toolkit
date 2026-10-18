@@ -4,6 +4,7 @@
     python3 -I scripts/verify_plan.py [placement-plan.json]
 
 Groups:
+  * overworld maps are 24 x 24 (settings.overworld_map_size, every rows grid)
   * one overworld group; group ids and member maps (overworld cells
     included) are unique; every group's classification and reason are known
     values; the summary's group, map and classification counts are re-derived
@@ -20,7 +21,8 @@ Placement (every placed group, proposed and tentative):
     an earlier placed group; only an alignment-hinted tentative placement
     has none (a proposed placement carries no hint), and its hint is one of
     settings.tentative_alignments: its ideal is the anchor's offsets, the
-    configured layers away; every configured alignment joins two placed groups
+    configured layers away; every configured alignment is applied (its
+    group's tentative placement carries it)
   * no placement goes further from its ideal spot than max_extra_layers and
     max_shift_tiles allow
   * member plane origin == local_offset + (x_offset, y_offset, layer_offset);
@@ -128,6 +130,7 @@ import sys
 from pathlib import Path
 
 WORLD_RE = re.compile(r"/world_(-?\d+)_(-?\d+)(?:_(-?\d+))?$")
+OW_SIZE = 24  # overworld maps are 24 x 24; plane tile = 24 * filename coordinate + tile
 N8 = [(dx, dy) for dy in (-1, 0, 1) for dx in (-1, 0, 1) if (dx, dy) != (0, 0)]
 # Fields of an exit record that come from the content: equal to its inventory entry.
 SOURCE_FIELDS = ("source_map", "source_tile", "target_map", "target_tile", "arch", "line", "form", "vertical",
@@ -247,9 +250,14 @@ def verify(plan: dict) -> dict:
                     rr.add(*t)
 
     ow_rows = ow["occupied_rows_by_layer"]
+    if st.get("overworld_map_size") != OW_SIZE:
+        errors.append("settings.overworld_map_size {} is not the {}-tile grid of the overworld coordinates".format(
+            st.get("overworld_map_size"), OW_SIZE))
     for path, by_layer in sorted(ow_rows.items()):
         X, Y, Z = world_cell(path)
         for Ls, rows in sorted(by_layer.items(), key=lambda kv: int(kv[0])):
+            if len(rows) != OW_SIZE or any(len(r) != OW_SIZE for r in rows):
+                errors.append("rows of {} on layer {} are not {} x {}".format(path, Ls, OW_SIZE, OW_SIZE))
             put(path, path, int(Ls), 24 * X, 24 * Y, rows)
             for y, row in enumerate(rows):
                 for x, ch in enumerate(row):
@@ -607,11 +615,11 @@ def verify(plan: dict) -> dict:
                 base.update(severity="info", note="explicitly disabled with last_heal 0 (decorative)")
             else:
                 base["severity"] = "problem"
-        w, h = size.get(x["source_map"], (st["overworld_map_size"],) * 2)
+        w, h = size.get(x["source_map"], (OW_SIZE,) * 2)
         if not (0 <= tile[0] < w and 0 <= tile[1] < h):
             want_dp.append(dict(base, kind="exit-outside-map-bounds"))
         if "target_map" in x:  # the reader resolves a target onto a tile of its map
-            tw, th = size.get(x["target_map"], (st["overworld_map_size"],) * 2)
+            tw, th = size.get(x["target_map"], (OW_SIZE,) * 2)
             if not (0 <= x["target_tile"][0] < tw and 0 <= x["target_tile"][1] < th):
                 errors.append("exit {}:{} targets tile {} outside {} ({} x {})".format(
                     k[0], k[1], x["target_tile"], x["target_map"], tw, th))
@@ -876,10 +884,13 @@ def verify(plan: dict) -> dict:
         if a.get("group") in aligns:
             errors.append("tentative alignment of {} is configured twice".format(a.get("group")))
         aligns[a.get("group")] = a
-        # a configured alignment names real groups and was applied: its anchor and its group are placed
-        if a.get("group") not in placed_by_id or a.get("anchor") not in placed_by_id or \
-                not isinstance(a.get("layer_delta"), int) or not a.get("why"):
-            errors.append("tentative alignment of {} to {} does not join two placed groups".format(
+        # a configured alignment names real groups and was applied: its group's tentative placement carries
+        # it (checked against the anchor below), so a stale or made-up entry fails
+        g_ = placed_by_id.get(a.get("group"))
+        if g_ is None or a.get("anchor") not in placed_by_id or not isinstance(a.get("layer_delta"), int) or \
+                not a.get("why") or g_["placement"].get("status") != "tentative" or \
+                g_["placement"].get("tentative_reason") != a["why"]:
+            errors.append("tentative alignment of {} to {} is not the hint of a tentative placement".format(
                 a.get("group"), a.get("anchor")))
     exits_checked = 0
     for (src_map, line), e in sorted(records.items()):

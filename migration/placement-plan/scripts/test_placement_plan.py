@@ -592,7 +592,24 @@ class FailedPlacement(VerifierTest):
         p = self.plan()
         p["settings"]["tentative_alignments"].append(
             {"group": "/not/a/group", "anchor": "/also/missing", "layer_delta": 0, "why": "fabricated"})
-        self.assertCaught(p, "tentative alignment of /not/a/group to /also/missing does not join two placed groups")
+        self.assertCaught(p, "tentative alignment of /not/a/group to /also/missing is not the hint of a tentative "
+                             "placement")
+        # an entry between two ordinary proposed groups is not applied anywhere
+        p = self.plan()
+        a, b = p["summary"]["placement_order"][:2]
+        p["settings"]["tentative_alignments"].append({"group": b, "anchor": a, "layer_delta": -1, "why": "stale"})
+        self.assertCaught(p, "tentative alignment of {} to {} is not the hint of a tentative placement".format(b, a))
+
+    def test_the_overworld_grid(self):
+        p = self.plan()
+        p["settings"]["overworld_map_size"] = 25
+        self.assertCaught(p, "settings.overworld_map_size 25 is not the 24-tile grid")
+        p = self.plan()
+        ow = next(g for g in p["groups"] if g["classification"] == "overworld")
+        path = sorted(ow["occupied_rows_by_layer"])[0]
+        layer = sorted(ow["occupied_rows_by_layer"][path])[0]
+        ow["occupied_rows_by_layer"][path][layer][0] += "."
+        self.assertCaught(p, "rows of {} on layer {} are not 24 x 24".format(path, layer))
 
     def test_place_group_without_a_placement(self):
         p = self.plan()
