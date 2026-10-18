@@ -1,189 +1,565 @@
-"""Layer-height (relayering) proposal: floor z of 50 is about one map layer.
+"""Layer-height relayering, applied (owner decision 2026-10-18: fix the conflicts, then relayer).
 
-For every placed map (overworld maps on every layer and placed group
-members), each occupied tile's terrain floor z (LAYER_FLOOR, sub-layer 0) is
-split as ``z = 50 * q + rest`` with ``q = trunc(z / 50)``, so ``|rest| < 50``
-and the remainder keeps z's sign. Tiles with ``q != 0`` would move ``q``
-layers; 8-connected tiles with the same (layer, q) form one region. The
-analysis is data only: nothing here changes the placement.
+Height of a tile: its support height, the highest floor z over all sub-layers
+(classic server map_space_support_height(), server/src/socket/request.c:1012-1022).
+Rule: H = 50 * q + rest with q = H // 50 for H >= 50 and q = 0 below; a
+relayered tile moves q layers up and keeps rest (0..49) as its tile height.
 
-Per region it reports the maps and tile counts, the layer before and after,
-tiles that would land on occupied tiles of the target layer (overlap
-conflicts), content on the target layer within the view radius, neighbours on
-the target layer at about the same height (joins), the same-layer edges the
-move would cut, and how every exit with an end in the region changes.
+Steps, all deterministic (sorted iteration, lexicographic tie-breaks):
+
+1. Regions: 8-connected tiles of one layer with the same q >= 1. A region of at
+   least MIN_REGION_TILES tiles is relayered; a smaller one only when it touches
+   a relayered region on its layer (another step of the same slope). Any other
+   small region keeps its z as tile height (single raised tiles, decoration).
+2. Units: 8-connected occupied tiles of one layer. On the overworld the surface
+   (layer 0) is never a unit; only its regions move.
+3. Conflicts, resolved before the layers are final and repeated until none is
+   left:
+   - column order: in every column (x, y) the occupied tiles keep their
+     vertical order. When a lower tile would reach the tile above it, the unit
+     above moves up (storeys stand on the ground under them); when the lower
+     tile is underground, its cave moves down instead;
+   - caves stay underground: no tile from a negative layer may reach layer 0;
+   - a cave that must move down is lowered as a whole (its raised regions land
+     back on their layer and its internal slopes stay intact) when that pushes
+     nothing below it and, compared with lowering only the raised regions in
+     place, changes no more stairs and makes no more steep steps, and is
+     better on at least one of the two. Otherwise (including a tie) only the
+     raised regions are lowered in place: they keep their layer and their
+     floor keeps z - 50 q.
+4. Continuity: a walkable edge (both tiles have a floor, neither holds a
+   no_pass object, |dz| < WALKABLE_DZ so the classic server counts no fall,
+   round(dz / 50) = 0 in server/src/server/move.c:151) whose ends end on
+   different layers is cut. Cut edges form seams; each seam piece (the part of
+   a seam inside one 24x24 cell) keeps continuity through an existing exit
+   between its two sides, or gets one new pair of plain stairs.
+5. Reports: steep steps (walkable edges that stay on one layer but become a
+   fall), new contacts (tiles that become neighbours on a layer although they
+   were not neighbours before), and every tile's final layer.
 """
 
 from __future__ import annotations
 
 import collections
 
-NEIGHBOURS = [(dx, dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1) if (dx, dy) != (0, 0)]
-MIN_LISTED_TILES = 24  # smaller regions are aggregated (single raised tiles, decoration)
+N8 = [(dx, dy) for dy in (-1, 0, 1) for dx in (-1, 0, 1) if (dx, dy) != (0, 0)]
+MIN_REGION_TILES = 24
+WALKABLE_DZ = 25
+SEAM_CELL = 24
+MAX_ROUNDS = 64
 
 
-def split(z: int, height: int):
-    q = int(z / height)
-    return q, z - q * height
-
-
-def analyse(maps, map_origins, ground_at, occupant, unrelated_within, exits, owner_of_map,
-            height: int, client_level_px: int):
-    tiles = {}  # (layer, x, y) -> (z, q, map)
-    scanned = 0
-    near_threshold = 0
-    negative_moves = 0
-    for m in sorted(map_origins):
-        ox, oy, oz = map_origins[m]
-        for (tx, ty), z in sorted(maps[m].ground.items()):
-            scanned += 1
-            if client_level_px <= abs(z) < height:
-                near_threshold += 1
-            q, _ = split(z, height)
-            if q:
-                tiles[(oz, ox + tx, oy + ty)] = (z, q, m)
-                if q < 0:
-                    negative_moves += 1
-
-    # regions: 8-connected, same layer and same q
+def flood(keys, same):
+    """8-connected components (one layer) of `keys` linked by `same(a, b)`, sorted."""
+    keyset = set(keys)
     seen = set()
-    regions = []
-    for key in sorted(tiles, key=lambda k: (k[0], k[2], k[1])):
-        if key in seen:
+    out = []
+    for k in sorted(keyset):
+        if k in seen:
             continue
-        L, q = key[0], tiles[key][1]
-        comp = []
-        stack = [key]
-        seen.add(key)
+        comp = [k]
+        seen.add(k)
+        stack = [k]
         while stack:
-            cur = stack.pop()
-            comp.append(cur)
-            for dx, dy in NEIGHBOURS:
-                nb = (L, cur[1] + dx, cur[2] + dy)
-                if nb in tiles and nb not in seen and tiles[nb][1] == q:
-                    seen.add(nb)
-                    stack.append(nb)
-        regions.append((L, q, sorted(comp)))
-    regions.sort(key=lambda r: (-len(r[2]), r[0], r[2][0][2], r[2][0][1]))
+            c = stack.pop()
+            for dx, dy in N8:
+                n = (c[0], c[1] + dx, c[2] + dy)
+                if n in keyset and n not in seen and same(c, n):
+                    seen.add(n)
+                    stack.append(n)
+                    comp.append(n)
+        out.append(sorted(comp))
+    return out
 
-    # connections between owners, for "related" content in view checks
-    owner_links = collections.defaultdict(set)
-    for e in exits:
-        if e.get("resolved_map") in map_origins and e["source_map"] in map_origins:
-            a, b = owner_of_map(e["source_map"]), owner_of_map(e["resolved_map"])
-            owner_links[a].add(b)
-            owner_links[b].add(a)
 
-    def plane(m, x, y):
-        ox, oy, oz = map_origins[m]
-        return ox + x, oy + y, oz
+def cheb(a, b):
+    return max(abs(a[0] - b[0]), abs(a[1] - b[1]))
 
-    listed, small = [], {"regions": 0, "tiles": 0, "maps": set()}
-    for L, q, comp in regions:
-        cset = set(comp)
-        if len(comp) < MIN_LISTED_TILES:
-            small["regions"] += 1
-            small["tiles"] += len(comp)
-            small["maps"].update(tiles[k][2] for k in comp)
-            continue
-        target = L + q
-        zs = [tiles[k][0] for k in comp]
-        rests = [split(z, height)[1] for z in zs]
-        by_map = collections.Counter(tiles[k][2] for k in comp)
-        owners = sorted({owner_of_map(m) for m in by_map})
-        related = set(owners)
-        for o in owners:
-            related |= owner_links.get(o, set())
-        overlap = collections.Counter()
-        joins = collections.Counter()
-        cut, gentle = 0, 0
-        for (_, x, y) in comp:
-            o = occupant(target, (x, y))
-            if o is not None:
-                overlap[o] += 1
-            z, _q, _m = tiles[(L, x, y)]
-            rest = split(z, height)[1]
-            for dx, dy in NEIGHBOURS:
-                nx, ny = x + dx, y + dy
-                if (L, nx, ny) not in cset:
-                    # an occupied neighbour with a floor that stays behind on this layer
-                    gz = ground_at(L, nx, ny)
-                    if gz is not None:
-                        cut += 1
-                        if abs(gz - z) < height // 2:
-                            gentle += 1
-                if (target, nx, ny) not in cset:
-                    tz = ground_at(target, nx, ny)
-                    if tz is not None and abs(tz - rest) < height // 2:
-                        jo = occupant(target, (nx, ny))
-                        if jo is not None and jo not in owners:
-                            joins[jo] += 1
-        view = set()
-        for (_, x, y) in comp:
-            view.update(unrelated_within(target, (x, y), related))
-        ex = []
-        for e in exits:
-            if not e.get("resolved_map") or e["source_map"] not in map_origins or e["resolved_map"] not in map_origins:
+
+class Relayering:
+    """Relayer one coordinate frame (the overworld plane or one group's local layout).
+
+    tiles:     {(layer, x, y): (map, floors {sub_layer: z}, blocked)} for every occupied tile
+    exits:     [{"key", "src": (layer, x, y), "dst": (layer, x, y)}] with both ends in this frame
+    overworld: enables the surface rules (layer 0 is the surface, caves stay below it)
+    """
+
+    def __init__(self, tiles, exits, height, overworld):
+        self.tiles = tiles
+        self.exits = exits
+        self.height = height
+        self.overworld = overworld
+        self.H, self.H0 = {}, {}
+        for k, (_m, floors, _b) in tiles.items():
+            if floors:
+                self.H[k] = max(floors.values())
+                if 0 in floors:
+                    self.H0[k] = floors[0]
+        self.q = {k: h // height for k, h in self.H.items() if h >= height}
+        # tiles at the layer height only because of a floor above sub-layer 0
+        self.raised_by_upper = sum(1 for k in self.q if self.H0.get(k, -1) < height)
+        self._regions()
+        self._units()
+        self.du = collections.Counter()
+        self.dr = collections.Counter()
+        self.moves = []
+        self.caves = []
+        self.unresolved = []
+        self._resolve()
+        self._finish()
+
+    # ------------------------------------------------------------- regions
+    def _regions(self):
+        comps = flood(self.q, lambda a, b: self.q[a] == self.q[b])
+        comps.sort(key=lambda c: (-len(c), c[0]))
+        self.regions = []
+        self.region_of = {}
+        for comp in comps:
+            r = {"index": len(self.regions), "layer": comp[0][0], "q": self.q[comp[0]], "tiles": comp,
+                 "relayered": len(comp) >= MIN_REGION_TILES,
+                 "why": "at least {} tiles".format(MIN_REGION_TILES) if len(comp) >= MIN_REGION_TILES else None}
+            self.regions.append(r)
+            for k in comp:
+                self.region_of[k] = r["index"]
+        changed = True
+        while changed:
+            changed = False
+            for r in self.regions:
+                if r["relayered"]:
+                    continue
+                touch = sorted({self.region_of[n] for k in r["tiles"] for n in self._n8(k)
+                                if n in self.region_of and self.regions[self.region_of[n]]["relayered"]})
+                if touch:
+                    r["relayered"] = True
+                    r["why"] = "touches relayered region(s) {}".format(touch)
+                    r["joins"] = touch
+                    changed = True
+        self.relayered = {k for r in self.regions if r["relayered"] for k in r["tiles"]}
+
+    @staticmethod
+    def _n8(k):
+        return [(k[0], k[1] + dx, k[2] + dy) for dx, dy in N8]
+
+    # --------------------------------------------------------------- units
+    def _units(self):
+        bylayer = collections.defaultdict(list)
+        for k in self.tiles:
+            bylayer[k[0]].append(k)
+        self.units = []
+        self.unit_of = {}
+        for L in sorted(bylayer):
+            if self.overworld and L == 0:
                 continue
-            s = plane(e["source_map"], e["source_x"], e["source_y"])
-            t = plane(e["resolved_map"], e["resolved_x"], e["resolved_y"])
-            s_in, t_in = (s[2], s[0], s[1]) in cset, (t[2], t[0], t[1]) in cset
-            if not (s_in or t_in):
+            for comp in flood(bylayer[L], lambda a, b: True):
+                u = {"index": len(self.units), "layer": L, "tiles": comp}
+                self.units.append(u)
+                for k in comp:
+                    self.unit_of[k] = u["index"]
+        cols = collections.defaultdict(list)
+        for k in self.tiles:
+            cols[(k[1], k[2])].append(k[0])
+        self.columns = {c: sorted(v) for c, v in cols.items() if len(v) > 1}
+        self.underground = sorted(k for k in self.tiles if k[0] < 0) if self.overworld else []
+
+    # -------------------------------------------------------------- shifts
+    def shift(self, k, du=None, dr=None):
+        du = self.du if du is None else du
+        dr = self.dr if dr is None else dr
+        s = du.get(self.unit_of[k], 0) if k in self.unit_of else 0
+        if k in self.relayered:
+            s += self.q[k] + dr.get(self.region_of[k], 0)
+        return s
+
+    def final(self, k, du=None, dr=None):
+        return k[0] + self.shift(k, du, dr)
+
+    def rest(self, k):
+        h = self.H.get(k)
+        if h is None:
+            return None
+        return h - self.height * self.q[k] if k in self.relayered else h
+
+    # ----------------------------------------------------------- conflicts
+    def _violations(self, du=None, dr=None, cols=None, tiles=None):
+        up = {}
+        down = collections.defaultdict(dict)
+        bad = []
+        for (x, y) in (sorted(self.columns) if cols is None else cols):
+            Ls = self.columns[(x, y)]
+            for lb, lt in zip(Ls, Ls[1:]):
+                b, t = (lb, x, y), (lt, x, y)
+                fb, ft = self.final(b, du, dr), self.final(t, du, dr)
+                if ft > fb:
+                    continue
+                short = fb - ft + 1
+                if self.overworld and lb < 0:
+                    u = self.unit_of[b]
+                    down[u][b] = max(down[u].get(b, 0), short)
+                elif t in self.unit_of:
+                    u = self.unit_of[t]
+                    up[u] = max(up.get(u, 0), short)
+                else:
+                    bad.append((b, t))
+        for k in (self.underground if tiles is None else [t for t in tiles if t[0] < 0 and self.overworld]):
+            f = self.final(k, du, dr)
+            if f >= 0:
+                u = self.unit_of[k]
+                down[u][k] = max(down[u].get(k, 0), f + 1)
+        return up, dict(down), bad
+
+    def _exit_changes(self, unit_tiles, du, dr):
+        """Exits with exactly one end in the unit whose layer distance differs from the legacy one."""
+        n = 0
+        for e in self.exits:
+            ins = (e["src"] in unit_tiles) + (e["dst"] in unit_tiles)
+            if ins != 1:
                 continue
-            s2 = (s[0], s[1], s[2] + (q if s_in else 0))
-            t2 = (t[0], t[1], t[2] + (q if t_in else 0))
-            d = max(abs(s[0] - t[0]), abs(s[1] - t[1]))
-            before, after = t[2] - s[2], t2[2] - s2[2]
-            if d > 1:
-                change = "portal either way"
-            elif abs(after) == 0 and abs(before) >= 1:
-                change = "aligns: becomes a level walk on layer {}".format(s2[2])
-            elif abs(after) == 1 and abs(before) != 1:
-                change = "aligns: becomes plain stairs"
-            elif abs(before) == 1 and abs(after) >= 2:
-                change = "breaks: plain stairs become a {}-layer stairwell".format(abs(after))
-            elif before == after:
-                change = "unchanged"
+            before = e["dst"][0] - e["src"][0]
+            after = self._final_any(e["dst"], du, dr) - self._final_any(e["src"], du, dr)
+            if abs(before) != abs(after):
+                n += 1
+        return n
+
+    def _final_any(self, k, du=None, dr=None):
+        return self.final(k, du, dr) if k in self.tiles else k[0]
+
+    def _steep(self, keys, du, dr):
+        """Walkable edges touching `keys` that stay on one layer but become a fall."""
+        n = 0
+        seen = set()
+        for k in sorted(keys):
+            for nb in self._n8(k):
+                pair = (min(k, nb), max(k, nb))
+                if pair in seen or not self.walkable(k, nb):
+                    continue
+                seen.add(pair)
+                if self.final(k, du, dr) == self.final(nb, du, dr) and abs(self.rest(k) - self.rest(nb)) >= WALKABLE_DZ:
+                    n += 1
+        return n
+
+    def walkable(self, a, b):
+        """Legacy walkable edge: both tiles have a floor, no no_pass object, and |dz| < WALKABLE_DZ."""
+        if a not in self.H or b not in self.H or self.tiles[a][2] or self.tiles[b][2]:
+            return False
+        return abs(self.H[a] - self.H[b]) < WALKABLE_DZ
+
+    def _lower_cave(self, u, needs, rnd):
+        unit = self.units[u]
+        utiles = set(unit["tiles"])
+        amount = max(needs.values())
+        duA = dict(self.du)
+        duA[u] = duA.get(u, 0) - amount
+        need_r = {}
+        for k, a in needs.items():
+            if k in self.relayered:
+                r = self.region_of[k]
+                need_r[r] = max(need_r.get(r, 0), a)
+        feasible_b = all(k in self.relayered for k in needs)
+        drB = dict(self.dr)
+        for r, a in need_r.items():
+            drB[r] = drB.get(r, 0) - a
+        ucols = sorted({(k[1], k[2]) for k in utiles if (k[1], k[2]) in self.columns})
+        _upA, downA, _badA = self._violations(du=duA, cols=ucols, tiles=unit["tiles"])
+        cascade = sorted(v for v in downA if v != u)
+        brokenA = self._exit_changes(utiles, duA, self.dr)
+        steepA = self._steep(utiles, duA, self.dr)
+        brokenB = self._exit_changes(utiles, self.du, drB) if feasible_b else None
+        steepB = self._steep(utiles, self.du, drB) if feasible_b else None
+        regions = sorted(need_r)
+        # The whole cave wins only when it pushes nothing below it, is no worse on
+        # either measure and better on at least one; a tie keeps the smaller change.
+        whole_better = (not cascade and brokenA <= brokenB and steepA <= steepB
+                        and (brokenA, steepA) != (brokenB, steepB)) if feasible_b else True
+        if not whole_better:
+            choice = "lower-regions-in-place"
+            self.dr = collections.Counter(drB)
+            for r, a in sorted(need_r.items()):
+                self.moves.append({"round": rnd, "kind": "region-in-place", "region": r, "unit": u, "shift": -a})
+        else:
+            choice = "lower-whole-cave"
+            self.du[u] -= amount
+            self.moves.append({"round": rnd, "kind": "cave-down", "unit": u, "shift": -amount})
+        why = []
+        if choice == "lower-whole-cave":
+            if not feasible_b:
+                why.append("tiles that are not relayered must move, so the cave moves as a whole")
             else:
-                change = "layer span {} -> {}".format(abs(before), abs(after))
-            ex.append({"source_map": e["source_map"], "source_tile": [e["source_x"], e["source_y"]],
-                       "target_map": e["resolved_map"], "target_tile": [e["resolved_x"], e["resolved_y"]],
-                       "arch": e["arch"], "layer_delta_before": before, "layer_delta_after": after,
-                       "xy_distance": d, "change": change})
-        ex.sort(key=lambda r: (r["source_map"], r["source_tile"][1], r["source_tile"][0], r["arch"]))
-        aligns = sum(1 for r in ex if r["change"].startswith("aligns"))
-        breaks = sum(1 for r in ex if r["change"].startswith("breaks"))
-        conflict_free = not overlap
-        listed.append({
-            "id": "R{}".format(len(listed) + 1),
-            "layer_before": L, "layer_after": target, "layers_moved": q,
-            "tiles": len(comp),
-            "maps": [{"path": m, "tiles": n} for m, n in sorted(by_map.items())],
-            "z_min": min(zs), "z_max": max(zs), "remainder_min": min(rests), "remainder_max": max(rests),
-            "bbox": [min(k[1] for k in comp), min(k[2] for k in comp), max(k[1] for k in comp),
-                     max(k[2] for k in comp)],
-            "overlap_conflicts": {"tiles": sum(overlap.values()),
-                                  "owners": {o: n for o, n in sorted(overlap.items())}},
-            "unrelated_content_in_view_on_target_layer": sorted(view),
-            "same_height_edges_on_target_layer": {o: n for o, n in sorted(joins.items())},
-            "same_layer_edges_cut": cut, "gentle_edges_cut": gentle,
-            "exits": ex, "exits_aligned": aligns, "exits_broken": breaks,
-            "conflict_free": conflict_free,
-            "clearly_better": conflict_free and aligns > breaks and gentle == 0,
-        })
-    return {
-        "status": "proposal for owner approval; NOT applied to the placement",
-        "rule": "tile floor z = {h} * q + rest with q = trunc(z / {h}); a tile with q != 0 moves q layers and keeps "
-                "rest as its tile height; 8-connected tiles with the same (layer, q) form one region".format(h=height),
-        "layer_height_z": height,
-        "client_level_pixel_height": client_level_px,
-        "tiles_scanned": scanned,
-        "tiles_that_would_move": len(tiles),
-        "tiles_that_would_move_down": negative_moves,
-        "tiles_between_client_level_and_threshold": near_threshold,
-        "regions_total": len(regions),
-        "regions_listed_min_tiles": MIN_LISTED_TILES,
-        "regions": listed,
-        "small_regions": {"regions": small["regions"], "tiles": small["tiles"], "maps": sorted(small["maps"])},
-        "applied": False,
-    }
+                why.append("lowering the whole cave breaks {} stair(s) and makes {} steep step(s); lowering "
+                           "only the raised regions breaks {} and makes {}".format(brokenA, steepA, brokenB, steepB))
+        else:
+            if cascade:
+                why.append("lowering the whole cave would push {} unit(s) below it down".format(len(cascade)))
+            why.append("lowering the whole cave breaks {} stair(s) and makes {} steep step(s); lowering only the "
+                       "raised regions breaks {} and makes {}".format(brokenA, steepA, brokenB, steepB))
+        self.caves.append({"round": rnd, "unit": u, "layer": unit["layer"], "tiles": len(unit["tiles"]),
+                           "regions": regions, "lowered_by": amount, "choice": choice,
+                           "option_whole_cave": {"stairs_changed": brokenA, "steep_steps": steepA,
+                                                 "pushes_units_below": cascade},
+                           "option_in_place": None if not feasible_b else {"stairs_changed": brokenB,
+                                                                            "steep_steps": steepB},
+                           "why": "; ".join(why)})
+
+    def _resolve(self):
+        for rnd in range(MAX_ROUNDS):
+            up, down, bad = self._violations()
+            if bad:
+                self.unresolved = [{"lower": list(b), "upper": list(t)} for b, t in bad]
+            if not up and not down:
+                return
+            for u in sorted(up):
+                self.du[u] += up[u]
+                self.moves.append({"round": rnd, "kind": "storey-up", "unit": u, "shift": up[u]})
+            for u in sorted(down):
+                self._lower_cave(u, down[u], rnd)
+        raise RuntimeError("relayering conflicts did not converge in {} rounds".format(MAX_ROUNDS))
+
+    # ------------------------------------------------------------- results
+    def _finish(self):
+        self.final_layer = {k: self.final(k) for k in self.tiles}
+        # Split tiles: a relayered tile whose sub-layer 0 floor is lower than a layer
+        # keeps that floor (and the objects on sub-layer 0) on the unit's layer.
+        self.split = {}
+        for k in sorted(self.relayered):
+            h0 = self.H0.get(k)
+            if h0 is not None and h0 // self.height < self.q[k] and len(self.tiles[k][1]) > 1:
+                base = k[0] + (self.du.get(self.unit_of[k], 0) if k in self.unit_of else 0)
+                if base != self.final_layer[k]:
+                    self.split[k] = base
+        moved = [k for k in sorted(self.tiles) if self.final_layer[k] != k[0]]
+        self.moved = moved
+        # pieces: map -> final layer -> tiles (frame coordinates)
+        self.pieces = collections.defaultdict(lambda: collections.defaultdict(set))
+        for k, (m, _f, _b) in self.tiles.items():
+            self.pieces[m][self.final_layer[k]].add((k[1], k[2]))
+            if k in self.split:
+                self.pieces[m][self.split[k]].add((k[1], k[2]))
+
+    def final_positions(self):
+        """{(final_layer, x, y): [legacy tile, ...]} for every occupied tile; split tiles on both layers."""
+        out = collections.defaultdict(list)
+        for k in sorted(self.tiles):
+            out[(self.final_layer[k], k[1], k[2])].append(k)
+            if k in self.split:
+                out[(self.split[k], k[1], k[2])].append(k)
+        return out
+
+    def overlaps(self):
+        """Final positions claimed by two legacy tiles (the void rule forbids them)."""
+        return sorted((pos, ks) for pos, ks in self.final_positions().items() if len(ks) > 1)
+
+    def cut_edges(self):
+        """Walkable legacy edges whose two tiles end on different layers."""
+        cut = set()
+        for k in self.moved:
+            for nb in self._n8(k):
+                if nb in self.tiles and self.walkable(k, nb) and self.final_layer[k] != self.final_layer[nb]:
+                    cut.add((min(k, nb), max(k, nb)))
+        out = []
+        for a, b in sorted(cut):
+            lo, hi = (a, b) if self.final_layer[a] < self.final_layer[b] else (b, a)
+            out.append((lo, hi))
+        return out
+
+    def steep_steps(self):
+        out = []
+        seen = set()
+        for k in sorted(set(self.moved) | {k for k in self.relayered}):
+            for nb in self._n8(k):
+                pair = (min(k, nb), max(k, nb))
+                if pair in seen or nb not in self.tiles or not self.walkable(k, nb):
+                    continue
+                seen.add(pair)
+                if self.final_layer[k] == self.final_layer[nb] and \
+                        abs(self.rest(k) - self.rest(nb)) >= WALKABLE_DZ:
+                    out.append(pair)
+        return sorted(out)
+
+    def new_contacts(self):
+        """Pairs of tiles that are 8-neighbours on their final layer but came from different legacy layers."""
+        final = self.final_positions()
+        out = set()
+        for k in self.moved:
+            fx = (self.final_layer[k], k[1], k[2])
+            for dx, dy in N8:
+                for t in final.get((fx[0], fx[1] + dx, fx[2] + dy), ()):
+                    if t[0] != k[0]:
+                        out.add((min(k, t), max(k, t)))
+        return sorted(out)
+
+    def seams(self):
+        """Group cut edges into seams and keep continuity on every seam piece.
+
+        Two cut edges belong to one seam when they join the same pair of final
+        layers and their low tiles or their high tiles are 8-neighbours (or the
+        same tile). A seam piece is the part of a seam whose low tiles lie in one
+        SEAM_CELL x SEAM_CELL cell. A piece keeps continuity through an existing
+        exit when one end of that exit lies within one tile of a low tile of the
+        piece on the low layer and the other end within one tile of a high tile on
+        the high layer; otherwise the piece gets one new pair of plain stairs on
+        its representative edge (orthogonal edges first, then the edge nearest to
+        the piece's centre, then coordinates).
+        """
+        edges = self.cut_edges()
+        parent = list(range(len(edges)))
+
+        def find(i):
+            while parent[i] != i:
+                parent[i] = parent[parent[i]]
+                i = parent[i]
+            return i
+
+        def union(i, j):
+            a, b = find(i), find(j)
+            if a != b:
+                parent[max(a, b)] = min(a, b)
+
+        layers = [(self.final_layer[lo], self.final_layer[hi]) for lo, hi in edges]
+        for side in (0, 1):
+            at = collections.defaultdict(list)
+            for i, e in enumerate(edges):
+                at[(layers[i], e[side][1], e[side][2])].append(i)
+            for i, e in enumerate(edges):
+                t = e[side]
+                for dx in (-1, 0, 1):
+                    for dy in (-1, 0, 1):
+                        for j in at.get((layers[i], t[1] + dx, t[2] + dy), ()):
+                            union(i, j)
+        groups = collections.defaultdict(list)
+        for i in range(len(edges)):
+            groups[find(i)].append(i)
+        ends = collections.defaultdict(list)  # (final layer, x, y) -> exits with an end there
+        for e in self.exits:
+            for end in ("src", "dst"):
+                k = e[end]
+                L = self._final_any(k)
+                ends[(L, k[1], k[2])].append(e)
+        seams = []
+        for sid, idx in enumerate(sorted(groups.values(), key=lambda v: edges[v[0]])):
+            pieces = collections.defaultdict(list)
+            for i in idx:
+                lo = edges[i][0]
+                pieces[(lo[1] // SEAM_CELL, lo[2] // SEAM_CELL)].append(i)
+            lo_layer, hi_layer = layers[idx[0]]
+            seam = {"index": sid, "low_layer": lo_layer, "high_layer": hi_layer, "edges": len(idx), "pieces": []}
+            for cell in sorted(pieces):
+                pe = [edges[i] for i in pieces[cell]]
+                lows = {(e[0][1], e[0][2]) for e in pe}
+                highs = {(e[1][1], e[1][2]) for e in pe}
+                joined = None
+                for (x, y) in sorted(lows):
+                    for dx in (-1, 0, 1):
+                        for dy in (-1, 0, 1):
+                            for ex in ends.get((lo_layer, x + dx, y + dy), ()):
+                                other = ex["dst"] if self._final_any(ex["src"]) == lo_layer and \
+                                    cheb(ex["src"][1:], (x, y)) <= 1 else ex["src"]
+                                L = self._final_any(other)
+                                if L == hi_layer and any(cheb(other[1:], h) <= 1 for h in highs):
+                                    joined = joined or ex
+                n = len(pe)
+                sx = sum(e[0][1] + e[1][1] for e in pe)
+                sy = sum(e[0][2] + e[1][2] for e in pe)
+
+                def rank(e):
+                    diag = int(e[0][1] != e[1][1] and e[0][2] != e[1][2])
+                    d = (n * (e[0][1] + e[1][1]) - sx) ** 2 + (n * (e[0][2] + e[1][2]) - sy) ** 2
+                    return (diag, d, e)
+
+                rep = min(pe, key=rank)
+                piece = {"cell": list(cell), "edges": n,
+                         "low_tiles": len(lows), "high_tiles": len(highs),
+                         "representative_edge": [list(rep[0]), list(rep[1])]}
+                piece["stairs"] = []
+                piece["edge_list"] = [(list(e[0]), list(e[1])) for e in pe]
+                if joined is not None:
+                    piece["continuity"] = "existing exit"
+                    piece["exit"] = list(joined["key"])
+                else:
+                    piece["continuity"] = "new stairs"
+                    piece["stairs"].append(self._stairs(rep, "representative edge of the seam piece"))
+                seam["pieces"].append(piece)
+            seams.append(seam)
+        # Continuity: the two tiles of every cut edge must stay connected (walking on
+        # the final layers, legacy exits, the new stairs) inside the affected maps; a
+        # cut edge whose tiles are still apart gets stairs of its own, in edge order.
+        uf = self.final_graph(self.affected_maps())
+        piece_of = {}
+        for sm in seams:
+            for pc in sm["pieces"]:
+                for st in pc["stairs"]:
+                    uf.union(tuple(st["low_tile"]), tuple(st["high_tile"]))
+                for lo, hi in pc["edge_list"]:
+                    piece_of[(tuple(lo), tuple(hi))] = pc
+        for lo, hi in edges:
+            if uf.find(lo) != uf.find(hi):
+                pc = piece_of[(lo, hi)]
+                pc["stairs"].append(self._stairs((lo, hi), "its tiles were still apart: a pocket the seam piece's "
+                                                            "stairs do not reach"))
+                pc["continuity"] = "new stairs"
+                uf.union(lo, hi)
+        for sm in seams:
+            for pc in sm["pieces"]:
+                del pc["edge_list"]
+        return seams
+
+    def _stairs(self, edge, why):
+        lo, hi = edge
+        return {"low": [lo[1], lo[2], self.final_layer[lo]], "high": [hi[1], hi[2], self.final_layer[hi]],
+                "low_tile": list(lo), "high_tile": list(hi), "why": why}
+
+    def affected_maps(self):
+        """Maps holding a raised region (relayered or kept), a moved tile, or a neighbour of either."""
+        out = set()
+        for k in set(self.moved) | set(self.q):
+            out.add(self.tiles[k][0])
+            for n in self._n8(k):
+                if n in self.tiles:
+                    out.add(self.tiles[n][0])
+        return out
+
+    def final_graph(self, maps):
+        """Union-find over the final walk graph of the tiles of `maps`.
+
+        Nodes are legacy tiles (their main part) and ("ground",) + tile for the
+        ground part of a split tile. Two nodes on one final layer are joined when
+        they are 8-neighbours with floors, hold no no_pass object and their tile
+        heights differ by less than WALKABLE_DZ; legacy exits join their ends."""
+        uf = UnionFind()
+        pos = collections.defaultdict(list)
+        for k, (m, _f, blocked) in self.tiles.items():
+            if m not in maps or k not in self.H or blocked:
+                continue
+            pos[(self.final_layer[k], k[1], k[2])].append((k, self.rest(k)))
+            if k in self.split:
+                pos[(self.split[k], k[1], k[2])].append((("ground",) + k, self.H0[k]))
+        for (L, x, y), here in sorted(pos.items()):
+            for dx, dy in ((1, 0), (-1, 1), (0, 1), (1, 1)):
+                for a, ra in here:
+                    for b, rb in pos.get((L, x + dx, y + dy), ()):
+                        if abs(ra - rb) < WALKABLE_DZ:
+                            uf.union(a, b)
+        for e in self.exits:
+            uf.union(e["src"], e["dst"])
+        return uf
+
+
+class UnionFind:
+    """Union-find over hashable keys; the smallest key of a set is its root."""
+
+    def __init__(self):
+        self.parent = {}
+
+    def find(self, a):
+        p = self.parent
+        p.setdefault(a, a)
+        while p[a] != a:
+            p[a] = p[p[a]]
+            a = p[a]
+        return a
+
+    def union(self, a, b):
+        ra, rb = self.find(a), self.find(b)
+        if ra != rb:
+            if repr(ra) < repr(rb):
+                self.parent[rb] = ra
+            else:
+                self.parent[ra] = rb

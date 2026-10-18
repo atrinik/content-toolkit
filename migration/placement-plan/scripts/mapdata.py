@@ -70,7 +70,17 @@ class MapRec:
     coords: Optional[tuple]  # filename coordinates (X, Y, Z) or None
     coord_prefix: Optional[str]
     occupied: set = field(default_factory=set)  # local tiles holding at least one object
-    ground: dict = field(default_factory=dict)  # local tile -> z of its top sub-layer-0 floor
+    floors: dict = field(default_factory=dict)  # local tile -> {sub_layer: z of its last floor object}
+    blocked: set = field(default_factory=set)  # local tiles holding an object (or part) with no_pass 1
+
+    def support_height(self, tile):
+        """Support height of a tile: the highest floor z over all sub-layers, or None without a floor.
+
+        Same rule as the classic server's map_space_support_height()
+        (server/src/socket/request.c:1012-1022), the height upper levels stand on.
+        """
+        f = self.floors.get(tile)
+        return max(f.values()) if f else None
 
 
 def parse_blocks(text: str, header_opener: bool):
@@ -261,25 +271,29 @@ def load_maps(content_root: Path, archs: dict):
                     links[slot] = target
                     link_source[slot] = "filename"
         occupied = set()
-        ground = {}
+        floors = {}
+        blocked = set()
         for o in objs:
             ox = to_int(o.fields.get("x"), 0)
             oy = to_int(o.fields.get("y"), 0)
             occupied.add((ox, oy))
             base = archs.get(o.name.casefold(), {})
-            for tx, ty in base.get("__tails__", ()):
-                occupied.add((ox + tx, oy + ty))
-            # Terrain floor height: LAYER_FLOOR (1) on sub-layer 0; the last
-            # (topmost) floor object on a tile wins, as in the client's
-            # get_top_floor_height().
+            parts = [(ox, oy)] + [(ox + tx, oy + ty) for tx, ty in base.get("__tails__", ())]
+            occupied.update(parts)
+            if o.fields.get("no_pass", base.get("no_pass")) == "1":
+                blocked.update(parts)
+            # Floor heights: LAYER_FLOOR (1) objects per sub-layer; the last
+            # floor object of a sub-layer on a tile wins, as in the client's
+            # per-sub-layer get_top_floor_height().
             layer = o.fields.get("layer", base.get("layer"))
             sub_layer = to_int(o.fields.get("sub_layer", base.get("sub_layer")), 0)
-            if layer == "1" and sub_layer == 0:
-                ground[(ox, oy)] = to_int(o.fields.get("z", base.get("z")), 0)
+            if layer == "1":
+                floors.setdefault((ox, oy), {})[sub_layer] = to_int(o.fields.get("z", base.get("z")), 0)
         occupied = {(x, y) for (x, y) in occupied if 0 <= x < width and 0 <= y < height}
-        ground = {t: z for t, z in ground.items() if t in occupied}
+        floors = {t: f for t, f in floors.items() if t in occupied}
+        blocked = {t for t in blocked if t in occupied}
         maps[logical] = MapRec(logical, header, width, height, links, link_source, broken,
-                               objs, coords, prefix, occupied, ground)
+                               objs, coords, prefix, occupied, floors, blocked)
     return maps, all_files
 
 

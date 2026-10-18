@@ -2,7 +2,10 @@
 """Build the Atrinik overworld-plane placement plan.
 
 Read-only against the content checkout, which must be clean under arch/ and
-maps/. Generates placement-plan.json, REPORT.md and layer_<n>[_zoom].png in a
+maps/. Relayers the overworld (owner decision 2026-10-18: fix the conflicts,
+then relayer), places the groups on the result, builds stairwells (aligned,
+sloped and relayering ones) and wires dangling exits. Generates
+placement-plan.json, REPORT.md, layer_<n>[_zoom].png and relayer_<n>.png in a
 staging directory, verifies the staged plan, and only then replaces the
 artifacts in the output directory. Standard library only.
 
@@ -94,6 +97,49 @@ OWNER_PLACE = {
         "owner decision 2 (settled): the new-character start map is placed under world_-7_76, where the "
         "existing stairs line up",
 }
+# Owner decision 2026-10-18: the six Greyton jail cell ladders (each on a bed
+# tile, five of them over water) stay bunk-bed decoration. They are not wired;
+# the migration keeps their look as objects without an exit.
+JAIL = "/shattered_islands/strakewood_island/greyton/jail/jail"
+OWNER_KEEP_AS_DECORATION = {
+    (JAIL, (x, y), "ladder_up"): "owner decision 2026-10-18: keep as bunk-bed decoration, an object without an exit"
+    for (x, y) in ((2, 1), (2, 7), (2, 13), (13, 1), (13, 7), (13, 13))
+}
+
+# Placements of plan v1 (PR #44, toolkit 7ba54b0, content b9657299a6e7):
+# (x_offset, y_offset, layer_offset) per placed group id under /shattered_islands/.
+# Used only to report which placements this version changes.
+PLAN_V1_PLACEMENTS = {
+    "berri_lur/temple_loki/tol": (240, 1464, -1),
+    "deserted_tutorial_island/ship_lower_deck": (-161, 1832, -1),
+    "eld_woods_island/cave_morlarg": (250, 1899, -1),
+    "eld_woods_island/clearhaven/mine/mine_entrance": (197, 1894, -1),
+    "eld_woods_island/clearhaven/mine/mine_entrance_a": (195, 1885, -2),
+    "eld_woods_island/clearhaven/mine/mine_unique": (166, 1870, -3),
+    "eld_woods_island/clearhaven/mine/mine_unique_a": (153, 1890, -5),
+    "eld_woods_island/clearhaven/mine/mine_unique_tipper": (192, 1894, -4),
+    "eld_woods_island/clearhaven/treehome_1": (182, 1865, 1),
+    "eld_woods_island/clearhaven/treehome_2": (183, 1866, 2),
+    "eld_woods_island/clearhaven/treehome_3": (182, 1865, 3),
+    "eld_woods_island/clearhaven/treehome_4": (181, 1864, 4),
+    "eld_woods_island/hemlock_cave/hemlock_cave": (348, 1686, -1),
+    "eld_woods_island/vielumin_ruins/ruins": (423, 1710, -2),
+    "incuna/ellamin": (105, 1991, -4),
+    "strakewood_island/brynknot/sewers/lab": (76, 1583, -3),
+    "strakewood_island/dark_cave/dark_cave": (77, 1704, -3),
+    "strakewood_island/giant_stronghold/giant_stronghold": (-28, 1547, -1),
+    "strakewood_island/greyton/jail/jail": (279, 1596, -1),
+    "strakewood_island/greyton/jail/jail_a": (286, 1604, -2),
+    "strakewood_island/old_outpost/old_outpost": (126, 1370, -3),
+    "strakewood_island/old_outpost/old_outpost_a": (159, 1370, -4),
+    "strakewood_island/rockforge/rockforge": (-13, 1348, -1),
+    "strakewood_island/rockforge/rockforge_a": (-13, 1347, -4),
+    "strakewood_island/rockforge/rockforge_b": (-13, 1347, -5),
+    "strakewood_island/rockforge/rockforge_c": (-13, 1347, -6),
+    "strakewood_island/underground_city/underground_city": (-19, 1574, -4),
+    "strakewood_island/zechna_temple/zechna_temple": (155, 1558, -3),
+}
+
 # Stair families: the intermediate tiles of a stairwell reuse the "down"
 # archetype of the family the stairwell's own exit objects belong to.
 STAIR_FAMILIES = (
@@ -236,6 +282,10 @@ def cheb(a, b) -> int:
     return max(abs(a[0] - b[0]), abs(a[1] - b[1]))
 
 
+def base_name(path) -> str:
+    return path.rsplit("/", 1)[-1] if path else ""
+
+
 def stair_family_down(arch: str):
     a = arch.casefold()
     for prefix, down in STAIR_FAMILIES:
@@ -246,10 +296,6 @@ def stair_family_down(arch: str):
 
 def occupied_rows(rec) -> list:
     return ["".join("#" if (x, y) in rec.occupied else "." for x in range(rec.width)) for y in range(rec.height)]
-
-
-def _ow_tiles(rec, bx, by):
-    return {(bx + x, by + y) for (x, y) in rec.occupied}
 
 
 # --------------------------------------------------------------------- main
@@ -467,6 +513,53 @@ def build(content: Path, allow_dirty: bool = False):
                                          "(python/houses/exit.py via House.py)".format(
                                              rg, re.search(r"msg\n(.*?)\nendmsg", txt, re.S).group(1)))
 
+    # ---------------------------------------------------------- relayering
+    # Owner decision (2026-10-18): fix the conflicts, then relayer. Every group
+    # (the overworld in plane coordinates, other groups in their local layout)
+    # is relayered before placement, so placement, stairs and stairwells see the
+    # final layers. Groups whose layout cannot be laid flat keep their layers.
+    relay = {}
+    for g in groups:
+        if g["id"] != ow_id and g["layout"]["problems"]:
+            continue
+        offs = g["layout"]["offsets"]
+        tiles = {}
+        for m, (ox, oy, oz) in sorted(offs.items()):
+            r = maps[m]
+            for (tx, ty) in sorted(r.occupied):
+                tiles.setdefault((oz, ox + tx, oy + ty), (m, r.floors.get((tx, ty)), (tx, ty) in r.blocked))
+        mem = set(g["maps"])
+        internal = []
+        for e in exits:
+            if e["source_map"] in mem and e.get("resolved_map") in mem:
+                so, to = offs[e["source_map"]], offs[e["resolved_map"]]
+                internal.append({"key": e["key"], "arch": e["arch"],
+                                 "src": (so[2], so[0] + e["source_x"], so[1] + e["source_y"]),
+                                 "dst": (to[2], to[0] + e["resolved_x"], to[1] + e["resolved_y"])})
+        relay[g["id"]] = relayer.Relayering(tiles, internal, LAYER_HEIGHT_Z, overworld=(g["id"] == ow_id))
+    void_exit_ends = {}  # (map, x, y) -> layer, for exit ends on void tiles of a moved map
+
+    def tile_layer(gid, m, x, y):
+        """Final layer of tile (x, y) of member map m after relayering."""
+        ox, oy, oz = G[gid]["layout"]["offsets"][m]
+        R = relay.get(gid)
+        if R is None:
+            return oz
+        k = (oz, ox + x, oy + y)
+        if k in R.final_layer:
+            return R.final_layer[k]
+        # An exit end on a void tile follows the nearest occupied tile of its map.
+        for rad in (1, 2):
+            near = sorted((max(abs(dx), abs(dy)), dy, dx, R.final_layer[n])
+                          for dx in range(-rad, rad + 1) for dy in range(-rad, rad + 1)
+                          for n in [(oz, ox + x + dx, oy + y + dy)]
+                          if n in R.final_layer and R.tiles[n][0] == m)
+            if near:
+                if near[0][3] != oz:
+                    void_exit_ends[(m, x, y)] = near[0][3]
+                return near[0][3]
+        return oz
+
     # ---------------------------------------------------------- footprints
     # Occupied tiles per group in group-local coordinates, per local layer.
     local_tiles, local_set, local_bbox = {}, {}, {}
@@ -474,9 +567,14 @@ def build(content: Path, allow_dirty: bool = False):
         if g["id"] == ow_id:
             continue
         per = collections.defaultdict(set)
-        for m, (ox, oy, oz) in g["layout"]["offsets"].items():
-            for (tx, ty) in maps[m].occupied:
-                per[oz].add((ox + tx, oy + ty))
+        R = relay.get(g["id"])
+        if R is not None:
+            for (L, x, y) in R.final_positions():
+                per[L].add((x, y))
+        else:
+            for m, (ox, oy, oz) in g["layout"]["offsets"].items():
+                for (tx, ty) in maps[m].occupied:
+                    per[oz].add((ox + tx, oy + ty))
         per = {z: v for z, v in per.items() if v}
         local_set[g["id"]] = per
         local_tiles[g["id"]] = {z: sorted(v) for z, v in sorted(per.items())}
@@ -485,16 +583,29 @@ def build(content: Path, allow_dirty: bool = False):
     def owner_of(group_id, map_path):
         return map_path if group_id == ow_id else group_id
 
-    related = {}
+    # Related owners share an exit. An overworld map can span several layers after
+    # relayering, so it is related only on the layer(s) where a shared exit ends.
+    related, related_ow_layers = {}, {}
     for g in groups:
         if g["id"] == ow_id:
             continue
         rel = set()
+        lay = collections.defaultdict(set)
         for e in g["entrances"]:
             rel.add(owner_of(e["source_group"], e["source_map"]))
+            if e["source_group"] == ow_id:
+                lay[e["source_map"]].add(tile_layer(ow_id, e["source_map"], e["source_x"], e["source_y"]))
         for e in g["exits_out"]:
             rel.add(owner_of(e["target_group"], e["resolved_map"]))
+            if e["target_group"] == ow_id:
+                lay[e["resolved_map"]].add(tile_layer(ow_id, e["resolved_map"], e["resolved_x"], e["resolved_y"]))
         related[g["id"]] = rel
+        related_ow_layers[g["id"]] = lay
+
+    def rel_on(gid, z):
+        """Owners related to gid on layer z (groups on every layer, overworld maps on their exit layers)."""
+        lay = related_ow_layers.get(gid, {})
+        return {o for o in related.get(gid, ()) if o not in lay or z in lay[o]}
 
     # ---------------------------------------------------------- placement
     class S:  # mutable state of the current placement run
@@ -505,10 +616,13 @@ def build(content: Path, allow_dirty: bool = False):
         stairwells: list = []
         blocked_sites: list = []
         sw_of_exit: dict = {}
+        slope_failed: list = []
+        slope_failed_exit: dict = {}
+        relayer_blocked: list = []
 
     def local_tile(gid, m, x, y):
-        ox, oy, oz = G[gid]["layout"]["offsets"][m]
-        return ox + x, oy + y, oz
+        ox, oy, _oz = G[gid]["layout"]["offsets"][m]
+        return ox + x, oy + y, tile_layer(gid, m, x, y)
 
     def plane_tile(gid, m, x, y):
         lx, ly, lz = local_tile(gid, m, x, y)
@@ -629,14 +743,16 @@ def build(content: Path, allow_dirty: bool = False):
             bbox = (lb[0] + dx, lb[1] + dy, lb[2] + dx, lb[3] + dy)
             if not S.occ.owners_near(z, bbox, S.occ.radius):
                 continue
-            hit = S.occ.check(z, [(x + dx, y + dy) for (x, y) in pts], bbox, related[gid], own=gid)
+            hit = S.occ.check(z, [(x + dx, y + dy) for (x, y) in pts], bbox, rel_on(gid, z), own=gid)
             if hit:
                 return hit[0], hit[1], z
         return None
 
-    def chain_between(gid, upper, lower, cand=None):
-        """Stairwell chain from upper to lower end for a (candidate) placement of gid."""
-        rel = related[gid] | {gid}
+    def chain_between(gid, upper, lower, cand=None, slope=False):
+        """Stairwell chain from upper to lower end for a (candidate) placement of gid.
+
+        slope=True searches a sloped chain (one tile sideways per layer at most)
+        for ends that are more than one tile apart."""
 
         def own(p):
             if cand is None:
@@ -648,8 +764,12 @@ def build(content: Path, allow_dirty: bool = False):
             return not own(p) and S.occ.occupant(p[2], (p[0], p[1])) is None
 
         def strict(p):
-            return void(p) and not S.occ.unrelated_within(p[2], (p[0], p[1]), rel, own=gid)
+            rel = rel_on(gid, p[2])
+            return void(p) and not S.occ.unrelated_within(p[2], (p[0], p[1]), rel | {gid}, own=gid) and \
+                not S.occ.related_within(p[2], (p[0], p[1]), rel - {gid}, own=gid)
 
+        if slope:
+            return fp.find_slope_chain(upper, lower, void, strict)
         return fp.find_chain(upper, lower, void, strict, STAIRWELL_MAX_BEND)
 
     def map_at(owner, plane):
@@ -661,7 +781,8 @@ def build(content: Path, allow_dirty: bool = False):
         if p is None:
             return None
         for m, (ox, oy, oz) in sorted(G[owner]["layout"]["offsets"].items()):
-            if oz + p["L"] == z and (x - ox - p["dx"], y - oy - p["dy"]) in maps[m].occupied:
+            lx, ly = x - ox - p["dx"], y - oy - p["dy"]
+            if (lx, ly) in maps[m].occupied and tile_layer(owner, m, lx, ly) + p["L"] == z:
                 return m
         return None
 
@@ -790,35 +911,87 @@ def build(content: Path, allow_dirty: bool = False):
             "tentative": tentative,
         }
 
-    def build_stairwells(gid, conns):
-        """Build one stairwell per aligned multi-layer exit site of the just placed gid."""
-        p = S.placed[gid]
-        items = []
-        for kind, e in conns:
-            s, t = eval_conn(kind, e, gid, p["dx"], p["dy"], p["L"])
-            if not is_aligned_multi(s, t):
-                continue
-            other = owner_of(e["source_group"], e["source_map"]) if kind == "in" else \
-                owner_of(e["target_group"], e["resolved_map"])
-            up, low = ends(s, t)
-            items.append({"e": e, "src": s, "dst": t, "up": up, "low": low, "other": other,
-                          "src_is_upper": s[2] > t[2]})
+    def is_slope(src, dst):
+        """Ends 2+ layers apart and at most one tile apart per layer, but not aligned (sloped stairwell)."""
+        dl = abs(src[2] - dst[2])
+        return dl >= 2 and STAIR_TOLERANCE < cheb(src, dst) <= dl * STAIR_TOLERANCE
+
+    def slope_blockers(gid, top, bottom):
+        """Why no sloped chain exists: layers whose whole corridor is occupied, else 'no connected path'."""
+        n = top[2] - bottom[2]
+        out = []
+        for i in range(1, n):
+            z = top[2] - i
+            spots = [(x, y) for y in range(max(top[1] - i, bottom[1] - (n - i)), min(top[1] + i, bottom[1] + (n - i)) + 1)
+                     for x in range(max(top[0] - i, bottom[0] - (n - i)), min(top[0] + i, bottom[0] + (n - i)) + 1)]
+            occ = sorted({S.occ.occupant(z, xy) for xy in spots} - {None})
+            free = sum(1 for xy in spots if S.occ.occupant(z, xy) is None)
+            out.append({"layer": z, "corridor_tiles": len(spots), "void_tiles": free,
+                        "occupied_by": [base_name(o) for o in occ]})
+        return out
+
+    def make_stairwell(kind, owner, other, top, bottom, site, mode, chain):
+        """Stairwell record (and occupancy of its intermediate tiles) for one site of exit items."""
+        exits_rec = [{"source_map": o["e"]["source_map"], "source_tile": [o["e"]["source_x"], o["e"]["source_y"]],
+                      "target_map": o["e"]["resolved_map"], "target_tile": [o["e"]["resolved_x"], o["e"]["resolved_y"]],
+                      "arch": o["e"]["arch"], "line": o["e"]["line"],
+                      "goes": "down" if o["src_is_upper"] else "up",
+                      "plane_source": list(o["src"]), "plane_target": list(o["dst"])} for o in site]
+        top_objs = sorted({o["e"]["arch"] for o in site if o["src_is_upper"]})
+        bot_objs = sorted({o["e"]["arch"] for o in site if not o["src_is_upper"]})
+        fam = None
+        for a in top_objs + bot_objs:
+            fam = stair_family_down(a)
+            if fam:
+                break
+        # Top and bottom keep their existing exit objects. Intermediate tiles get
+        # a decoration that only borrows the family archetype's appearance: it is
+        # not an exit (no exit type, destination or tiled link) and not walkable,
+        # so the stairwell stays ONE exit.
+        tiles = [{"layer": top[2], "x": top[0], "y": top[1], "role": "top", "existing": True,
+                  "objects": [{"archetype": a, "exit": True} for a in top_objs]}]
+        for (x, y, z) in chain:
+            tiles.append({"layer": z, "x": x, "y": y, "role": "intermediate", "existing": False,
+                          "objects": [{"archetype": fam, "exit": False, "walkable": False,
+                                       "use": "appearance only"}] if fam else []})
+        tiles.append({"layer": bottom[2], "x": bottom[0], "y": bottom[1], "role": "bottom", "existing": True,
+                      "objects": [{"archetype": a, "exit": True} for a in bot_objs]})
+        for (x, y, z) in chain:
+            S.occ.add(owner, z, [(x, y)])
+        goes = {o["src_is_upper"] for o in site}
+        direction = "both" if len(goes) == 2 else ("down" if True in goes else "up")
+        sw = {"kind": kind, "group": owner, "owner": owner, "connects": sorted({owner, other}), "other": other,
+              "direction": direction,
+              "landing_only_end": {"both": None, "down": "bottom", "up": "top"}[direction],
+              "x": top[0], "y": top[1], "top_layer": top[2], "bottom_layer": bottom[2],
+              "shape": "sloped" if cheb(top, bottom) > STAIR_TOLERANCE else "column",
+              "horizontal_offset": cheb(top, bottom),
+              "mode": mode, "max_bend": max([cheb((x, y), top) for (x, y, _z) in chain] or [0]),
+              "segments_drawn_only_on_player_layer": True,
+              "intermediate_appearance": fam,
+              "intermediate_appearance_source": (
+                  "appearance of the down archetype of the {} family used by this stairwell's exits; the "
+                  "intermediate objects are decorations, not exits".format(fam.rsplit("_", 1)[0])
+                  if fam else "no stair archetype among {}; owner to choose".format(top_objs + bot_objs)),
+              "tiles": tiles, "view_conflicts": [], "replaces": exits_rec}
+        S.stairwells.append(sw)
+        for o in site:
+            S.sw_of_exit[o["e"]["key"]] = sw
+        return sw
+
+    def group_sites(items):
+        """One site (stairwell) per tile holding a down-going stair object, see build_stairwells()."""
         for it in items:
             it["stair"] = stair_family_down(it["e"]["arch"]) is not None
         items.sort(key=lambda it: (0 if it["src_is_upper"] and it["stair"] else 1 if it["src_is_upper"] else 2,
                                    it["e"]["source_map"], it["e"]["source_y"], it["e"]["source_x"], it["e"]["line"]))
-        # One site (stairwell column) per tile holding a down-going stair
-        # object. A down-going exit without a stair archetype (an invisible
-        # exit beside a multi-tile stair sprite) joins the adjacent stair's
-        # site. Return (up-going) exits join the site whose top they land next
-        # to and whose landing is next to them. Anything else gets a column of
-        # its own.
         sites = []
         for it in items:
             best = None
             for site in sites:
                 c = site[0]
-                if c["other"] != it["other"] or c["up"][2] != it["up"][2] or c["low"][2] != it["low"][2]:
+                if c["other"] != it["other"] or c["up"][2] != it["up"][2] or c["low"][2] != it["low"][2] \
+                        or c["slope"] != it["slope"]:
                     continue
                 if it["src_is_upper"] and it["stair"]:
                     fits = it["up"] == c["up"] and all(cheb(o["low"], it["low"]) <= 1 for o in site)
@@ -835,59 +1008,62 @@ def build(content: Path, allow_dirty: bool = False):
                 sites.append([it])
             else:
                 best[1].append(it)
-        for site in sites:
-            canon = site[0]
-            top = canon["up"]
-            bottoms = sorted({tuple(o["src"]) for o in site if not o["src_is_upper"]})
-            bottom = min(bottoms, key=lambda b: (cheb(b, top), b[1], b[0])) if bottoms else tuple(canon["low"])
-            mode, chain = chain_between(gid, top, bottom)
-            exits_rec = [{"source_map": o["e"]["source_map"], "source_tile": [o["e"]["source_x"], o["e"]["source_y"]],
-                          "target_map": o["e"]["resolved_map"], "target_tile": [o["e"]["resolved_x"], o["e"]["resolved_y"]],
-                          "arch": o["e"]["arch"], "line": o["e"]["line"],
-                          "goes": "down" if o["src_is_upper"] else "up",
-                          "plane_source": list(o["src"]), "plane_target": list(o["dst"])} for o in site]
-            if mode is None:
-                S.blocked_sites.append({"group": gid, "other": canon["other"], "top": list(top),
-                                        "bottom": list(bottom), "exits": exits_rec,
-                                        "column_occupied": column_blockers(gid, top, bottom),
-                                        "reason": "no void chain within {} tile(s) of the column".format(
-                                            STAIRWELL_MAX_BEND)})
-                for o in site:
-                    S.sw_of_exit[o["e"]["key"]] = None
+        return sites
+
+    def site_ends(site):
+        canon = site[0]
+        top = canon["up"]
+        n_ok = (lambda b: cheb(b, top) <= (top[2] - b[2]) * STAIR_TOLERANCE) if canon["slope"] else \
+            (lambda b: cheb(b, top) <= STAIR_TOLERANCE)
+        bottoms = sorted({tuple(o["src"]) for o in site if not o["src_is_upper"] and n_ok(tuple(o["src"]))})
+        bottom = min(bottoms, key=lambda b: (cheb(b, top), b[1], b[0])) if bottoms else tuple(canon["low"])
+        return top, bottom
+
+    def build_stairwells(gid, conns):
+        """Build one stairwell per aligned or sloped multi-layer exit site of the just placed gid."""
+        p = S.placed[gid]
+        items = []
+        for kind, e in conns:
+            s, t = eval_conn(kind, e, gid, p["dx"], p["dy"], p["L"])
+            aligned, slope = is_aligned_multi(s, t), is_slope(s, t)
+            if not (aligned or slope):
                 continue
-            top_objs = sorted({o["e"]["arch"] for o in site if o["src_is_upper"]})
-            bot_objs = sorted({o["e"]["arch"] for o in site if not o["src_is_upper"]})
-            fam = None
-            for a in top_objs + bot_objs:
-                fam = stair_family_down(a)
-                if fam:
-                    break
-            # Top and bottom keep their existing exit objects. Intermediate tiles get
-            # a decoration that only borrows the family archetype's appearance: it is
-            # not an exit (no exit type, destination or tiled link) and not walkable,
-            # so the stairwell stays ONE exit.
-            tiles = [{"layer": top[2], "x": top[0], "y": top[1], "role": "top", "existing": True,
-                      "objects": [{"archetype": a, "exit": True} for a in top_objs]}]
-            for (x, y, z) in chain:
-                tiles.append({"layer": z, "x": x, "y": y, "role": "intermediate", "existing": False,
-                              "objects": [{"archetype": fam, "exit": False, "walkable": False,
-                                           "use": "appearance only"}] if fam else []})
-            tiles.append({"layer": bottom[2], "x": bottom[0], "y": bottom[1], "role": "bottom", "existing": True,
-                          "objects": [{"archetype": a, "exit": True} for a in bot_objs]})
-            for (x, y, z) in chain:
-                S.occ.add(gid, z, [(x, y)])
-            sw = {"group": gid, "connects": sorted({gid, canon["other"]}), "other": canon["other"],
-                  "x": top[0], "y": top[1], "top_layer": top[2], "bottom_layer": bottom[2],
-                  "mode": mode, "max_bend": max([cheb((x, y), top) for (x, y, _z) in chain] or [0]),
-                  "intermediate_appearance": fam,
-                  "intermediate_appearance_source": (
-                      "appearance of the down archetype of the {} family used by this stairwell's exits; the "
-                      "intermediate objects are decorations, not exits".format(fam.rsplit("_", 1)[0])
-                      if fam else "no stair archetype among {}; owner to choose".format(top_objs + bot_objs)),
-                  "tiles": tiles, "view_conflicts": [], "replaces": exits_rec}
-            S.stairwells.append(sw)
-            for o in site:
-                S.sw_of_exit[o["e"]["key"]] = sw
+            other = owner_of(e["source_group"], e["source_map"]) if kind == "in" else \
+                owner_of(e["target_group"], e["resolved_map"])
+            up, low = ends(s, t)
+            items.append({"e": e, "src": s, "dst": t, "up": up, "low": low, "other": other,
+                          "src_is_upper": s[2] > t[2], "slope": slope})
+        # One site (stairwell) per tile holding a down-going stair object. A
+        # down-going exit without a stair archetype (an invisible exit beside a
+        # multi-tile stair sprite) joins the adjacent stair's site. Return
+        # (up-going) exits join the site whose top they land next to and whose
+        # landing is next to them. Anything else gets a stairwell of its own.
+        # Aligned and sloped exits never share a site.
+        for site in group_sites(items):
+            canon = site[0]
+            top, bottom = site_ends(site)
+            slope = cheb(top, bottom) > STAIR_TOLERANCE
+            mode, chain = chain_between(gid, top, bottom, slope=slope)
+            if mode is None:
+                rec = {"group": gid, "other": canon["other"], "top": list(top), "bottom": list(bottom),
+                       "exits": [{"source_map": o["e"]["source_map"],
+                                  "source_tile": [o["e"]["source_x"], o["e"]["source_y"]], "arch": o["e"]["arch"],
+                                  "line": o["e"]["line"]} for o in site]}
+                if slope:
+                    rec.update(shape="sloped", layers=slope_blockers(gid, top, bottom),
+                               reason="no void sloped chain (one tile per layer, at most one tile sideways)")
+                    S.slope_failed.append(rec)
+                    for o in site:
+                        S.sw_of_exit[o["e"]["key"]] = None
+                        S.slope_failed_exit[o["e"]["key"]] = rec
+                else:
+                    rec.update(shape="column", column_occupied=column_blockers(gid, top, bottom),
+                               reason="no void chain within {} tile(s) of the column".format(STAIRWELL_MAX_BEND))
+                    S.blocked_sites.append(rec)
+                    for o in site:
+                        S.sw_of_exit[o["e"]["key"]] = None
+                continue
+            make_stairwell("sloped" if slope else "placement", gid, canon["other"], top, bottom, site, mode, chain)
 
     to_place = [g["id"] for g in groups if g["classification"] == "place"]
     tentative_ids = [g["id"] for g in groups if g["classification"] == "uncertain"]
@@ -924,19 +1100,78 @@ def build(content: Path, allow_dirty: bool = False):
             remaining.remove(pick)
         return order, remaining
 
+    ow_relay = relay[ow_id]
+    ow_pieces = ow_relay.pieces  # map -> final layer -> plane tiles
+    ow_internal = [e for e in exits if e["source_group"] == ow_id and e.get("target_group") == ow_id]
+
+    def _piece(m, L):
+        return ow_pieces[m][L]
+
+    def sw_related(sw, z):
+        """Owners whose tiles a stairwell tile on layer z may see without a view conflict.
+
+        Relayering stairwells belong to the overworld: they do not see each other as unrelated."""
+        if sw["kind"] == "relayering":
+            return {x["owner"] for x in S.stairwells if x["kind"] == "relayering"}
+        return rel_on(sw["group"], z) | {sw["group"]}
+
+    def build_relayer_stairwells():
+        """Stairwells for overworld exits whose ends are 2+ layers apart after relayering (decision 4 rule)."""
+        items = []
+        for e in ow_internal:
+            s_ = plane_tile(ow_id, e["source_map"], e["source_x"], e["source_y"])
+            t_ = plane_tile(ow_id, e["resolved_map"], e["resolved_x"], e["resolved_y"])
+            aligned, slope = is_aligned_multi(s_, t_), is_slope(s_, t_)
+            if not (aligned or slope):
+                continue
+            # Only exits whose layer distance the relayering changed; legacy overworld
+            # shafts it leaves alone keep their legacy form.
+            legacy = maps[e["resolved_map"]].coords[2] - maps[e["source_map"]].coords[2]
+            if abs(legacy) == abs(t_[2] - s_[2]):
+                continue
+            up, low = ends(s_, t_)
+            pair = (e["source_map"], e["resolved_map"]) if s_[2] > t_[2] else (e["resolved_map"], e["source_map"])
+            items.append({"e": e, "src": s_, "dst": t_, "up": up, "low": low, "other": pair,
+                          "src_is_upper": s_[2] > t_[2], "slope": slope})
+        for site in group_sites(items):
+            canon = site[0]
+            top, bottom = site_ends(site)
+            slope = cheb(top, bottom) > STAIR_TOLERANCE
+            owner = "stairwell@{},{},{}".format(*top)
+
+            def void(p):
+                return S.occ.occupant(p[2], (p[0], p[1])) is None
+
+            def strict(p, owner=owner):
+                return void(p) and not S.occ.unrelated_within(p[2], (p[0], p[1]), {owner}, own=owner)
+
+            mode, chain = fp.find_slope_chain(top, bottom, void, strict) if slope else \
+                fp.find_chain(top, bottom, void, strict, STAIRWELL_MAX_BEND)
+            if mode is None:
+                S.relayer_blocked.append({"top_map": canon["other"][0], "bottom_map": canon["other"][1],
+                                          "top": list(top), "bottom": list(bottom),
+                                          "shape": "sloped" if slope else "column",
+                                          "exits": [{"source_map": o["e"]["source_map"],
+                                                     "source_tile": [o["e"]["source_x"], o["e"]["source_y"]],
+                                                     "arch": o["e"]["arch"], "line": o["e"]["line"]} for o in site]})
+                for o in site:
+                    S.sw_of_exit[o["e"]["key"]] = None
+                continue
+            sw = make_stairwell("relayering", owner, canon["other"][1], top, bottom, site, mode, chain)
+            sw["group"] = None
+            sw["connects"] = sorted(set(canon["other"]))
+
     def run_placement(radius):
         S.placed, S.placements, S.order = {}, {}, []
         S.stairwells, S.blocked_sites, S.sw_of_exit = [], [], {}
+        S.slope_failed, S.slope_failed_exit, S.relayer_blocked = [], {}, []
         S.occ = fp.Occupancy(radius, CONTACT_MARGIN)
         for m in G[ow_id]["maps"]:
-            rec = maps[m]
-            if not rec.occupied:
-                continue
-            X, Y, Z = rec.coords
-            bx, by = 24 * X, 24 * Y
-            lb = fp.bbox_of(rec.occupied)
-            S.occ.add(m, Z, functools.partial(_ow_tiles, rec, bx, by),
-                      bbox=(bx + lb[0], by + lb[1], bx + lb[2], by + lb[3]))
+            for L in sorted(ow_pieces.get(m, {})):
+                ts = ow_pieces[m][L]
+                if ts:
+                    S.occ.add(m, L, functools.partial(_piece, m, L), bbox=fp.bbox_of(ts))
+        build_relayer_stairwells()
         o1, l1 = run_pool(to_place, False)
         o2, l2 = run_pool(tentative_ids, True)
         o3 = []
@@ -948,20 +1183,32 @@ def build(content: Path, allow_dirty: bool = False):
                     res["tentative_reason"] = why
                     S.placements[gid] = res
                     o3.append(gid)
-        # view conflicts against the final state (stairwell tiles count as their group's tiles)
+        # view conflicts against the final state (stairwell tiles count as their owner's tiles);
+        # every stairwell is drawn only on the player's layer (owner decision 2026-10-18), so
+        # the conflicts are listed but hidden in the engine.
         for sw in S.stairwells:
-            rel = related[sw["group"]] | {sw["group"]}
-            sw["view_conflicts"] = []
+            sw["view_conflicts"], sw["contacts"] = [], []
             for t in sw["tiles"][1:-1]:
-                vis = S.occ.unrelated_within(t["layer"], (t["x"], t["y"]), rel, own=sw["group"])
+                vis = S.occ.unrelated_within(t["layer"], (t["x"], t["y"]), sw_related(sw, t["layer"]),
+                                             own=sw["owner"])
                 if vis:
                     sw["view_conflicts"].append({"layer": t["layer"], "x": t["x"], "y": t["y"], "visible_from": vis})
-            sw["mode"] = "void-only" if sw["view_conflicts"] else "clear"
-        # stable stairwell ids
+                if sw["kind"] != "relayering":
+                    touch = S.occ.related_within(t["layer"], (t["x"], t["y"]),
+                                                 rel_on(sw["group"], t["layer"]) - {sw["group"]}, own=sw["owner"])
+                    if touch:
+                        sw["contacts"].append({"layer": t["layer"], "x": t["x"], "y": t["y"], "touches": touch})
+            sw["mode"] = "void-only" if sw["view_conflicts"] or sw["contacts"] else "clear"
+        # stable stairwell ids: one series per kind
         lab_ids = sorted(S.placed)
-        S.stairwells.sort(key=lambda sw: (lab_ids.index(sw["group"]), -sw["top_layer"], sw["y"], sw["x"]))
-        for i, sw in enumerate(S.stairwells, 1):
-            sw["id"] = "SW{}".format(i)
+        prefix = {"placement": "SW", "sloped": "SL", "relayering": "SR"}
+        S.stairwells.sort(key=lambda sw: (list(prefix).index(sw["kind"]),
+                                          lab_ids.index(sw["group"]) if sw["group"] in lab_ids else -1,
+                                          -sw["top_layer"], sw["y"], sw["x"]))
+        n = collections.Counter()
+        for sw in S.stairwells:
+            n[sw["kind"]] += 1
+            sw["id"] = "{}{}".format(prefix[sw["kind"]], n[sw["kind"]])
         return o1, l1, o2 + o3, l2
 
     def becomes_counts():
@@ -994,6 +1241,10 @@ def build(content: Path, allow_dirty: bool = False):
         return r
 
     def portal_reason(e, s, t, dist, dl):
+        if e["key"] in S.slope_failed_exit:
+            return {"portal_reason": "slope-blocked", "slope_reachable": True,
+                    "portal_reason_text": "{} tiles and {} layers apart, but no void sloped chain exists".format(
+                        dist, abs(dl))}
         if e["key"] in S.sw_of_exit:
             return {"portal_reason": "stairwell-blocked",
                     "portal_reason_text": "aligned over {} layers, but no void stair chain exists".format(abs(dl))}
@@ -1001,6 +1252,10 @@ def build(content: Path, allow_dirty: bool = False):
             return {"portal_reason": "same-layer",
                     "portal_reason_text": "both ends on layer {}, {} tiles apart".format(s[2], dist)}
         ends_ = [x for x in (e["source_group"], e["target_group"]) if x != ow_id]
+        if not ends_:
+            return {"portal_reason": "overworld",
+                    "portal_reason_text": "overworld exit whose ends are {} tiles and {} layer(s) apart".format(
+                        dist, abs(dl))}
         later = max(ends_, key=lambda x: S.order.index(x) if x in S.order else -1)
         p = S.placed[later]
         main = (S.placements.get(later) or {}).get("main_connection")
@@ -1035,6 +1290,8 @@ def build(content: Path, allow_dirty: bool = False):
             r["event_scripts"] = e["event_scripts"]
         if e.get("dir_inferred_from"):
             r["vertical_inferred_from"] = e["dir_inferred_from"]
+        if e.get("wired"):
+            r["wired"] = e["wired"]
         if with_eval:
             ev = eval_exit(e)
             if ev:
@@ -1066,6 +1323,126 @@ def build(content: Path, allow_dirty: bool = False):
         if gid in sens_placed and (sens_placed[gid]["dx"], sens_placed[gid]["dy"], sens_placed[gid]["L"])
         != (p["dx"], p["dy"], p["L"]))
 
+    # ------------------------------- wire dangling exits (owner decision 2026-10-18)
+    # A tiled up/down exit without a tile link leads nowhere in legacy. When the
+    # tile above (or below), plus the exit's xrays landing offset, is occupied by
+    # other content after placement, the exit is wired to it as plain stairs.
+    # A working exit on the same tile whose destination lies within one tile of
+    # that landing is the same staircase, so its destination is used instead.
+    def tile_objects(m, x, y):
+        """Objects on tile (x, y) of map m, multipart objects included through their tails."""
+        out = []
+        for o in maps[m].objects:
+            ox, oy = md.to_int(o.fields.get("x"), 0), md.to_int(o.fields.get("y"), 0)
+            tails = archs.get(o.name.casefold(), {}).get("__tails__", ())
+            if (ox, oy) == (x, y) or any((ox + tx, oy + ty) == (x, y) for tx, ty in tails):
+                out.append((o.name, md.effective_attrs(o, archs)))
+        return out
+
+    terrain_names = {"0": "nothing", "1": "land", "2": "water", "4": "deep water", "8": "fire", "16": "fire",
+                     "32": "cloud", "64": "shallow water"}
+    wired, kept_decoration = [], []
+    for e in exits:
+        if e["form"] != "tiled-unresolved" or e.get("tiled_slot") not in (9, 10):
+            continue
+        sg = e["source_group"]
+        s_ = plane_tile(sg, e["source_map"], e["source_x"], e["source_y"])
+        if s_ is None:
+            continue
+        dz = 1 if e["tiled_slot"] == 9 else -1
+        lx, ly = e["landing_offset"]
+        land = (s_[0] + lx, s_[1] + ly, s_[2] + dz)
+        occ_owner = S.occ.occupant(land[2], (land[0], land[1]))
+        if occ_owner is None or occ_owner == owner_of(sg, e["source_map"]):
+            continue
+        target, how = land, "the tile {} (plus the landing offset {})".format(
+            "above" if dz > 0 else "below", [lx, ly])
+        co = []
+        for o in by_tile[(e["source_map"], e["source_x"], e["source_y"])]:
+            if o is e or not o.get("resolved_map") or o["target_group"] not in (ow_id, *S.placed):
+                continue
+            pt = plane_tile(o["target_group"], o["resolved_map"], o["resolved_x"], o["resolved_y"])
+            co.append({"arch": o["arch"], "target_map": o["resolved_map"], "target_tile": [o["resolved_x"], o["resolved_y"]],
+                       "plane_target": list(pt)})
+            if pt[2] == land[2] and cheb(pt, land) <= 1 and target is land:
+                target, how = tuple(pt), "the destination of the {} on the same tile, {} tile(s) from the landing".format(
+                    o["arch"], cheb(pt, land))
+        towner = S.occ.occupant(target[2], (target[0], target[1]))
+        tm = map_at(towner, target) if towner is not None else None
+        if tm is None:
+            continue
+        if gof[tm] == ow_id:
+            X, Y, _Z = maps[tm].coords
+            tx, ty = target[0] - 24 * X, target[1] - 24 * Y
+        else:
+            pl = S.placed[gof[tm]]
+            ox, oy, _oz = G[gof[tm]]["layout"]["offsets"][tm]
+            tx, ty = target[0] - ox - pl["dx"], target[1] - oy - pl["dy"]
+        src_objs = [n for n, _a in tile_objects(e["source_map"], e["source_x"], e["source_y"])]
+        dst = tile_objects(tm, tx, ty)
+        floors_ = [a for _n, a in dst if a.get("layer") == "1"]
+        terr = sorted({terrain_names.get(a.get("terrain_type", "0"), a.get("terrain_type")) for a in floors_})
+        blocked_ = (tx, ty) in maps[tm].blocked or any(a.get("no_pass") == "1" for _n, a in dst)
+        back = []
+        for o in exits:
+            if o["source_map"] == tm and o.get("resolved_map") == e["source_map"] and \
+                    cheb((o["source_x"], o["source_y"]), (tx, ty)) <= 3 and \
+                    cheb((o["resolved_x"], o["resolved_y"]), (e["source_x"], e["source_y"])) <= 3:
+                back.append({"source_tile": [o["source_x"], o["source_y"]], "arch": o["arch"],
+                             "target_tile": [o["resolved_x"], o["resolved_y"]]})
+        entr = [plane_tile(x["source_group"], x["source_map"], x["source_x"], x["source_y"])
+                for x in G[sg]["entrances"] if x["source_group"] in (ow_id, *S.placed)]
+        near_entr = min([cheb(p_, target) for p_ in entr if p_ and p_[2] == target[2]] or [None]) \
+            if any(p_ and p_[2] == target[2] for p_ in entr) else None
+        if not floors_:
+            verdict, why = "doubtful", "the landing tile has no floor"
+        elif blocked_:
+            verdict, why = "doubtful", "the landing tile holds a no_pass object"
+        elif terr != ["land"]:
+            verdict, why = "doubtful", ("the landing floor is {} (terrain_type {}), which a walking player cannot "
+                                        "enter (classic blocked(), server/src/server/map.c:697)".format(
+                                            "/".join(terr), "/".join(sorted({a.get("terrain_type", "0")
+                                                                             for a in floors_}))))
+        elif back or how.startswith("the destination"):
+            verdict, why = "confirmed", "a working exit on the same tile or a return exit beside the landing " \
+                                        "already joins the same two places"
+        else:
+            verdict, why = "plausible", "walkable land floor on the landing tile and no exit contradicts it"
+        if near_entr is not None:
+            why += "; the landing is {} tile(s) from this group's nearest entrance on that layer".format(near_entr)
+        evidence = {"target_from": how, "plane_landing": list(land), "plane_target": list(target),
+                    "source_tile_objects": src_objs, "landing_tile_objects": [n for n, _a in dst],
+                    "landing_floor_terrain": terr, "landing_blocked": blocked_,
+                    "exits_on_source_tile": co, "return_exits_near_landing": back,
+                    "verdict": verdict, "why": why}
+        decision = OWNER_KEEP_AS_DECORATION.get((e["source_map"], (e["source_x"], e["source_y"]), e["arch"]))
+        if decision:
+            kept_decoration.append({"source_map": e["source_map"], "source_tile": [e["source_x"], e["source_y"]],
+                                    "arch": e["arch"], "line": e["line"], "plane_source": list(s_),
+                                    "decision": decision,
+                                    "migrate_as": "decoration with the {} look: no exit, no destination".format(
+                                        e["arch"]),
+                                    "would_land_on": {"map": tm, "tile": [tx, ty], **evidence}})
+            continue
+        e2 = dict(e, form="wired", resolved_map=tm, resolved_x=tx, resolved_y=ty, target_group=gof[tm])
+        e2["wired"] = evidence
+        wired.append(e2)
+        cross.append(e2)
+        G[sg]["exits_out"].append(e2)
+        G[gof[tm]]["entrances"].append(e2)
+        for a, b_end in ((sg, (gof[tm], tm, target[2])), (gof[tm], (sg, e["source_map"], s_[2]))):
+            if a == ow_id:
+                continue
+            related[a].add(owner_of(b_end[0], b_end[1]))
+            if b_end[0] == ow_id:
+                related_ow_layers[a][b_end[1]].add(b_end[2])
+
+    matched = {(d["source_map"], tuple(d["source_tile"]), d["arch"]) for d in kept_decoration}
+    stale = sorted(k for k in OWNER_KEEP_AS_DECORATION if k not in matched)
+    if stale:
+        raise SystemExit("owner decision lists exits to keep as decoration that are no longer dangling exits "
+                         "landing on content: {}".format(stale))
+
     stats = collections.defaultdict(collections.Counter)
     portal_reasons = collections.Counter()
     separate_portals = 0
@@ -1079,24 +1456,6 @@ def build(content: Path, allow_dirty: bool = False):
             portal_reasons[ev["portal_reason"]] += 1
         for gid in {e["source_group"], e["target_group"]} - {ow_id}:
             stats[gid][ev["becomes"]] += 1
-
-    # dangling tiled exits that now land on something
-    landed = []
-    for e in exits:
-        if e["form"] != "tiled-unresolved" or e.get("tiled_slot") not in (9, 10):
-            continue
-        sg = e["source_group"]
-        s = plane_tile(sg, e["source_map"], e["source_x"], e["source_y"])
-        if s is None:
-            continue
-        dz = 1 if e["tiled_slot"] == 9 else -1
-        lx, ly = e["landing_offset"]
-        tgt = (s[0] + lx, s[1] + ly, s[2] + dz)
-        occ_owner = S.occ.occupant(tgt[2], (tgt[0], tgt[1]))
-        if occ_owner is not None and occ_owner != owner_of(sg, e["source_map"]):
-            landed.append({"source_map": e["source_map"], "source_tile": [e["source_x"], e["source_y"]],
-                           "arch": e["arch"], "line": e["line"], "plane_source": list(s), "plane_landing": list(tgt),
-                           "lands_on": occ_owner})
 
     # ---------------------------------------------------------- data problems
     problems = {"tile_links": link_problems, "layouts": [], "exits": []}
@@ -1144,31 +1503,271 @@ def build(content: Path, allow_dirty: bool = False):
             oneway.append({"group": g["id"], "kind": "no-exit-object-leads-in",
                            "script_or_dialog_refs": sorted({r["file"] for r in g["script_refs"]})})
     problems["connectivity"] = oneway
-    problems["dangling_exits_landing_after_placement"] = landed
+    problems["dangling_exits_wired"] = [{"source_map": e["source_map"], "source_tile": [e["source_x"], e["source_y"]],
+                                         "arch": e["arch"], "line": e["line"], "target_map": e["resolved_map"],
+                                         "target_tile": [e["resolved_x"], e["resolved_y"]], "verdict": e["wired"]["verdict"]}
+                                        for e in wired]
+    problems["dangling_exits_kept_as_decoration"] = [
+        {"source_map": d["source_map"], "source_tile": d["source_tile"], "arch": d["arch"], "line": d["line"],
+         "decision": d["decision"]} for d in kept_decoration]
 
-    # ------------------------------------------------- layer-height proposal
-    map_origins = {}
-    for m in G[ow_id]["maps"]:
+    # ------------------------------------------------------ relayering record
+    for gid, Rg in sorted(relay.items()):
+        if gid != ow_id and gid in S.placed and Rg.moved:
+            raise SystemExit("relayering moves tiles inside placed group {}; per-layer member rows are needed "
+                             "before this plan can record it".format(gid))
+    R = ow_relay
+    reg_ids = {}
+    for r in [r for r in R.regions if r["relayered"]]:
+        reg_ids[r["index"]] = "R{}".format(len(reg_ids) + 1)
+    kept_ids = {}
+    for r in [r for r in R.regions if not r["relayered"]]:
+        kept_ids[r["index"]] = "K{}".format(len(kept_ids) + 1)
+
+    def maps_count(keys):
+        c = collections.Counter(R.tiles[k][0] for k in keys)
+        return [{"path": m, "tiles": n} for m, n in sorted(c.items())]
+
+    def finals_count(keys):
+        c = collections.Counter(R.final_layer[k] for k in keys)
+        return {str(L): n for L, n in sorted(c.items())}
+
+    regions_out, kept_out = [], []
+    for r in R.regions:
+        ks = r["tiles"]
+        zs = [R.H[k] for k in ks]
+        xs, ys = [k[1] for k in ks], [k[2] for k in ks]
+        rec = {"layer_before": r["layer"], "q": r["q"], "tiles": len(ks), "maps": maps_count(ks),
+               "z_min": min(zs), "z_max": max(zs), "bbox": [min(xs), min(ys), max(xs), max(ys)], "why": r["why"]}
+        if r["relayered"]:
+            u_shift = sorted({R.du.get(R.unit_of[k], 0) for k in ks if k in R.unit_of} or {0})
+            dr = R.dr.get(r["index"], 0)
+            rests = [R.rest(k) for k in ks]
+            if dr:
+                how = "lowered in place: moved down {} layer(s), then relayered up {}; it keeps its layer".format(-dr, r["q"])
+            elif u_shift != [0]:
+                how = "lowered with its whole cave by {} layer(s), then relayered up {}".format(-u_shift[0], r["q"])
+            else:
+                how = "relayered up {} layer(s)".format(r["q"])
+            rec.update(id=reg_ids[r["index"]], layer_after=sorted({R.final_layer[k] for k in ks}),
+                       rest_min=min(rests), rest_max=max(rests), resolution=how,
+                       in_place_adjustment=dr, final_layers=finals_count(ks))
+            regions_out.append(rec)
+        else:
+            rec.update(id=kept_ids[r["index"]], kept="z stays as tile height: under {} tiles and touching no "
+                                                   "relayered region".format(relayer.MIN_REGION_TILES))
+            kept_out.append(rec)
+    region_of_tile = {k: reg_ids[R.region_of[k]] for k in R.relayered}
+
+    unit_moves = collections.defaultdict(int)
+    for mv in R.moves:
+        if mv["kind"] in ("storey-up", "cave-down"):
+            unit_moves[mv["unit"]] += mv["shift"]
+    units_out = []
+    for u, sh in sorted(unit_moves.items(), key=lambda kv: (-kv[1] if kv[1] > 0 else 0, R.units[kv[0]]["layer"],
+                                                            R.units[kv[0]]["tiles"][0])):
+        ks = R.units[u]["tiles"]
+        rec = {"id": "U{}".format(len(units_out) + 1), "kind": "storey up" if sh > 0 else "cave down",
+               "layer_before": R.units[u]["layer"], "shift": sh, "tiles": len(ks), "maps": maps_count(ks),
+               "final_layers": finals_count(ks), "regions": sorted({region_of_tile[k] for k in ks if k in region_of_tile},
+                                                                   key=lambda t: int(t[1:])),
+               "bbox": [min(k[1] for k in ks), min(k[2] for k in ks), max(k[1] for k in ks), max(k[2] for k in ks)]}
+        # the regions that made it move: raised ground under a storey, raised parts inside a cave
+        linked = set(rec["regions"])
+        if sh > 0:
+            for k in ks:
+                for L in R.columns.get((k[1], k[2]), []):
+                    if L < k[0] and (L, k[1], k[2]) in region_of_tile:
+                        linked.add(region_of_tile[(L, k[1], k[2])])
+        rec["linked_regions"] = sorted(linked, key=lambda t: int(t[1:]))
+        if sh > 0:
+            under = collections.Counter()
+            for k in ks:
+                below = [L for L in R.columns.get((k[1], k[2]), []) if L < k[0]]
+                if not below:
+                    under["over void"] += 1
+                else:
+                    b = (max(below), k[1], k[2])
+                    under["over raised ground" if R.final_layer[b] != b[0] else "over unmoved ground"] += 1
+            rec["stands_on"] = dict(sorted(under.items()))
+            rec["why"] = "it stands on ground that is relayered up; it moves with it to keep its storey above"
+        units_out.append(rec)
+    unit_id = {}
+    for u, rec in zip(sorted(unit_moves, key=lambda u: (-unit_moves[u] if unit_moves[u] > 0 else 0,
+                                                         R.units[u]["layer"], R.units[u]["tiles"][0])), units_out):
+        unit_id[u] = rec["id"]
+    caves_out = []
+    for c in R.caves:
+        caves_out.append(dict(c, unit=unit_id.get(c["unit"], "{}'s cave".format(
+                                  ", ".join(reg_ids[r] for r in c["regions"]))),
+                              regions=[reg_ids[r] for r in c["regions"]]))
+    for rec in units_out:
+        if rec["kind"] == "cave down":
+            rec["why"] = next(c["why"] for c in caves_out if c["unit"] == rec["id"])
+
+    moved_maps = collections.defaultdict(collections.Counter)
+    for k in R.moved:
+        moved_maps[R.tiles[k][0]][R.final_layer[k]] += 1
+    maps_moved = []
+    for m in sorted(moved_maps, key=lambda m: (maps[m].coords[2], maps[m].coords[1], maps[m].coords[0])):
+        allf = collections.Counter(R.final_layer[(maps[m].coords[2], 24 * maps[m].coords[0] + x,
+                                                   24 * maps[m].coords[1] + y)] for (x, y) in maps[m].occupied)
+        maps_moved.append({"path": m, "layer_before": maps[m].coords[2], "tiles": len(maps[m].occupied),
+                           "final_layers": {str(L): n for L, n in sorted(allf.items())}})
+
+    seams_out, new_stairs = [], []
+    for sm in R.seams():
+        pieces = []
+        for pc in sm["pieces"]:
+            lo, hi = pc["representative_edge"]
+            d = {"cell": pc["cell"], "edges": pc["edges"], "continuity": pc["continuity"],
+                 "low_tile": lo, "high_tile": hi, "stairs": []}
+            for st_ in pc["stairs"]:
+                rec = {"id": "NS{}".format(len(new_stairs) + 1), "seam": "S{}".format(sm["index"] + 1),
+                       "low": st_["low"], "high": st_["high"],
+                       "low_map": R.tiles[tuple(st_["low_tile"])][0], "high_map": R.tiles[tuple(st_["high_tile"])][0],
+                       "low_tile_legacy": st_["low_tile"], "high_tile_legacy": st_["high_tile"], "why": st_["why"],
+                       "objects": [{"tile": "low", "archetype": "stairs_stone_up", "exit": True, "exit_to": "high"},
+                                   {"tile": "high", "archetype": "stairs_stone_down", "exit": True, "exit_to": "low"}]}
+                new_stairs.append(rec)
+                d["stairs"].append(rec["id"])
+            if "exit" in pc:
+                d["exit"] = pc["exit"]
+            pieces.append(d)
+        regs_ = sorted({region_of_tile.get(tuple(p_["low_tile"])) or region_of_tile.get(tuple(p_["high_tile"]))
+                        for p_ in pieces} - {None}, key=lambda t: int(t[1:]))
+        seams_out.append({"id": "S{}".format(sm["index"] + 1), "low_layer": sm["low_layer"],
+                          "high_layer": sm["high_layer"], "cut_edges": sm["edges"], "regions": regs_,
+                          "maps": sorted({R.tiles[tuple(p_[k])][0] for p_ in pieces for k in ("low_tile", "high_tile")}),
+                          "pieces": pieces})
+    steep_out = [{"layer": a[0], "tiles": [[a[1], a[2]], [b[1], b[2]]], "maps": sorted({R.tiles[a][0], R.tiles[b][0]}),
+                  "z_before": [R.H[a], R.H[b]], "z_after": [R.rest(a), R.rest(b)]} for a, b in R.steep_steps()]
+    contacts_out = [{"final_layer": R.final_layer[a] if a in R.moved else R.final_layer[b],
+                     "tiles": [list(a), list(b)], "maps": [R.tiles[a][0], R.tiles[b][0]],
+                     "walkable": (a in R.H and b in R.H and not R.tiles[a][2] and not R.tiles[b][2]
+                                  and abs(R.rest(a) - R.rest(b)) < relayer.WALKABLE_DZ)}
+                    for a, b in R.new_contacts()]
+
+    # exits whose overworld ends moved, before and after
+    moved_set = set(R.moved)
+    relayer_exits = []
+    for e in sorted(ow_internal + [x for x in cross if ow_id in (x["source_group"], x["target_group"])],
+                    key=lambda x: x["key"]):
+        if not e.get("resolved_map") or e["target_group"] is None:
+            continue
+        ends_ = []
+        for gk, mk, xk, yk in (("source_group", "source_map", "source_x", "source_y"),
+                               ("target_group", "resolved_map", "resolved_x", "resolved_y")):
+            if e[gk] == ow_id:
+                X, Y, Z = maps[e[mk]].coords
+                ends_.append((Z, 24 * X + e[xk], 24 * Y + e[yk]))
+        if not any(k in moved_set for k in ends_):
+            continue
+        ev = eval_exit(e)
+        if ev is None:
+            continue
+        before_s = [ev["plane_source"][0], ev["plane_source"][1],
+                    maps[e["source_map"]].coords[2] if e["source_group"] == ow_id else ev["plane_source"][2]]
+        before_t = [ev["plane_target"][0], ev["plane_target"][1],
+                    maps[e["resolved_map"]].coords[2] if e["target_group"] == ow_id else ev["plane_target"][2]]
+        rec = {"source_map": e["source_map"], "source_tile": [e["source_x"], e["source_y"]],
+               "target_map": e["resolved_map"], "target_tile": [e["resolved_x"], e["resolved_y"]],
+               "arch": e["arch"], "line": e["line"], "layer_delta_before": before_t[2] - before_s[2],
+               "layer_delta_after": ev["layer_delta"], "xy_distance": ev["xy_distance"], "becomes": ev["becomes"]}
+        if e["source_group"] != ow_id or e["target_group"] != ow_id:
+            rec["crosses_to_group"] = e["target_group"] if e["source_group"] == ow_id else e["source_group"]
+        for k in ("stairwell", "portal_reason"):
+            if k in ev:
+                rec[k] = ev[k]
+        relayer_exits.append(rec)
+    # Every overworld exit with a destination, so the verifier can derive which
+    # exits the relayering touches instead of trusting relayering.exits.
+    ow_exit_records = [exit_record(e) for e in ow_internal if e.get("resolved_map")]
+
+    affected = R.affected_maps()  # the maps the continuity graph uses; their heights go into the JSON
+
+    def height_rows(m):
+        rec_ = maps[m]
+        out = []
+        for y in range(rec_.height):
+            row = []
+            for x in range(rec_.width):
+                h = rec_.support_height((x, y))
+                f = rec_.floors.get((x, y), {})
+                ground = "/{}".format(f[0]) if len(f) > 1 and 0 in f else ""  # sub-layer 0 floor under others
+                row.append("." if h is None else "{}{}{}".format(h, ground, "b" if (x, y) in rec_.blocked else ""))
+            out.append(" ".join(row))
+        return out
+
+    split_out = []
+    for k in sorted(R.split):
+        m = R.tiles[k][0]
         X, Y, Z = maps[m].coords
-        map_origins[m] = (24 * X, 24 * Y, Z)
-    for gid, p in S.placed.items():
-        for m, (ox, oy, oz) in G[gid]["layout"]["offsets"].items():
-            map_origins[m] = (ox + p["dx"], oy + p["dy"], oz + p["L"])
+        split_out.append({"map": m, "tile": [k[1] - 24 * X, k[2] - 24 * Y], "floors": {str(sl): z for sl, z in sorted(
+            R.tiles[k][1].items())}, "ground_layer": R.split[k], "upper_layer": R.final_layer[k]})
 
-    def ground_at(z, x, y):
-        o = S.occ.occupant(z, (x, y))
-        m = map_at(o, (x, y, z)) if o is not None else None
-        if m is None:
-            return None
-        ox, oy, _oz = map_origins[m]
-        return maps[m].ground.get((x - ox, y - oy))
-
-    def owner_of_map(m):
-        return owner_of(gof[m], m)
-
-    proposal = relayer.analyse(maps, map_origins, ground_at, S.occ.occupant,
-                               lambda z, xy, rel: S.occ.unrelated_within(z, xy, rel),
-                               exits, owner_of_map, LAYER_HEIGHT_Z, CLIENT_LEVEL_PIXEL_HEIGHT)
+    judgement = []
+    for rec in units_out:
+        if rec["kind"] == "storey up" and rec["stands_on"].get("over unmoved ground"):
+            judgement.append({"kind": "storey partly over unmoved ground", "unit": rec["id"],
+                              "text": "{} ({}) moves up {} layer(s); {} of its {} tiles stand on ground that stays".format(
+                                  rec["id"], ", ".join(base_name(x["path"]) for x in rec["maps"]), rec["shift"],
+                                  rec["stands_on"]["over unmoved ground"], rec["tiles"])})
+    for c in caves_out:
+        judgement.append({"kind": "cave resolution", "unit": c["unit"],
+                          "text": "{} ({} tiles, regions {}): {}; {}".format(
+                              c["unit"], c["tiles"], ", ".join(c["regions"]), c["choice"].replace("-", " "), c["why"])})
+    one_way = [sw["id"] for sw in S.stairwells if sw["kind"] == "relayering" and sw["direction"] != "both"]
+    if one_way:
+        judgement.append({"kind": "one-way stairwells",
+                          "text": "{} ({}) replace legacy exits that only go one way, so each has exits at one end and "
+                                  "a landing at the other; making them two-way would add a way in that legacy does "
+                                  "not have".format(len(one_way), ", ".join(one_way))})
+    if steep_out:
+        judgement.append({"kind": "steep steps", "text": "{} walkable edge(s) become a fall on the same layer".format(
+            len(steep_out))})
+    if contacts_out:
+        judgement.append({"kind": "new contacts", "text": "{} tile pair(s) become neighbours on a layer".format(
+            len(contacts_out))})
+    if split_out:
+        judgement.append({"kind": "split tiles", "text": "{} tile(s) carry a low floor on sub-layer 0 and a raised "
+                                                         "floor on a higher sub-layer; the raised part moves, the "
+                                                         "ground part stays".format(len(split_out))})
+    if kept_out:
+        judgement.append({"kind": "kept regions", "text": "{} small raised region(s) ({} tiles) keep z as tile "
+                                                          "height".format(len(kept_out),
+                                                                          sum(r["tiles"] for r in kept_out))})
+    if new_stairs:
+        judgement.append({"kind": "new stairs", "text": "{} new stair pair(s) keep the {} cut seam piece(s) and every "
+                                                        "pocket they leave walkable; archetypes default to "
+                                                        "stairs_stone_up/down".format(
+                                                            len(new_stairs), sum(len(sm["pieces"]) for sm in seams_out))})
+    group_regions = {gid: [{"layer": r["layer"], "q": r["q"], "tiles": len(r["tiles"]),
+                            "maps": sorted({Rg.tiles[k][0] for k in r["tiles"]}), "relayered": r["relayered"]}
+                           for r in Rg.regions] for gid, Rg in sorted(relay.items()) if gid != ow_id and Rg.regions}
+    relayering = {
+        "status": "applied (owner decision 2026-10-18: fix the conflicts, then relayer)",
+        "height": "support height: the highest floor z over all sub-layers (classic map_space_support_height(), "
+                  "server/src/socket/request.c:1012-1022)",
+        "rule": "H = {h} * q + rest with q = H // {h} for H >= {h}; a relayered tile moves q layers up and keeps rest "
+                "as its tile height; regions are 8-connected tiles of one layer with the same q".format(h=LAYER_HEIGHT_Z),
+        "layer_height_z": LAYER_HEIGHT_Z, "client_level_pixel_height": CLIENT_LEVEL_PIXEL_HEIGHT,
+        "min_region_tiles": relayer.MIN_REGION_TILES, "walkable_dz": relayer.WALKABLE_DZ,
+        "seam_cell": relayer.SEAM_CELL,
+        "tiles_scanned": len(R.tiles), "tiles_with_floor": len(R.H),
+        "tiles_at_or_above_layer_height": len(R.q), "tiles_raised_by_upper_sub_layers": R.raised_by_upper,
+        "tiles_relayered": len(R.relayered), "tiles_moved": len(R.moved),
+        "regions": regions_out, "kept_regions": kept_out, "units_moved": units_out, "caves": caves_out,
+        "maps_moved": maps_moved, "split_tiles": split_out, "seams": seams_out, "new_stairs": new_stairs,
+        "steep_steps": steep_out, "new_contacts": contacts_out, "exits": relayer_exits,
+        "stairwells_blocked": S.relayer_blocked, "unresolved": R.unresolved, "overlaps": len(R.overlaps()),
+        "exit_ends_on_void_tiles": [{"map": m, "tile": [x, y], "layer": L}
+                                    for (m, x, y), L in sorted(void_exit_ends.items())],
+        "group_regions": group_regions, "judgement_calls": judgement,
+        "tile_heights": {m: height_rows(m) for m in sorted(affected)},
+        "tile_heights_format": "per tile: support height, then /G when the tile has more than one floor and G is "
+                               "its sub-layer 0 floor, then b when it holds a no_pass object; . = no floor",
+    }
 
     # -------------------------------------------------------------- output
     def bbox_layers(gid, dx=0, dy=0, L=0):
@@ -1185,11 +1784,15 @@ def build(content: Path, allow_dirty: bool = False):
                 for z, b in sorted(bl.items())}
 
     used_layers = set()
+    used_cells = collections.defaultdict(set)  # layer -> 24x24 cells holding placed or stairwell tiles
     for gid, p in S.placed.items():
-        for lz in local_tiles[gid]:
+        for lz, pts in local_tiles[gid].items():
             used_layers.add(lz + p["L"])
+            used_cells[lz + p["L"]].update(((x + p["dx"]) // 24, (y + p["dy"]) // 24) for (x, y) in pts)
     for sw in S.stairwells:
-        used_layers.update(t["layer"] for t in sw["tiles"] if t["role"] == "intermediate")
+        for t in sw["tiles"][1:-1]:
+            used_layers.add(t["layer"])
+            used_cells[t["layer"]].add((t["x"] // 24, t["y"] // 24))
 
     groups_out = []
     for g in groups:
@@ -1213,9 +1816,23 @@ def build(content: Path, allow_dirty: bool = False):
                 X, Y, Z = maps[m].coords
                 cbl[Z].append([X, Y])
             rec["cells_by_layer"] = {str(z): sorted(v) for z, v in sorted(cbl.items())}
-            rec["occupied_rows_on_used_layers"] = {
-                m: occupied_rows(maps[m]) for m in sorted(g["maps"], key=lambda m: (maps[m].coords[2], m))
-                if maps[m].coords[2] in used_layers}
+            # Rows per final layer: every map with a tile on a layer that holds placed
+            # tiles or stairwell tiles, every map off the surface layer, and every
+            # map the relayering touches (so the relayering can be re-derived).
+            stacked = {(maps[m].coords[0], maps[m].coords[1]) for m in g["maps"] if maps[m].coords[2] != 0}
+            keep = []
+            for m in sorted(g["maps"], key=lambda m: (maps[m].coords[2], m)):
+                pcs = ow_pieces.get(m, {})
+                X, Y, _Z = maps[m].coords
+                near = any((X + i, Y + j) in used_cells.get(L, ()) for L in pcs for i in (-1, 0, 1) for j in (-1, 0, 1))
+                if maps[m].coords[2] != 0 or m in affected or near or (X, Y) in stacked:
+                    keep.append(m)
+            rec["occupied_rows_by_layer"] = {
+                m: {str(L): ["".join("#" if (24 * maps[m].coords[0] + x, 24 * maps[m].coords[1] + y) in ow_pieces[m][L]
+                                     else "." for x in range(maps[m].width)) for y in range(maps[m].height)]
+                    for L in sorted(ow_pieces.get(m, {})) if ow_pieces[m][L]}
+                for m in keep}
+            rec["internal_exits"] = ow_exit_records
             groups_out.append(rec)
             continue
         rec["layout_root"] = g["layout"]["root"]
@@ -1234,6 +1851,7 @@ def build(content: Path, allow_dirty: bool = False):
         rec["local_bounding_boxes"] = bbox_layers(gid)
         rec["layout_problems"] = g["layout"]["problems"]
         rec["related_owners"] = sorted(related[gid])
+        rec["related_overworld_layers"] = {m: sorted(v) for m, v in sorted(related_ow_layers.get(gid, {}).items())}
         rec["entrances_from_overworld"] = [exit_record(e) for e in g["entrances"] if e["source_group"] == ow_id]
         rec["exits_to_overworld"] = [exit_record(e) for e in g["exits_out"] if e["target_group"] == ow_id]
         rec["entrances_from_other_groups"] = [exit_record(e) for e in g["entrances"] if e["source_group"] != ow_id]
@@ -1269,6 +1887,19 @@ def build(content: Path, allow_dirty: bool = False):
             rec["placement"] = {"status": "failed", "ideal": p["ideal"]}
         groups_out.append(rec)
 
+    changes_v1 = []
+    for gid in sorted(S.placed):
+        short_id = gid[len("/shattered_islands/"):] if gid.startswith("/shattered_islands/") else gid
+        c = S.placed[gid]
+        now = [c["dx"], c["dy"], c["L"]]
+        old = PLAN_V1_PLACEMENTS.get(short_id)
+        if old is None or list(old) != now:
+            pl = placements[gid]
+            changes_v1.append({"group": gid, "v1": None if old is None else list(old), "v2": now,
+                               "ideal_v2": [pl["ideal"]["dx"], pl["ideal"]["dy"], pl["ideal"]["L"]],
+                               "blocked_by": sorted({"{} ({}, layer {})".format(base_name(x["blocked_by"]), x["rule"],
+                                                                             x["plane_layer"])
+                                                     for x in pl["conflicts_resolved"]})})
     counts = collections.Counter()
     for g in groups:
         if g["id"] == ow_id:
@@ -1276,7 +1907,7 @@ def build(content: Path, allow_dirty: bool = False):
         counts["{}:{}".format(g["classification"], g["reason"])] += 1
     sw_spans = collections.Counter(sw["top_layer"] - sw["bottom_layer"] for sw in S.stairwells)
     plan = {
-        "schema": "atrinik-overworld-placement-plan/2",
+        "schema": "atrinik-overworld-placement-plan/3",
         "generated_by": "scripts/build_plan.py",
         "content_root": str(content),
         "content_git_head": revision["head"],
@@ -1286,6 +1917,8 @@ def build(content: Path, allow_dirty: bool = False):
                      "contact_margin_tiles": CONTACT_MARGIN, "max_extra_layers": MAX_EXTRA_LAYERS,
                      "max_shift_tiles": MAX_SHIFT, "stair_tolerance_tiles": STAIR_TOLERANCE,
                      "stairwell_max_bend_tiles": STAIRWELL_MAX_BEND, "layer_height_z": LAYER_HEIGHT_Z,
+                     "relayer_min_region_tiles": relayer.MIN_REGION_TILES, "walkable_dz": relayer.WALKABLE_DZ,
+                     "owner_keep_as_decoration": [[m, list(t), a] for (m, t, a) in sorted(OWNER_KEEP_AS_DECORATION)],
                      "overworld_map_size": 24, "excluded_trees": list(md.EXCLUDED_TOP)},
         "conventions": {
             "plane": "overworld plane; layer 0 surface, negative below, positive above",
@@ -1306,6 +1939,26 @@ def build(content: Path, allow_dirty: bool = False):
                          "stairwell: one stair tile on every intermediate layer, each consecutive pair one layer and "
                          "<= {} tile apart; the whole stairwell is ONE exit (one use moves the player end to end, "
                          "pathfinding sees one edge)".format(STAIR_TOLERANCE, STAIR_TOLERANCE),
+            "sloped_stairwell": "an exit whose ends are >= 2 layers apart and more than {t} but at most {t} tile(s) "
+                                "per layer apart horizontally becomes a sloped stairwell (shape 'sloped'): the same "
+                                "chain, shifting at most {t} tile sideways per layer; still ONE exit".format(
+                                    t=STAIR_TOLERANCE),
+            "stairwell_rendering": "segments_drawn_only_on_player_layer: clients draw a stairwell's segments only on "
+                                   "the layer the player is on (owner decision 2026-10-18), so view_conflicts are "
+                                   "listed but not seen",
+            "stairwell_direction": "direction 'both': exits at both ends, each targeting the other end; 'down' or "
+                                   "'up': the stairwell replaces a legacy one-way exit and can be used only that "
+                                   "way; its landing_only_end holds no exit",
+            "stairwell_contacts": "contacts: intermediate tiles within contact_margin_tiles of a related area "
+                                  "(other than the stairwell's own group); the chain search avoids them where it can",
+            "stairwell_ids": "SWn = stairwell built for a placed group's aligned exits, SLn = sloped stairwell, SRn = "
+                             "stairwell for an overworld exit whose ends the relayering put 2+ layers apart",
+            "relayering": "overworld tiles are on their final layer everywhere in this plan (see relayering); "
+                          "occupied_rows_by_layer gives each map's tiles per final layer",
+            "wired_exits": "an exit with form 'wired' led nowhere in legacy; it now targets the content on the "
+                           "layer above or below (see its 'wired' evidence)",
+            "exits_kept_as_decoration": "dangling exits the owner keeps as decoration (no exit): not wired, with the "
+                                        "landing they would have had",
         },
         "summary": {"maps_total": len(maps), "groups_total": len(groups), "non_overworld_groups": len(groups) - 1,
                     "by_classification": dict(sorted(counts.items())),
@@ -1316,24 +1969,37 @@ def build(content: Path, allow_dirty: bool = False):
                     "stairwells": len(S.stairwells),
                     "stairwell_spans_layers": {str(k): v for k, v in sorted(sw_spans.items())},
                     "stairwell_sites_blocked": len(S.blocked_sites),
+                    "stairwells_by_kind": dict(sorted(collections.Counter(sw["kind"] for sw in S.stairwells).items())),
+                    "sloped_stairwell_sites_blocked": len(S.slope_failed),
+                    "relayering_stairwell_sites_blocked": len(S.relayer_blocked),
+                    "wired_exits": len(wired),
+                    "dangling_exits_kept_as_decoration": len(kept_decoration),
+                    "relayering": {"regions": len(regions_out), "kept_regions": len(kept_out),
+                                   "tiles_relayered": len(R.relayered), "tiles_moved": len(R.moved),
+                                   "maps_moved": len(maps_moved), "units_moved": len(units_out),
+                                   "seams": len(seams_out), "new_stairs": len(new_stairs),
+                                   "steep_steps": len(steep_out), "new_contacts": len(contacts_out)},
                     "placement_order": order1, "tentative_placement_order": order_t,
                     "unplaced_place_groups": left1, "unplaced_uncertain_groups": left2},
         "start_map": start_map,
         "view_radius_sensitivity": sensitivity,
         "stairwells": S.stairwells,
         "stairwell_sites_blocked": S.blocked_sites,
+        "sloped_stairwell_sites_blocked": S.slope_failed,
+        "placement_changes_from_v1": changes_v1,
+        "exits_kept_as_decoration": kept_decoration,
         "groups": groups_out,
-        "proposals": {"layer_height_relayering": proposal},
+        "relayering": relayering,
         "data_problems": problems,
     }
     if inputs_digest(content) != digest_before:
         raise SystemExit("content inputs changed while the plan was being generated; rerun on a quiet checkout")
     import verify_plan  # noqa: E402
     plan["verification"] = verify_plan.verify(json.loads(json.dumps(plan)))
-    return plan, maps, G, ow_id
+    return plan, maps, G, ow_id, ow_relay
 
 
-ARTIFACT_RE = re.compile(r"^(placement-plan\.json|REPORT\.md|layer_-?\d+(_zoom)?\.png)$")
+ARTIFACT_RE = re.compile(r"^(placement-plan\.json|REPORT\.md|layer_-?\d+(_zoom)?\.png|relayer_[a-z0-9_-]+\.png)$")
 
 
 def publish(stage: Path, out: Path) -> list:
@@ -1361,7 +2027,7 @@ def main(argv=None):
     args = ap.parse_args(argv)
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
-    plan, maps, G, ow_id = build(args.content.resolve(), allow_dirty=args.allow_dirty)
+    plan, maps, G, ow_id, ow_relay = build(args.content.resolve(), allow_dirty=args.allow_dirty)
     print(json.dumps(plan["summary"], indent=1))
     if not plan["verification"]["ok"]:
         print("verification FAILED; nothing written:", plan["verification"]["errors"][:10])
@@ -1374,7 +2040,7 @@ def main(argv=None):
         (stage / "placement-plan.json").write_text(json.dumps(plan, indent=1, sort_keys=False) + "\n",
                                                    encoding="utf-8")
         report.write_report(plan, stage)
-        render.render_layers(plan, maps, G, ow_id, stage)
+        render.render_layers(plan, maps, G, ow_id, stage, ow_relay)
         staged = verify_plan.verify(json.loads((stage / "placement-plan.json").read_text(encoding="utf-8")))
         if not staged["ok"] or staged != plan["verification"]:
             print("staged plan failed verification; nothing written:", staged["errors"][:10])
