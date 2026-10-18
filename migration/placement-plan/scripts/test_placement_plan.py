@@ -369,6 +369,29 @@ class ExitInventory(VerifierTest):
         self.assertCaught(p, "exit {}:{} has form unresolved, direction {} and a target".format(
             x["source_map"], x["line"], x["vertical"]))
 
+    def test_a_wired_target_outside_its_map(self):
+        p = self.plan()
+        key = (MINE + "mine_entrance", 181)
+        d = next(d for d in p["data_problems"]["dangling_exits_wired"] if (d["source_map"], d["line"]) == key)
+        self.assertEqual((d["target_map"], d["target_tile"]), ("/shattered_islands/world_8_79", [8, 1]))
+        d.update(target_map="/shattered_islands/world_7_79", target_tile=[32, 1])
+        for _g, _lst, e in copies(p, key):
+            e.update(target_map="/shattered_islands/world_7_79", target_tile=[32, 1])
+        self.assertCaught(p, "exit {}:{} targets tile [32, 1] outside /shattered_islands/world_7_79".format(*key))
+
+    def test_an_invalid_tile_link_slot(self):
+        p = self.plan()
+        x = next(x for x in p["exit_inventory"] if x["form"] == "tiled-unresolved")
+        x["tiled_slot"] = 999
+        for d in p["data_problems"]["exits"]:
+            if (d["source_map"], d["line"]) == (x["source_map"], x["line"]) and d["kind"] == "tiled-exit-without-link":
+                d["detail"] = "last_heal 999 (None) but the map has no such tile link; the exit leads nowhere"
+        self.assertCaught(p, "exit {}:{} has form tiled-unresolved and tile-link slot 999".format(
+            x["source_map"], x["line"]))
+        p = self.plan()
+        next(x for x in p["exit_inventory"] if x["form"] == "explicit")["tiled_slot"] = 9
+        self.assertCaught(p, "has form explicit and tile-link slot 9")
+
     def test_a_target_outside_its_map(self):
         p = self.plan()
         key = ("/shattered_islands/ships/ship_1", 122)
@@ -610,6 +633,19 @@ class FailedPlacement(VerifierTest):
         layer = sorted(ow["occupied_rows_by_layer"][path])[0]
         ow["occupied_rows_by_layer"][path][layer][0] += "."
         self.assertCaught(p, "rows of {} on layer {} are not 24 x 24".format(path, layer))
+
+    def test_a_placement_without_status(self):
+        p = self.plan()
+        group(p, "/emergency")["placement"] = {"status": None, "x_offset": 123}
+        self.assertCaught(p, "placement of /emergency has no status")
+
+    def test_alignment_reasons_are_text(self):
+        p = self.plan()
+        a = p["settings"]["tentative_alignments"][0]
+        a["why"] = ["x"]
+        group(p, a["group"])["placement"]["tentative_reason"] = ["x"]
+        self.assertCaught(p, "tentative_reason of {} is not a text".format(a["group"]),
+                          "tentative alignment of {} to {} is not the hint".format(a["group"], a["anchor"]))
 
     def test_place_group_without_a_placement(self):
         p = self.plan()

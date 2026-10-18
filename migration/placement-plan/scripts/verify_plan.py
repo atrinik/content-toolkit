@@ -320,6 +320,8 @@ def verify(plan: dict) -> dict:
     status = {g["id"]: (g.get("placement") or {}).get("status") for g in others}
     for g in others:
         gid, s = g["id"], status[g["id"]]
+        if g.get("placement") is not None and s is None:
+            errors.append("placement of {} has no status".format(gid))
         if s == "failed":
             errors.append("placement of {} failed; a plan with a failed group must not be published".format(gid))
         elif s not in (None, "proposed", "tentative"):
@@ -512,6 +514,11 @@ def verify(plan: dict) -> dict:
         if k in inv:
             errors.append("exit {}:{} is listed twice in the exit inventory".format(*k))
         inv[k] = x
+        # the tile-link slot of a tiled exit without a link: 1..10, and only on that form; wired ones go up or down
+        if ("tiled_slot" in x) != (x.get("form") == "tiled-unresolved") or "tiled_slot" in x and \
+                x["tiled_slot"] not in SLOT_NAMES:
+            errors.append("exit {}:{} has form {} and tile-link slot {}".format(k[0], k[1], x.get("form"),
+                                                                              x.get("tiled_slot")))
         # a known form and direction; a target exactly when the form resolves one and the map exists
         if x.get("form") not in TARGET_FORMS | NO_TARGET_FORMS or x.get("vertical") not in ("up", "down", "none") or \
                 ("target_map" in x) != ("target_tile" in x) or \
@@ -532,12 +539,13 @@ def verify(plan: dict) -> dict:
     if len(plan["data_problems"]["dangling_exits_wired"]) != summ["wired_exits"]:
         errors.append("{} wired exits listed, the summary says {}".format(
             len(plan["data_problems"]["dangling_exits_wired"]), summ["wired_exits"]))
+    size = {m["path"]: (m["width"], m["height"]) for g in others for m in g["maps"]}
     expected_copies = set()
     want_rec = {}  # exit key -> the record fields the inventory (and wiring) fix
     for k, x in sorted(inv.items()):
         want = {f: x.get(f) for f in SOURCE_FIELDS}
         if k in wired_dp:
-            if x["form"] != "tiled-unresolved" or "target_map" in x:
+            if x["form"] != "tiled-unresolved" or "target_map" in x or x.get("tiled_slot") not in (9, 10):
                 errors.append("wired exit {}:{} is not a legacy exit that leads nowhere".format(*k))
             want.update(form="wired", target_map=wired_dp[k].get("target_map"),
                         target_tile=wired_dp[k].get("target_tile"))
@@ -551,6 +559,13 @@ def verify(plan: dict) -> dict:
         if tg is None:
             errors.append("exit {}:{} leads to {}, which is in no group".format(k[0], k[1], want["target_map"]))
             continue
+        # a target (resolved by the reader, or wired) is a tile of its map
+        tw, th = size.get(want["target_map"], (OW_SIZE,) * 2)
+        tt = want.get("target_tile")
+        if not (isinstance(tt, list) and len(tt) == 2 and all(isinstance(c, int) for c in tt)
+                and 0 <= tt[0] < tw and 0 <= tt[1] < th):
+            errors.append("exit {}:{} targets tile {} outside {} ({} x {})".format(
+                k[0], k[1], tt, want["target_map"], tw, th))
         want.update(source_group=sg, target_group=tg)
         want_rec[k] = want
         if sg == tg:
@@ -601,7 +616,6 @@ def verify(plan: dict) -> dict:
                 errors.append("{} exit {}:{} is not a legacy exit that leads nowhere".format(
                     what, d["source_map"], d["line"]))
     # the exit data problems, re-derived entry by entry from the inventory
-    size = {m["path"]: (m["width"], m["height"]) for g in others for m in g["maps"]}
     working = {(x["source_map"], tuple(x["source_tile"])) for x in inv.values() if "target_map" in x}
     want_dp = []
     for k, x in sorted(inv.items()):
@@ -618,11 +632,6 @@ def verify(plan: dict) -> dict:
         w, h = size.get(x["source_map"], (OW_SIZE,) * 2)
         if not (0 <= tile[0] < w and 0 <= tile[1] < h):
             want_dp.append(dict(base, kind="exit-outside-map-bounds"))
-        if "target_map" in x:  # the reader resolves a target onto a tile of its map
-            tw, th = size.get(x["target_map"], (OW_SIZE,) * 2)
-            if not (0 <= x["target_tile"][0] < tw and 0 <= x["target_tile"][1] < th):
-                errors.append("exit {}:{} targets tile {} outside {} ({} x {})".format(
-                    k[0], k[1], x["target_tile"], x["target_map"], tw, th))
         if form == "tiled-unresolved":
             want_dp.append(dict(base, kind="tiled-exit-without-link", detail="last_heal {} ({}) but the map has no "
                                 "such tile link; the exit leads nowhere".format(x.get("tiled_slot"),
@@ -888,7 +897,7 @@ def verify(plan: dict) -> dict:
         # it (checked against the anchor below), so a stale or made-up entry fails
         g_ = placed_by_id.get(a.get("group"))
         if g_ is None or a.get("anchor") not in placed_by_id or not isinstance(a.get("layer_delta"), int) or \
-                not a.get("why") or g_["placement"].get("status") != "tentative" or \
+                not isinstance(a.get("why"), str) or not a["why"] or g_["placement"].get("status") != "tentative" or \
                 g_["placement"].get("tentative_reason") != a["why"]:
             errors.append("tentative alignment of {} to {} is not the hint of a tentative placement".format(
                 a.get("group"), a.get("anchor")))
@@ -1044,6 +1053,8 @@ def verify(plan: dict) -> dict:
         # only a placement forced by an alignment hint has none
         mc = pl.get("main_connection")
         hinted = bool(pl.get("tentative_reason"))
+        if "tentative_reason" in pl and not (isinstance(pl["tentative_reason"], str) and pl["tentative_reason"]):
+            errors.append("tentative_reason of {} is not a text".format(g["id"]))
         if hinted and pl.get("status") != "tentative":
             errors.append("{} placement of {} carries an alignment hint".format(pl.get("status"), g["id"]))
             hinted = False

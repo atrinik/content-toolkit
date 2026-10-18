@@ -1241,8 +1241,10 @@ def build(content: Path, allow_dirty: bool = False):
         build_relayer_stairwells()
         o1, f1, l1 = run_pool(to_place, False)
         o2, f2, l2 = run_pool(tentative_ids, True)
-        o3, f3 = [], []
+        o3, f3, s3 = [], [], []
         for gid, (anchor, dl, why) in sorted(TENTATIVE_ALIGN.items()):
+            if gid in G and gid not in S.placements and anchor not in S.placed:
+                s3.append(gid)  # its anchor is not placed: the group stays unplaced
             # only for groups no pool tried: a group whose own placement failed stays failed
             if gid in G and gid not in S.placements and anchor in S.placed:
                 a = S.placed[anchor]
@@ -1282,7 +1284,7 @@ def build(content: Path, allow_dirty: bool = False):
             sw["id"] = "{}{}".format(prefix[sw["kind"]], n[sw["kind"]])
         # A failed group stays unplaced (and fails verification, so the plan is not published).
         # an uncertain group no pool reached may still get its tentative spot from an alignment hint
-        return o1, sorted(l1 + f1), o2 + o3, sorted((set(l2) - set(o3)) | set(f2)), sorted(f1 + f2 + f3)
+        return o1, sorted(l1 + f1), o2 + o3, sorted((set(l2) - set(o3)) | set(f2)), sorted(f1 + f2 + f3), s3
 
     def becomes_counts():
         c = collections.Counter()
@@ -1367,7 +1369,7 @@ def build(content: Path, allow_dirty: bool = False):
         return r
 
     # Sensitivity: the same placement with the shipped client's view radius.
-    _o, sens_left1, _t, sens_left2, sens_failed = run_placement(CLIENT_VIEW_RADIUS)
+    _o, sens_left1, _t, sens_left2, sens_failed, sens_skipped = run_placement(CLIENT_VIEW_RADIUS)
     sens_placed = {gid: dict(p) for gid, p in S.placed.items()}
     sensitivity = {
         "view_radius_tiles": CLIENT_VIEW_RADIUS,
@@ -1376,9 +1378,10 @@ def build(content: Path, allow_dirty: bool = False):
         "crossing_exit_objects_after_placement": dict(sorted(becomes_counts().items())),
         "stairwells": len(S.stairwells),
         "stairwell_sites_blocked": len(S.blocked_sites),
-        "groups_unplaced": sorted(set(sens_left1) | set(sens_left2) | set(sens_failed)),
+        "groups_unplaced": sorted(set(sens_left1) | set(sens_left2) | set(sens_failed) | set(sens_skipped)),
     }
-    order1, left1, order_t, left2, failed_placements = run_placement(VIEW_RADIUS)
+    # an alignment group skipped for want of its anchor fails verification (its hint is not applied)
+    order1, left1, order_t, left2, failed_placements, _skipped = run_placement(VIEW_RADIUS)
     place_index = {gid: i for i, gid in enumerate(S.order)}
     placements = S.placements
     sensitivity["groups_placed_differently"] = sorted(
@@ -2092,14 +2095,24 @@ def publish(stage: Path, out: Path) -> list:
     return new
 
 
-def compare_artifacts(stage: Path, out: Path) -> list:
-    """Artifacts that differ between a fresh run in `stage` and the published set in `out`.
+MAX_CHECK_ARTIFACTS = 256  # a published set has a few dozen artifacts; more means --out is not one
+
+
+def compare_artifacts(stage: Path, out: Path):
+    """Artifacts that differ between a fresh run in `stage` and the published set in `out`, or None if
+    `out` holds more than MAX_CHECK_ARTIFACTS artifact names.
 
     Sizes are compared first and contents in fixed-size chunks (filecmp), so an
     oversized file in `out` is a difference, not a whole-file read."""
-    names = sorted({p.name for d in (stage, out) for p in d.iterdir() if ARTIFACT_RE.match(p.name)})
-    return [n for n in names if not ((stage / n).is_file() and (out / n).is_file()
-                                     and filecmp.cmp(stage / n, out / n, shallow=False))]
+    names = set()
+    for d in (stage, out):
+        for p in d.iterdir():
+            if ARTIFACT_RE.match(p.name):
+                names.add(p.name)
+                if len(names) > MAX_CHECK_ARTIFACTS:
+                    return None
+    return [n for n in sorted(names) if not ((stage / n).is_file() and (out / n).is_file()
+                                             and filecmp.cmp(stage / n, out / n, shallow=False))]
 
 
 def main(argv=None):
@@ -2139,9 +2152,12 @@ def main(argv=None):
             return 1
         if args.check:
             differ = compare_artifacts(stage, out)
+            if differ is None:
+                print("check FAILED: {} holds more than {} artifact names".format(out, MAX_CHECK_ARTIFACTS))
+                return 1
             if differ:
-                print("check FAILED: {} artifact(s) in {} differ from a fresh run: {}".format(
-                    len(differ), out, ", ".join(differ)))
+                print("check FAILED: {} artifact(s) in {} differ from a fresh run: {}{}".format(
+                    len(differ), out, ", ".join(differ[:10]), ", ..." if len(differ) > 10 else ""))
                 return 1
             print("check: all {} artifacts in {} are byte-identical to a fresh run".format(
                 sum(1 for p in out.iterdir() if ARTIFACT_RE.match(p.name)), out))
