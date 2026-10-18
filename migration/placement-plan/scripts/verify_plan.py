@@ -4,7 +4,9 @@
     python3 -I scripts/verify_plan.py [placement-plan.json]
 
 Placement (every placed group, proposed and tentative):
-  * member plane origin == local_offset + (x_offset, y_offset, layer_offset)
+  * member plane origin == local_offset + (x_offset, y_offset, layer_offset);
+    no placed group has a relayered region (its member maps are recorded on
+    one layer each; the generator refuses to publish otherwise)
   * the JSON carries rows for every overworld map near a tile of a placed
     group or stairwell (same layer, same or neighbouring 24x24 cell), every map
     off the surface layer, every surface map under or over such a map, and
@@ -24,10 +26,11 @@ Stairwells (SW placement, SL sloped, SR relayering):
     the view radius and the recorded contacts the related areas within the
     contact margin; mode "clear" means there are none of either; every
     stairwell carries the engine rule segments_drawn_only_on_player_layer
-  * a stairwell's direction matches the exits it replaces, and only the ends
-    those exits start from hold exit objects (a one-way stairwell's far end is
-    a landing)
+  * a stairwell's direction matches the exits it replaces, and each end holds
+    exactly the exit objects (archetype, exit flag) that start there (a
+    one-way stairwell's far end is a landing)
 Exits:
+  * the records of one exit (one per group it touches) are identical
   * every exit record's plane_source / plane_target equals origin + tile on
     the tile's final layer, and its "becomes" label matches its geometry;
     wired exits are plain stairs and their verdict follows from their evidence
@@ -313,7 +316,10 @@ def verify(plan: dict) -> dict:
         for key in ("entrances_from_overworld", "exits_to_overworld", "entrances_from_other_groups",
                     "exits_to_other_groups", "internal_exits"):
             for e in g.get(key, []):
-                records[(e["source_map"], e["line"])] = e
+                k = (e["source_map"], e["line"])
+                if k in records and records[k] != e:
+                    errors.append("exit {}:{} has two different records".format(*k))
+                records[k] = e
 
     # ----------------------------------------------------------- stairwells
     chain = collections.defaultdict(dict)  # layer -> owner -> Rows
@@ -372,8 +378,12 @@ def verify(plan: dict) -> dict:
                                                                          "up": "top"}[want]:
             errors.append("{} direction {} does not match its exits ({})".format(sw["id"], sw.get("direction"),
                                                                              sorted(goes)))
-        if bool(t[0]["objects"]) != ("down" in goes) or bool(t[-1]["objects"]) != ("up" in goes):
-            errors.append("{} end objects do not match its direction".format(sw["id"]))
+        for end, way in ((t[0], "down"), (t[-1], "up")):
+            want_objs = sorted({r["arch"] for r in sw["replaces"] if r["goes"] == way})
+            if sorted(o.get("archetype") for o in end["objects"]) != want_objs or \
+                    any(o.get("exit") is not True for o in end["objects"]) or end.get("existing") is not True:
+                errors.append("{} {} end objects are not the exits it replaces ({})".format(sw["id"], end["role"],
+                                                                                         want_objs))
         recorded = {(c["layer"], c["x"], c["y"]): sorted(c["visible_from"]) for c in sw["view_conflicts"]}
         touched = {(c["layer"], c["x"], c["y"]): sorted(c["touches"]) for c in sw["contacts"]}
         for x in t[1:-1]:
@@ -636,6 +646,7 @@ def verify(plan: dict) -> dict:
         return heights[k] - HZ * q[k] if k in relayered else heights[k]
 
     moved = sorted(k for k in leg if main[k] != k[0])
+    moved_set = set(moved)
     cut = set()
     for k in moved:
         for dx, dy in N8:
@@ -784,6 +795,13 @@ def verify(plan: dict) -> dict:
                     contacts.add((min(k, t), max(k, t)))
     if contacts != {(tuple(c["tiles"][0]), tuple(c["tiles"][1])) for c in rl["new_contacts"]}:
         errors.append("new contacts differ: {} recomputed, {} recorded".format(len(contacts), len(rl["new_contacts"])))
+    for c in rl["new_contacts"]:
+        a, b = tuple(c["tiles"][0]), tuple(c["tiles"][1])
+        walk = a in heights and b in heights and a not in blocked and b not in blocked and \
+            abs(rest(a) - rest(b)) < WDZ
+        if c["walkable"] != walk or c["final_layer"] != main.get(a if a in moved_set else b):
+            errors.append("new contact {} / {} records walkable {} on layer {}; recomputed {}".format(
+                a, b, c["walkable"], c["final_layer"], walk))
     # every exit with an overworld end on a moved tile must be listed, and nothing else
     def moved_end(g, mp, t):
         if g != ow_id:
@@ -809,6 +827,10 @@ def verify(plan: dict) -> dict:
         if e["layer_delta_before"] != ls[1] - ls[0] or e["layer_delta_after"] != r["layer_delta"] or \
                 e["becomes"] != r["becomes"]:
             errors.append("relayering exit {}:{} before/after does not match".format(e["source_map"], e["line"]))
+    for g in placed:
+        if any(r["relayered"] for r in rl["group_regions"].get(g["id"], [])):
+            errors.append("placed group {} has a relayered region, but its maps are recorded on one layer "
+                          "each".format(g["id"]))
     if rl["unresolved"] or rl["overlaps"]:
         errors.append("relayering left unresolved conflicts or overlaps")
     return {"ok": not errors, "errors": errors, "member_maps": len(origin), "owner_pairs_checked": pairs,

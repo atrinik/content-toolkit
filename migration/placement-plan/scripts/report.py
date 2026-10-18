@@ -180,7 +180,8 @@ def write_report(plan, out: Path):
           "{} {}".format(verdicts[k], k) for k in ("confirmed", "plausible", "doubtful") if verdicts.get(k))))
     ch = plan["placement_changes_from_v1"]
     w("- Placement changes from version 1: {}.".format("; ".join(
-        "`{}` layer offset {} -> {}".format(base(x["group"]), x["v1"][2], x["v2"][2]) for x in ch) or "none"))
+        "`{}` layer offset {} -> {}".format(base(x["group"]), x["v1"][2], x["v2"][2]) if x["v1"] else
+        "`{}` newly placed at layer offset {}".format(base(x["group"]), x["v2"][2]) for x in ch) or "none"))
     pr = s["portal_reasons"]
     w("- Why portals remain: {}. See [Portals that remain](#portals-that-remain).".format(
         "; ".join("{} {}".format(v, k) for k, v in sorted(pr.items(), key=lambda kv: (-kv[1], kv[0])))))
@@ -1018,7 +1019,8 @@ def write_images(plan, w, lab, groups, ow, sws):
     w("")
     w("`relayer_<n>.png` shows one relayered area: the top row is every affected layer as it was, aqua marking "
       "tiles that move; the bottom row is the same layers in this plan, aqua marking tiles that arrived, with "
-      "stairwell tiles (diamonds), new seam stairs (`+`) and region labels.")
+      "stairwell tiles (diamonds, labelled with their ids), new seam stairs (`+`) and region labels. A region "
+      "lowered in place keeps its layer and is drawn with an aqua/grey checker in both rows.")
     w("")
     w("Each image covers its regions and every storey or cave unit that moved because of them.")
     w("")

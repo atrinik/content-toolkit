@@ -841,7 +841,7 @@ Resolved by the 2026-10-18 decisions (version 1's open items): the layer-height 
 
 `layer_<n>.png` shows the whole plane at 1 px per tile; `layer_<n>_zoom.png` crops the placement area at 3 px per tile. Only occupied tiles are drawn, each on its final layer. Grey = overworld tiles that stay on their layer, aqua = overworld tiles the relayering moved onto this layer, blue = proposed placement, orange = tentative, pale blue = the 16-tile view gap around placed groups and their stairwell tiles, black diamond = stairwell tile (labelled `SWn` / `SLn` / `SRn` in the zoom; a hollow centre marks a sloped one), hollow square = wired exit (`W` in the zoom), `#n` = group number, `+` = source tile of an exit into a placed group.
 
-`relayer_<n>.png` shows one relayered area: the top row is every affected layer as it was, aqua marking tiles that move; the bottom row is the same layers in this plan, aqua marking tiles that arrived, with stairwell tiles (diamonds), new seam stairs (`+`) and region labels.
+`relayer_<n>.png` shows one relayered area: the top row is every affected layer as it was, aqua marking tiles that move; the bottom row is the same layers in this plan, aqua marking tiles that arrived, with stairwell tiles (diamonds, labelled with their ids), new seam stairs (`+`) and region labels. A region lowered in place keeps its layer and is drawn with an aqua/grey checker in both rows.
 
 Each image covers its regions and every storey or cave unit that moved because of them.
 

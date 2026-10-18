@@ -80,15 +80,15 @@ def _place_label(img, taken, cx, cy, text, ls):
     img.text(r[0] + 1, r[1] + 1, text, INK, ls, halo=SURFACE)
 
 
-def _stair_labels(img, P, stair, taken, ls):
-    """Label clusters of stairwell tiles with their ids (prefix kept, numbers joined)."""
+def _stair_labels(img, P, stair, taken, ls, near=3):
+    """Label clusters of stairwell tiles (within `near` tiles) with their ids (prefix kept, numbers joined)."""
     seen = []
     for (sx, sy, sid) in sorted(stair, key=lambda t: (t[1], t[0], PREFIXES.index(t[2][:2]))):
-        if any(abs(sx - a) <= 3 and abs(sy - b) <= 3 and p_ == sid[:2] for (a, b, p_) in seen):
+        if any(abs(sx - a) <= near and abs(sy - b) <= near and p_ == sid[:2] for (a, b, p_) in seen):
             continue
         seen.append((sx, sy, sid[:2]))
         nums = sorted({int(i[2:]) for (a, b, i) in stair
-                       if abs(a - sx) <= 3 and abs(b - sy) <= 3 and i[:2] == sid[:2]})
+                       if abs(a - sx) <= near and abs(b - sy) <= near and i[:2] == sid[:2]})
         cx, cy = P(sx, sy)
         _place_label(img, taken, cx, cy, sid[:2] + ",".join(str(n) for n in nums), ls)
 
@@ -297,6 +297,14 @@ def render_relayer(plan, out: Path, relay):
     moved = set(relay.moved)
     for k in relay.tiles:
         tiles_before[k[0]][(k[1], k[2])] = k in moved
+    # regions lowered in place keep their layer; their tiles are drawn with a texture
+    rel_regions = [r for r in relay.regions if r["relayered"]]
+    in_place = set()
+    region_layers = {}
+    for i, r in enumerate(rel_regions, 1):
+        region_layers["R{}".format(i)] = {r["layer"]} | {relay.final_layer[k] for k in r["tiles"]}
+        if relay.dr.get(r["index"], 0):
+            in_place.update((k[1], k[2], k[0]) for k in r["tiles"])
     stairs = collections.defaultdict(list)
     for n in rl["new_stairs"]:
         stairs[n["low"][2]].append((n["low"][0], n["low"][1]))
@@ -317,11 +325,13 @@ def render_relayer(plan, out: Path, relay):
             if ax0 <= k[1] < ax1 and ay0 <= k[2] < ay1:
                 layers.add(k[0])
                 layers.add(relay.final_layer[k])
+        for rid in ids:
+            layers |= region_layers.get(rid, set())
         layers = sorted(layers, reverse=True)
         w, h = ax1 - ax0, ay1 - ay0
         s = max(1, min(4, 560 // max(w, 1), 420 // max(h, 1)))
         pw, ph = w * s, h * s
-        gapx, top = 12, 96
+        gapx, top = 12, 106
         img = Canvas(max(len(layers) * (pw + gapx) + 70, 760), top + 2 * (ph + 24) + 8, SURFACE)
         rids = [i for i in ids if i.startswith("R")]
         units = [i for i in ids if i.startswith("U")]
@@ -329,12 +339,20 @@ def render_relayer(plan, out: Path, relay):
         img.text(6, 26, "x {}..{}  y {}..{}  ({} px per tile); top row: legacy layers, bottom row: this plan".format(
             ax0, ax1 - 1, ay0, ay1 - 1, s), INK2, 1)
         _legend(img, 6, 40, ((OW_FILL, "stays on its layer"), (MOVED, "moves (top row) / moved here (bottom row)")))
+        tx = 6 + 14 + Canvas.text_width("stays on its layer") + 12 + 14 + \
+            Canvas.text_width("moves (top row) / moved here (bottom row)") + 12
+        for yy in range(10):
+            for xx in range(10):
+                img.put(tx + xx, 40 + yy, MOVED if (xx + yy) % 2 else OW_FILL)
+        img.outline(tx, 40, tx + 9, 49, INK2)
+        img.text(tx + 14, 41, "lowered in place (keeps its layer, height minus 50)", INK2, 1)
         img.diamond(11, 63, 4, INK)
-        img.text(20, 60, "stairwell tile (SRN, SWN, SLN; ends included)", INK2, 1)
-        img.cross(311, 63, 4, INK)
-        img.text(320, 60, "new stairs on a cut seam (NS in REPORT.MD)", INK2, 1)
-        img.text(6, 77, "RN = relayered region, labelled where it ends up; moved units in this area: {}".format(
+        img.text(20, 60, "stairwell tile (SRN, SWN, SLN; ends included; labelled in the bottom row)", INK2, 1)
+        img.cross(11, 78, 4, INK)
+        img.text(20, 75, "new stairs on a cut seam (NS in REPORT.MD)", INK2, 1)
+        img.text(6, 90, "RN = relayered region, labelled where it ends up; moved units in this area: {}".format(
             unit_span(units)), INK2, 1)
+        taken = []
         for row, data in enumerate((tiles_before, tiles_after)):
             oy = top + row * (ph + 24)
             img.text(6, oy + 14, "BEFORE" if row == 0 else "AFTER", INK, 1)
@@ -344,16 +362,24 @@ def render_relayer(plan, out: Path, relay):
                 img.outline(ox - 1, oy + 11, ox + pw, oy + 12 + ph, INK2)
                 for (x, y), mv in data.get(L, {}).items():
                     if ax0 <= x < ax1 and ay0 <= y < ay1:
-                        img.rect(ox + (x - ax0) * s, oy + 12 + (y - ay0) * s, ox + (x - ax0) * s + s - 1,
-                                 oy + 12 + (y - ay0) * s + s - 1, MOVED if mv else OW_FILL)
+                        px, py = ox + (x - ax0) * s, oy + 12 + (y - ay0) * s
+                        if (x, y, L) in in_place:
+                            for yy in range(s):
+                                for xx in range(s):
+                                    img.put(px + xx, py + yy, MOVED if (x + y + xx + yy) % 2 else OW_FILL)
+                        else:
+                            img.rect(px, py, px + s - 1, py + s - 1, MOVED if mv else OW_FILL)
                 if row == 1:
                     for (x, y) in stairs.get(L, ()):
                         if ax0 <= x < ax1 and ay0 <= y < ay1:
                             img.cross(ox + (x - ax0) * s + s // 2, oy + 12 + (y - ay0) * s + s // 2, 2 + s // 2, INK)
-                    for (x, y, _sid, _role) in sw_tiles.get(L, ()):
-                        if ax0 <= x < ax1 and ay0 <= y < ay1:
-                            img.diamond(ox + (x - ax0) * s + s // 2, oy + 12 + (y - ay0) * s + s // 2, 1 + s // 2,
-                                        INK, ring=SURFACE)
+                    here = [(x, y, sid) for (x, y, sid, _role) in sw_tiles.get(L, ())
+                            if ax0 <= x < ax1 and ay0 <= y < ay1]
+                    for (x, y, _sid) in here:
+                        img.diamond(ox + (x - ax0) * s + s // 2, oy + 12 + (y - ay0) * s + s // 2, 1 + s // 2,
+                                    INK, ring=SURFACE)
+                    _stair_labels(img, lambda x, y: (ox + (x - ax0) * s + s // 2, oy + 12 + (y - ay0) * s + s // 2),
+                                  here, taken, 1, near=max(3, 12 // s))
                     for rid in rids:
                         r = region_box[rid]
                         for Ls, cnt in r["final_layers"].items():
