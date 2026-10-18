@@ -4,7 +4,8 @@
     python3 -I scripts/verify_plan.py [placement-plan.json]
 
 Groups:
-  * one overworld group; every group's classification and reason are known
+  * one overworld group; group ids and member maps (overworld cells
+    included) are unique; every group's classification and reason are known
     values; the summary's group, map and classification counts are re-derived
     (the overworld's map and per-layer counts from its cells)
 Placement (every placed group, proposed and tentative):
@@ -16,7 +17,8 @@ Placement (every placed group, proposed and tentative):
     orientation's direction; the ideal follows from the main connection (its
     far end, one layer away in the exit's direction, within the recorded
     vertical bounds), which is one of the group's exits to the overworld or
-    an earlier placed group; only an alignment-hinted placement has none
+    an earlier placed group; only an alignment-hinted tentative placement
+    has none (a proposed placement carries no hint)
   * member plane origin == local_offset + (x_offset, y_offset, layer_offset);
     no placed group has a relayered region (its member maps are recorded on
     one layer each; the generator refuses to publish otherwise)
@@ -276,6 +278,16 @@ def verify(plan: dict) -> dict:
                 g["id"], g["classification"], g.get("reason")))
     if sum(1 for g in plan["groups"] if g["classification"] == "overworld") != 1:
         errors.append("the plan has no single overworld group")
+    # identities are unique before anything is counted
+    for what, items in (
+            ("group id", [g["id"] for g in plan["groups"]]),
+            ("member map", [m["path"] for g in others for m in g["maps"]] + [
+                "{}_{}_{}{}".format(ow_id, X, Y, "" if int(z) == 0 else "_{}".format(z))
+                for z, cells in ow["cells_by_layer"].items() for X, Y in cells])):
+        dup = sorted(k for k, n in collections.Counter(items).items() if n > 1)
+        if dup:
+            errors.append("{} {} {} listed {} times".format(what, dup[0], "and {} more are".format(len(dup) - 1)
+                                                             if len(dup) > 1 else "is", "several"))
     if summ.get("groups_total") != len(plan["groups"]) or summ.get("non_overworld_groups") != len(others) or \
             summ.get("maps_total") != sum(g["map_count"] for g in plan["groups"]) or \
             any(g["map_count"] != len(g["maps"]) for g in others) or \
@@ -984,6 +996,9 @@ def verify(plan: dict) -> dict:
         # only a placement forced by an alignment hint has none
         mc = pl.get("main_connection")
         hinted = bool(pl.get("tentative_reason"))
+        if hinted and pl.get("status") != "tentative":
+            errors.append("{} placement of {} carries an alignment hint".format(pl.get("status"), g["id"]))
+            hinted = False
         if mc is None or hinted:
             if (mc is None) != hinted:
                 errors.append("placement of {} has {}".format(

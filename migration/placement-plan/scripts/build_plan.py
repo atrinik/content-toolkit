@@ -1277,7 +1277,8 @@ def build(content: Path, allow_dirty: bool = False):
             n[sw["kind"]] += 1
             sw["id"] = "{}{}".format(prefix[sw["kind"]], n[sw["kind"]])
         # A failed group stays unplaced (and fails verification, so the plan is not published).
-        return o1, sorted(l1 + f1), o2 + o3, sorted(l2 + f2), sorted(f1 + f2 + f3)
+        # an uncertain group no pool reached may still get its tentative spot from an alignment hint
+        return o1, sorted(l1 + f1), o2 + o3, sorted((set(l2) - set(o3)) | set(f2)), sorted(f1 + f2 + f3)
 
     def becomes_counts():
         c = collections.Counter()

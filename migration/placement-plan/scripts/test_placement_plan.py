@@ -219,7 +219,15 @@ class ExitInventory(VerifierTest):
         self.assertCaught(p, "main connection of {} has kind sideways".format(deck))
         p = self.plan()
         group(p, deck)["placement"]["tentative_reason"] = "hint"
-        self.assertCaught(p, "placement of {} has both a main connection and an alignment hint".format(deck))
+        self.assertCaught(p, "proposed placement of {} carries an alignment hint".format(deck))
+        p = self.plan()
+        group(p, deck)["placement"].update(main_connection=None, tentative_reason="hint")
+        self.assertCaught(p, "proposed placement of {} carries an alignment hint".format(deck),
+                          "placement of {} has no main connection".format(deck))
+        p = self.plan()
+        tent = group(p, p["summary"]["tentative_placement_order"][0])["placement"]
+        tent["main_connection"] = dict(group(p, deck)["placement"]["main_connection"])
+        self.assertCaught(p, "has both a main connection and an alignment hint")
         # mine_entrance_a is entered from mine_entrance, placed before it; claim it was placed after
         p = self.plan()
         a, b = group(p, MINE + "mine_entrance_a")["placement"], group(p, MINE + "mine_entrance")["placement"]
@@ -319,6 +327,26 @@ class ExitInventory(VerifierTest):
         p = self.plan()
         p["summary"]["by_classification"]["separate:system"] += 1
         self.assertCaught(p, "summary group and map counts differ from the groups")
+
+    def test_duplicate_identities(self):
+        p = self.plan()
+        apt = "/shattered_islands/eld_woods_island/apartments/apartment_cheap"
+        dup = json.loads(json.dumps(group(p, apt)))
+        p["groups"].append(dup)
+        s = p["summary"]
+        s["groups_total"] += 1
+        s["non_overworld_groups"] += 1
+        s["maps_total"] += dup["map_count"]
+        s["by_classification"]["{}:{}".format(dup["classification"], dup["reason"])] += 1
+        self.assertCaught(p, "group id {} is listed several times".format(apt))
+        p = self.plan()
+        ow = next(g for g in p["groups"] if g["classification"] == "overworld")
+        ow["cells_by_layer"]["0"].append(list(ow["cells_by_layer"]["0"][0]))
+        ow["map_count"] += 1
+        ow["layers"]["0"] += 1
+        p["summary"]["maps_total"] += 1
+        self.assertCaught(p, "member map /shattered_islands/world_{}_{} is listed several times".format(
+            *ow["cells_by_layer"]["0"][0]))
 
     def test_the_overworld_map_count(self):
         p = self.plan()
