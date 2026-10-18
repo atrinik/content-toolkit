@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Build the Atrinik overworld-plane placement plan.
 
-Read-only against the content checkout. Writes placement-plan.json,
-REPORT.md and layer_<n>.png into the output directory.
+Read-only against the content checkout, which must be clean under arch/ and
+maps/. Generates placement-plan.json, REPORT.md and layer_<n>[_zoom].png in a
+staging directory, verifies the staged plan, and only then replaces the
+artifacts in the output directory. Standard library only.
 
-    python3 -I scripts/build_plan.py [--content DIR] [--out DIR]
+    python3 -I scripts/build_plan.py [--content DIR] [--out DIR] [--allow-dirty]
 
 Everything is deterministic: inputs are iterated in sorted order and every
 tie is broken lexicographically.
@@ -17,10 +19,12 @@ import collections
 import functools
 import hashlib
 import json
+import os
 import posixpath
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 sys.dont_write_bytecode = True
@@ -108,22 +112,35 @@ BELOW_WORDS = ("cave", "cavern", "mine", "sewer", "dungeon", "crypt", "lair", "a
 
 
 # ------------------------------------------------------------------ helpers
-def git_head(content: Path) -> str:
-    try:
-        out = subprocess.run(["git", "-C", str(content), "rev-parse", "HEAD"],
-                             capture_output=True, text=True, check=True)
-        return out.stdout.strip()
-    except Exception:  # pragma: no cover
-        return "unknown"
+INPUT_TREES = ("arch", "maps")  # every file the generator reads lives under these
 
 
-def tree_digest(maps: dict, archs_files: int, content: Path) -> str:
+def git(content: Path, *args) -> str:
+    out = subprocess.run(["git", "-C", str(content), *args], capture_output=True, text=True, check=True)
+    return out.stdout
+
+
+def content_revision(content: Path) -> dict:
+    """Commit and cleanliness of the input trees; the plan is only evidence for a clean checkout."""
+    head = git(content, "rev-parse", "--verify", "HEAD^{commit}").strip()
+    dirty = git(content, "status", "--porcelain", "--untracked-files=all", "--", *INPUT_TREES).splitlines()
+    return {"head": head, "clean": not dirty, "dirty_paths": sorted(dirty)[:50]}
+
+
+def inputs_digest(content: Path) -> dict:
+    """SHA-256 over (path, sha256(bytes)) of every regular file under the input trees, in sorted order."""
     h = hashlib.sha256()
-    for m in sorted(maps):
-        h.update(m.encode())
-        h.update(b"\0")
-        h.update(hashlib.sha256((content / "maps" / m.lstrip("/")).read_bytes()).digest())
-    return h.hexdigest()
+    n = 0
+    for tree in INPUT_TREES:
+        for path in sorted((content / tree).rglob("*"), key=lambda p: p.as_posix()):
+            if path.is_symlink() or not path.is_file():
+                continue
+            rel = path.relative_to(content).as_posix()
+            h.update(rel.encode())
+            h.update(b"\0")
+            h.update(hashlib.sha256(path.read_bytes()).digest())
+            n += 1
+    return {"trees": list(INPUT_TREES), "files": n, "sha256": h.hexdigest()}
 
 
 def nice_group_id(members: list, taken: set) -> str:
@@ -236,7 +253,13 @@ def _ow_tiles(rec, bx, by):
 
 
 # --------------------------------------------------------------------- main
-def build(content: Path, out: Path):
+def build(content: Path, allow_dirty: bool = False):
+    revision = content_revision(content)
+    if not revision["clean"] and not allow_dirty:
+        raise SystemExit("content checkout {} has uncommitted changes under {}; the plan must come from a clean "
+                         "commit (use --allow-dirty only for experiments):\n  {}".format(
+                             content, "/".join(INPUT_TREES), "\n  ".join(revision["dirty_paths"])))
+    digest_before = inputs_digest(content)
     archs = md.load_archetypes(content)
     maps, all_files = md.load_maps(content, archs)
     comps = an.components(maps)
@@ -717,6 +740,8 @@ def build(content: Path, out: Path):
         for r in range(0, MAX_SHIFT + 1):
             for k in range(0, MAX_EXTRA_LAYERS + 1):
                 L = ideal["L"] + step * k
+                if not lo <= L <= hi:
+                    continue  # never cross a vertical bound from the exit semantics
                 for sx, sy in ring(r):
                     dx, dy = ideal["dx"] + sx, ideal["dy"] + sy
                     hit = footprint_violation(gid, dx, dy, L)
@@ -837,21 +862,27 @@ def build(content: Path, out: Path):
                 fam = stair_family_down(a)
                 if fam:
                     break
-            tiles = [{"layer": top[2], "x": top[0], "y": top[1], "role": "top",
-                      "objects": top_objs, "existing": True}]
+            # Top and bottom keep their existing exit objects. Intermediate tiles get
+            # a decoration that only borrows the family archetype's appearance: it is
+            # not an exit (no exit type, destination or tiled link) and not walkable,
+            # so the stairwell stays ONE exit.
+            tiles = [{"layer": top[2], "x": top[0], "y": top[1], "role": "top", "existing": True,
+                      "objects": [{"archetype": a, "exit": True} for a in top_objs]}]
             for (x, y, z) in chain:
-                tiles.append({"layer": z, "x": x, "y": y, "role": "intermediate",
-                              "objects": [fam] if fam else [], "existing": False})
-            tiles.append({"layer": bottom[2], "x": bottom[0], "y": bottom[1], "role": "bottom",
-                          "objects": bot_objs, "existing": True})
+                tiles.append({"layer": z, "x": x, "y": y, "role": "intermediate", "existing": False,
+                              "objects": [{"archetype": fam, "exit": False, "walkable": False,
+                                           "use": "appearance only"}] if fam else []})
+            tiles.append({"layer": bottom[2], "x": bottom[0], "y": bottom[1], "role": "bottom", "existing": True,
+                          "objects": [{"archetype": a, "exit": True} for a in bot_objs]})
             for (x, y, z) in chain:
                 S.occ.add(gid, z, [(x, y)])
             sw = {"group": gid, "connects": sorted({gid, canon["other"]}), "other": canon["other"],
                   "x": top[0], "y": top[1], "top_layer": top[2], "bottom_layer": bottom[2],
                   "mode": mode, "max_bend": max([cheb((x, y), top) for (x, y, _z) in chain] or [0]),
-                  "intermediate_object": fam,
-                  "intermediate_object_source": (
-                      "down archetype of the {} family used by this stairwell's exits".format(fam.rsplit("_", 1)[0])
+                  "intermediate_appearance": fam,
+                  "intermediate_appearance_source": (
+                      "appearance of the down archetype of the {} family used by this stairwell's exits; the "
+                      "intermediate objects are decorations, not exits".format(fam.rsplit("_", 1)[0])
                       if fam else "no stair archetype among {}; owner to choose".format(top_objs + bot_objs)),
                   "tiles": tiles, "view_conflicts": [], "replaces": exits_rec}
             S.stairwells.append(sw)
@@ -1248,8 +1279,9 @@ def build(content: Path, out: Path):
         "schema": "atrinik-overworld-placement-plan/2",
         "generated_by": "scripts/build_plan.py",
         "content_root": str(content),
-        "content_git_head": git_head(content),
-        "content_maps_digest_sha256": tree_digest(maps, 0, content),
+        "content_git_head": revision["head"],
+        "content_worktree_clean": revision["clean"],
+        "content_inputs_digest": digest_before,
         "settings": {"footprint": "occupied-tiles", "view_radius_tiles": VIEW_RADIUS,
                      "contact_margin_tiles": CONTACT_MARGIN, "max_extra_layers": MAX_EXTRA_LAYERS,
                      "max_shift_tiles": MAX_SHIFT, "stair_tolerance_tiles": STAIR_TOLERANCE,
@@ -1294,29 +1326,63 @@ def build(content: Path, out: Path):
         "proposals": {"layer_height_relayering": proposal},
         "data_problems": problems,
     }
+    if inputs_digest(content) != digest_before:
+        raise SystemExit("content inputs changed while the plan was being generated; rerun on a quiet checkout")
     import verify_plan  # noqa: E402
     plan["verification"] = verify_plan.verify(json.loads(json.dumps(plan)))
-    out.mkdir(parents=True, exist_ok=True)
-    (out / "placement-plan.json").write_text(json.dumps(plan, indent=1, sort_keys=False) + "\n", encoding="utf-8")
     return plan, maps, G, ow_id
+
+
+ARTIFACT_RE = re.compile(r"^(placement-plan\.json|REPORT\.md|layer_-?\d+(_zoom)?\.png)$")
+
+
+def publish(stage: Path, out: Path) -> list:
+    """Move the complete, verified artifact set from `stage` into `out`.
+
+    Called only after every artifact was generated and the staged JSON
+    re-verified. Each file is replaced atomically (os.replace on the same
+    filesystem); stale layer images from an earlier run are removed last.
+    """
+    new = sorted(p.name for p in stage.iterdir() if ARTIFACT_RE.match(p.name))
+    for name in new:
+        os.replace(stage / name, out / name)
+    stale = sorted(p.name for p in out.iterdir() if ARTIFACT_RE.match(p.name) and p.name not in new)
+    for name in stale:
+        (out / name).unlink()
+    return new
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--content", type=Path, default=DEFAULT_CONTENT)
     ap.add_argument("--out", type=Path, default=DEFAULT_OUT)
-    ap.add_argument("--no-render", action="store_true")
+    ap.add_argument("--allow-dirty", action="store_true",
+                    help="allow uncommitted changes in the content checkout (experiments only; recorded in the JSON)")
     args = ap.parse_args(argv)
-    plan, maps, G, ow_id = build(args.content.resolve(), args.out.resolve())
-    import report  # noqa: E402
-    report.write_report(plan, args.out.resolve())
-    if not args.no_render:
-        import render  # noqa: E402
-        render.render_layers(plan, maps, G, ow_id, args.out.resolve())
-    print("wrote", args.out / "placement-plan.json")
+    out = args.out.resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    plan, maps, G, ow_id = build(args.content.resolve(), allow_dirty=args.allow_dirty)
     print(json.dumps(plan["summary"], indent=1))
-    print("verification:", "OK" if plan["verification"]["ok"] else plan["verification"]["errors"][:10])
-    return 0 if plan["verification"]["ok"] else 1
+    if not plan["verification"]["ok"]:
+        print("verification FAILED; nothing written:", plan["verification"]["errors"][:10])
+        return 1
+    import render  # noqa: E402
+    import report  # noqa: E402
+    import verify_plan  # noqa: E402
+    with tempfile.TemporaryDirectory(prefix=".placement-plan-stage-", dir=out) as tmp:
+        stage = Path(tmp)
+        (stage / "placement-plan.json").write_text(json.dumps(plan, indent=1, sort_keys=False) + "\n",
+                                                   encoding="utf-8")
+        report.write_report(plan, stage)
+        render.render_layers(plan, maps, G, ow_id, stage)
+        staged = verify_plan.verify(json.loads((stage / "placement-plan.json").read_text(encoding="utf-8")))
+        if not staged["ok"] or staged != plan["verification"]:
+            print("staged plan failed verification; nothing written:", staged["errors"][:10])
+            return 1
+        written = publish(stage, out)
+    print("wrote {} artifacts to {}".format(len(written), out))
+    print("verification: OK")
+    return 0
 
 
 if __name__ == "__main__":

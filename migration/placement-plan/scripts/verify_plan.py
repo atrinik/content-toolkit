@@ -7,7 +7,8 @@ Checks every placed group (proposed and tentative):
   * member plane origin == local_offset + (x_offset, y_offset, layer_offset)
   * the JSON carries occupied rows for every overworld map on every layer
     that holds placed tiles or stairwell tiles
-  * no occupied tile is claimed by two owners (overworld map or group)
+  * no occupied tile is claimed by two maps (overworld maps, or member maps
+    of placed groups, including two members of the same group)
   * gap rule: on each layer, a group's occupied tiles are more than
     view_radius_tiles (Chebyshev) from every owner it shares no exit with,
     and more than contact_margin_tiles from every owner it shares one with;
@@ -15,8 +16,9 @@ Checks every placed group (proposed and tentative):
   * stairwells: consecutive tiles are exactly one layer and at most
     stair_tolerance_tiles apart; the ends match every replaced exit; every
     intermediate tile is void (no owner occupies it, no other stairwell uses
-    it); the recorded view conflicts equal the unrelated owners within the
-    view radius, and mode "clear" means there are none
+    it) and holds no exit object; the recorded view conflicts equal the
+    unrelated owners within the view radius, and mode "clear" means there
+    are none
   * every exit record's plane_source / plane_target equals origin + tile, and
     its "becomes" label matches its geometry
 Exit status 0 when every check passes.
@@ -86,24 +88,24 @@ def verify(plan: dict) -> dict:
 
     # ------------------------------------------------------------ occupancy
     owners = collections.defaultdict(dict)  # layer -> owner -> Rows
-    claim = collections.defaultdict(dict)   # layer -> (x, y) -> owner
+    claim = collections.defaultdict(dict)   # layer -> (x, y) -> (owner, map)
     origin = {}
 
-    def put(owner, layer, x0, y0, rows):
+    def put(owner, mapname, layer, x0, y0, rows):
         rr = owners[layer].setdefault(owner, Rows())
         for y, row in enumerate(rows):
             for x, ch in enumerate(row):
                 if ch == "#":
                     t = (x0 + x, y0 + y)
                     prev = claim[layer].get(t)
-                    if prev is not None and prev != owner:
-                        errors.append("tile {} layer {} claimed by {} and {}".format(t, layer, prev, owner))
-                    claim[layer][t] = owner
+                    if prev is not None and prev != (owner, mapname):
+                        errors.append("tile {} layer {} claimed by {} and {}".format(t, layer, prev[1], mapname))
+                    claim[layer][t] = (owner, mapname)
                     rr.add(*t)
 
     for path, rows in sorted(ow["occupied_rows_on_used_layers"].items()):
         X, Y, Z = world_cell(path)
-        put(path, Z, 24 * X, 24 * Y, rows)
+        put(path, path, Z, 24 * X, 24 * Y, rows)
     placed = []
     for g in plan["groups"]:
         p = g.get("placement")
@@ -120,7 +122,7 @@ def verify(plan: dict) -> dict:
             if "occupied_rows" not in m:
                 errors.append("no occupied rows for placed map {}".format(m["path"]))
                 continue
-            put(g["id"], got[2], got[0], got[1], m["occupied_rows"])
+            put(g["id"], m["path"], got[2], got[0], got[1], m["occupied_rows"])
     for layer in owners.values():
         for rr in layer.values():
             rr.done()
@@ -250,7 +252,10 @@ def verify(plan: dict) -> dict:
             key = (x["layer"], x["x"], x["y"])
             if (x["x"], x["y"]) in claim.get(x["layer"], {}):
                 errors.append("{} tile {} is not void (occupied by {})".format(
-                    sw["id"], key, claim[x["layer"]][(x["x"], x["y"])]))
+                    sw["id"], key, claim[x["layer"]][(x["x"], x["y"])][1]))
+            if any(o.get("exit") is not False for o in x["objects"]):
+                errors.append("{} tile {} holds an exit object; intermediate tiles must not be exits".format(
+                    sw["id"], key))
             if key in sw_tiles:
                 errors.append("{} tile {} is also used by {}".format(sw["id"], key, sw_tiles[key]))
             sw_tiles[key] = sw["id"]

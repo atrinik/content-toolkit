@@ -1,4 +1,4 @@
-"""Per-layer overview PNGs of the overworld plane.
+"""Per-layer overview PNGs of the overworld plane (standard library only).
 
 layer_<n>.png       full plane extent, 1 px per tile
 layer_<n>_zoom.png  crop around placed groups, 3 px per tile (layers with placements or stairwells)
@@ -17,9 +17,8 @@ from __future__ import annotations
 import collections
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
-
 import footprint as fp
+from raster import Canvas
 
 SURFACE = (252, 252, 251)
 OW_FILL = (201, 200, 195)
@@ -28,7 +27,7 @@ TENTATIVE = (235, 104, 52)     # categorical slot 2 (orange)
 GAP = (205, 226, 251)          # blue step 100: the view-gap band (a zone, not a series)
 INK = (11, 11, 11)
 INK2 = (82, 81, 78)
-HEADER = 96
+HEADER = 112
 
 
 def labels(plan) -> dict:
@@ -37,11 +36,20 @@ def labels(plan) -> dict:
     return {gid: i + 1 for i, gid in enumerate(ids)}
 
 
-def _font(size):
-    try:
-        return ImageFont.load_default(size=size)
-    except TypeError:  # pragma: no cover - old Pillow
-        return ImageFont.load_default()
+def _header(c: Canvas, title: str, sub: str, radius: int):
+    c.text(6, 6, title, INK, 2)
+    c.text(6, 26, sub, INK2, 1)
+    x = 6
+    for col, text in ((OW_FILL, "overworld map"), (PROPOSED, "proposed placement"), (TENTATIVE, "tentative"),
+                      (GAP, "{}-tile view gap".format(radius))):
+        c.rect(x, 40, x + 9, 49, col)
+        c.outline(x, 40, x + 9, 49, INK2)
+        x += 14 + c.text(x + 14, 41, text, INK2, 1) + 12
+    c.cross(11, 63, 4, INK)
+    c.text(20, 60, "source tile of an exit into a placed group    #N = group label in REPORT.MD", INK2, 1)
+    c.diamond(11, 80, 4, INK)
+    c.text(20, 77, "stairwell tile on this layer (SWN = stairwell id in REPORT.MD)", INK2, 1)
+    c.text(6, 94, "occupied tiles only: empty legacy tiles are void", INK2, 1)
 
 
 def render_layers(plan, maps, G, ow_id, out: Path):
@@ -78,10 +86,6 @@ def render_layers(plan, maps, G, ow_id, out: Path):
         if not placed[z]:
             del placed[z]
     ext = [b for g in plan["groups"] if g["classification"] == "overworld" for b in g["bounding_boxes"].values()]
-    for z in placed:
-        for ts in placed[z].values():
-            bx = fp.bbox_of(ts)
-            ext.append({"x_min": bx[0], "y_min": bx[1], "x_max": bx[2], "y_max": bx[3]})
     all_placed = [t for z in placed for ts in placed[z].values() for t in ts]
     zb = fp.bbox_of(all_placed)
     zx0, zy0, zx1, zy1 = zb[0] - 30, zb[1] - 30, zb[2] + 31, zb[3] + 31
@@ -93,29 +97,20 @@ def render_layers(plan, maps, G, ow_id, out: Path):
     layers = sorted(set(ow_tiles) | set(placed) | set(chains))
     written = []
     for z in layers:
-        w, h = x1 - x0, y1 - y0
-        buf = bytearray(bytes(SURFACE) * (w * h))
-
-        def put(t, col):
-            x, y = t[0] - x0, t[1] - y0
-            if 0 <= x < w and 0 <= y < h:
-                i = 3 * (y * w + x)
-                buf[i:i + 3] = bytes(col)
-
+        base = Canvas(x1 - x0, y1 - y0, SURFACE)
         groups_here = placed.get(z, {})
         chains_here = chains.get(z, {})
         band = set()
         for gid in sorted(set(groups_here) | set(chains_here)):
             band |= fp.dilate(groups_here.get(gid, set()) | chains_here.get(gid, set()), radius)
-        for t in band:
-            put(t, GAP)
-        for t in ow_tiles.get(z, ()):
-            put(t, OW_FILL)
+        for (x, y) in band:
+            base.put(x - x0, y - y0, GAP)
+        for (x, y) in ow_tiles.get(z, ()):
+            base.put(x - x0, y - y0, OW_FILL)
         for gid, ts in sorted(groups_here.items()):
             col = PROPOSED if status.get(gid) == "proposed" else TENTATIVE
-            for t in ts:
-                put(t, col)
-        base = Image.frombytes("RGB", (w, h), bytes(buf))
+            for (x, y) in ts:
+                base.put(x - x0, y - y0, col)
         for kind in ("full", "zoom"):
             if kind == "zoom" and not groups_here and not chains_here:
                 continue
@@ -124,25 +119,20 @@ def render_layers(plan, maps, G, ow_id, out: Path):
                 body = base
             else:
                 s, bx0, by0, bx1, by1 = 3, zx0, zy0, zx1, zy1
-                body = base.crop((zx0 - x0, zy0 - y0, zx1 - x0, zy1 - y0)).resize(
-                    ((zx1 - zx0) * 3, (zy1 - zy0) * 3), Image.NEAREST)
-            img = Image.new("RGB", (body.width, body.height + HEADER), SURFACE)
-            img.paste(body, (0, HEADER))
-            d = ImageDraw.Draw(img)
+                body = base.crop_scaled(zx0 - x0, zy0 - y0, zx1 - x0, zy1 - y0, 3, SURFACE)
+            img = Canvas(max(body.w, 560), body.h + HEADER, SURFACE)
+            img.paste(body, 0, HEADER)
 
             def P(x, y):
                 return (x - bx0) * s + s // 2, (y - by0) * s + s // 2 + HEADER
 
             for (ex, ey) in sorted(entrances.get(z, ())):
                 cx, cy = P(ex, ey)
-                arm = 2 if s == 1 else 4
-                d.line([cx - arm, cy, cx + arm, cy], fill=INK)
-                d.line([cx, cy - arm, cx, cy + arm], fill=INK)
-            fs = _font(11)
+                img.cross(cx, cy, 2 if s == 1 else 4, INK)
             for (sx, sy, _sid) in sorted(stair.get(z, ())):
                 cx, cy = P(sx, sy)
-                r = 3 if s == 1 else 5
-                d.polygon([(cx, cy - r), (cx + r, cy), (cx, cy + r), (cx - r, cy)], fill=INK, outline=SURFACE)
+                img.diamond(cx, cy, 2 if s == 1 else 4, INK, ring=SURFACE)
+            ls = 1 if s == 1 else 2
             if s > 1:
                 seen = []
                 for (sx, sy, _sid) in sorted(stair.get(z, ()), key=lambda t: (t[1], t[0])):
@@ -151,30 +141,15 @@ def render_layers(plan, maps, G, ow_id, out: Path):
                     seen.append((sx, sy))
                     nums = sorted({int(i[2:]) for (a, b, i) in stair[z] if abs(a - sx) <= 3 and abs(b - sy) <= 3})
                     cx, cy = P(sx, sy)
-                    dy = 4 if len(seen) % 2 else -18
-                    d.text((cx + 7, cy + dy), "SW" + ",".join(str(n) for n in nums), fill=INK, font=fs,
-                           stroke_width=2, stroke_fill=SURFACE)
-            f = _font(11 if s == 1 else 14)
+                    dy = 7 if len(seen) % 2 else -21
+                    img.text(cx + 8, cy + dy, "SW" + ",".join(str(n) for n in nums), INK, ls, halo=SURFACE)
             for gid, ts in sorted(groups_here.items()):
                 _x0, gy0, gx1, _y1 = fp.bbox_of(ts)
-                tx, ty = (gx1 + 1 - bx0) * s + 2, (gy0 - by0) * s + HEADER - 2
-                d.text((tx, ty), "#{}".format(lab[gid]), fill=INK, font=f, stroke_width=2, stroke_fill=SURFACE)
-            ft = _font(16)
-            d.text((6, 4), "Overworld plane - layer {}{}".format(
-                z, "" if kind == "full" else " (zoom, 3 px per tile)"), fill=INK, font=ft)
-            d.text((6, 24), "x {}..{}  y {}..{}  ({} px per tile; occupied tiles only, empty legacy tiles are void)".format(
-                bx0, bx1 - 1, by0, by1 - 1, s), fill=INK2, font=fs)
-            lx = 6
-            for col, text in ((OW_FILL, "overworld map"), (PROPOSED, "proposed placement"),
-                              (TENTATIVE, "tentative"), (GAP, "{}-tile view gap".format(radius))):
-                d.rectangle([lx, 44, lx + 10, 54], fill=col, outline=INK2)
-                d.text((lx + 14, 42), text, fill=INK2, font=fs)
-                lx += 14 + int(d.textlength(text, font=fs)) + 14
-            d.text((6, 60), "+ source tile of an exit into a placed group    #n = group label in REPORT.md",
-                   fill=INK2, font=fs)
-            d.polygon([(10, 72), (15, 77), (10, 82), (5, 77)], fill=INK)
-            d.text((20, 71), "stairwell tile on this layer (SWn = stairwell id in REPORT.md)", fill=INK2, font=fs)
+                tx, ty = (gx1 + 1 - bx0) * s + 3, (gy0 - by0) * s + HEADER
+                img.text(tx, ty, "#{}".format(lab[gid]), INK, ls, halo=SURFACE)
+            _header(img, "Overworld plane - layer {}{}".format(z, "" if kind == "full" else " (zoom)"),
+                    "x {}..{}  y {}..{}  ({} px per tile)".format(bx0, bx1 - 1, by0, by1 - 1, s), radius)
             name = "layer_{}.png".format(z) if kind == "full" else "layer_{}_zoom.png".format(z)
-            img.save(out / name, optimize=True)
+            (out / name).write_bytes(img.png())
             written.append(name)
     return written

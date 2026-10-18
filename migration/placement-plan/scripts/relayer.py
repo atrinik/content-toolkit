@@ -119,7 +119,7 @@ def analyse(maps, map_origins, ground_at, occupant, unrelated_within, exits, own
                         if jo is not None and jo not in owners:
                             joins[jo] += 1
         view = set()
-        for (_, x, y) in comp[::max(1, len(comp) // 400)]:
+        for (_, x, y) in comp:
             view.update(unrelated_within(target, (x, y), related))
         ex = []
         for e in exits:

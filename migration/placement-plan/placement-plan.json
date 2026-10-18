@@ -3,7 +3,15 @@
  "generated_by": "scripts/build_plan.py",
  "content_root": "/home/zoey/dev/atrinik/content",
  "content_git_head": "b9657299a6e796bbaaed77937a06b4013ca3aae0",
- "content_maps_digest_sha256": "18358b7da83e0aa18c1807edf02705363130a7461734611d5f409b1a9c1b90ee",
+ "content_worktree_clean": true,
+ "content_inputs_digest": {
+  "trees": [
+   "arch",
+   "maps"
+  ],
+  "files": 15994,
+  "sha256": "b30068db3230eb5f05118cbf42cd29fe109de07fb1d4eb525633c302f22ff0f1"
+ },
  "settings": {
   "footprint": "occupied-tiles",
   "view_radius_tiles": 16,
@@ -128,38 +136,49 @@
    "bottom_layer": -5,
    "mode": "clear",
    "max_bend": 0,
-   "intermediate_object": "ladder_down",
-   "intermediate_object_source": "down archetype of the ladder family used by this stairwell's exits",
+   "intermediate_appearance": "ladder_down",
+   "intermediate_appearance_source": "appearance of the down archetype of the ladder family used by this stairwell's exits; the intermediate objects are decorations, not exits",
    "tiles": [
     {
      "layer": -3,
      "x": 174,
      "y": 1892,
      "role": "top",
+     "existing": true,
      "objects": [
-      "ladder_down"
-     ],
-     "existing": true
+      {
+       "archetype": "ladder_down",
+       "exit": true
+      }
+     ]
     },
     {
      "layer": -4,
      "x": 174,
      "y": 1892,
      "role": "intermediate",
+     "existing": false,
      "objects": [
-      "ladder_down"
-     ],
-     "existing": false
+      {
+       "archetype": "ladder_down",
+       "exit": false,
+       "walkable": false,
+       "use": "appearance only"
+      }
+     ]
     },
     {
      "layer": -5,
      "x": 174,
      "y": 1892,
      "role": "bottom",
+     "existing": true,
      "objects": [
-      "ladder_up"
-     ],
-     "existing": true
+      {
+       "archetype": "ladder_up",
+       "exit": true
+      }
+     ]
     }
    ],
    "view_conflicts": [],
@@ -230,38 +249,49 @@
    "bottom_layer": -4,
    "mode": "void-only",
    "max_bend": 0,
-   "intermediate_object": "ladder_down",
-   "intermediate_object_source": "down archetype of the ladder family used by this stairwell's exits",
+   "intermediate_appearance": "ladder_down",
+   "intermediate_appearance_source": "appearance of the down archetype of the ladder family used by this stairwell's exits; the intermediate objects are decorations, not exits",
    "tiles": [
     {
      "layer": -2,
      "x": 209,
      "y": 1898,
      "role": "top",
+     "existing": true,
      "objects": [
-      "ladder_down"
-     ],
-     "existing": true
+      {
+       "archetype": "ladder_down",
+       "exit": true
+      }
+     ]
     },
     {
      "layer": -3,
      "x": 209,
      "y": 1898,
      "role": "intermediate",
+     "existing": false,
      "objects": [
-      "ladder_down"
-     ],
-     "existing": false
+      {
+       "archetype": "ladder_down",
+       "exit": false,
+       "walkable": false,
+       "use": "appearance only"
+      }
+     ]
     },
     {
      "layer": -4,
      "x": 209,
      "y": 1898,
      "role": "bottom",
+     "existing": true,
      "objects": [
-      "ladder_up"
-     ],
-     "existing": true
+      {
+       "archetype": "ladder_up",
+       "exit": true
+      }
+     ]
     }
    ],
    "view_conflicts": [
@@ -341,38 +371,49 @@
    "bottom_layer": -2,
    "mode": "clear",
    "max_bend": 0,
-   "intermediate_object": "stairs_stone_down",
-   "intermediate_object_source": "down archetype of the stairs_stone family used by this stairwell's exits",
+   "intermediate_appearance": "stairs_stone_down",
+   "intermediate_appearance_source": "appearance of the down archetype of the stairs_stone family used by this stairwell's exits; the intermediate objects are decorations, not exits",
    "tiles": [
     {
      "layer": 0,
      "x": 456,
      "y": 1732,
      "role": "top",
+     "existing": true,
      "objects": [
-      "stairs_stone_down"
-     ],
-     "existing": true
+      {
+       "archetype": "stairs_stone_down",
+       "exit": true
+      }
+     ]
     },
     {
      "layer": -1,
      "x": 456,
      "y": 1732,
      "role": "intermediate",
+     "existing": false,
      "objects": [
-      "stairs_stone_down"
-     ],
-     "existing": false
+      {
+       "archetype": "stairs_stone_down",
+       "exit": false,
+       "walkable": false,
+       "use": "appearance only"
+      }
+     ]
     },
     {
      "layer": -2,
      "x": 456,
      "y": 1732,
      "role": "bottom",
+     "existing": true,
      "objects": [
-      "stairs_stone_up"
-     ],
-     "existing": true
+      {
+       "archetype": "stairs_stone_up",
+       "exit": true
+      }
+     ]
     }
    ],
    "view_conflicts": [],
@@ -443,38 +484,49 @@
    "bottom_layer": -2,
    "mode": "clear",
    "max_bend": 0,
-   "intermediate_object": "stairs_stone_down",
-   "intermediate_object_source": "down archetype of the stairs_stone family used by this stairwell's exits",
+   "intermediate_appearance": "stairs_stone_down",
+   "intermediate_appearance_source": "appearance of the down archetype of the stairs_stone family used by this stairwell's exits; the intermediate objects are decorations, not exits",
    "tiles": [
     {
      "layer": 0,
      "x": 457,
      "y": 1732,
      "role": "top",
+     "existing": true,
      "objects": [
-      "stairs_stone_down"
-     ],
-     "existing": true
+      {
+       "archetype": "stairs_stone_down",
+       "exit": true
+      }
+     ]
     },
     {
      "layer": -1,
      "x": 457,
      "y": 1732,
      "role": "intermediate",
+     "existing": false,
      "objects": [
-      "stairs_stone_down"
-     ],
-     "existing": false
+      {
+       "archetype": "stairs_stone_down",
+       "exit": false,
+       "walkable": false,
+       "use": "appearance only"
+      }
+     ]
     },
     {
      "layer": -2,
      "x": 457,
      "y": 1732,
      "role": "bottom",
+     "existing": true,
      "objects": [
-      "stairs_stone_up"
-     ],
-     "existing": true
+      {
+       "archetype": "stairs_stone_up",
+       "exit": true
+      }
+     ]
     }
    ],
    "view_conflicts": [],
@@ -545,58 +597,79 @@
    "bottom_layer": -4,
    "mode": "void-only",
    "max_bend": 0,
-   "intermediate_object": "stairs_wood_down",
-   "intermediate_object_source": "down archetype of the stairs_wood family used by this stairwell's exits",
+   "intermediate_appearance": "stairs_wood_down",
+   "intermediate_appearance_source": "appearance of the down archetype of the stairs_wood family used by this stairwell's exits; the intermediate objects are decorations, not exits",
    "tiles": [
     {
      "layer": 0,
      "x": 109,
      "y": 2004,
      "role": "top",
+     "existing": true,
      "objects": [
-      "stairs_wood_down"
-     ],
-     "existing": true
+      {
+       "archetype": "stairs_wood_down",
+       "exit": true
+      }
+     ]
     },
     {
      "layer": -1,
      "x": 109,
      "y": 2004,
      "role": "intermediate",
+     "existing": false,
      "objects": [
-      "stairs_wood_down"
-     ],
-     "existing": false
+      {
+       "archetype": "stairs_wood_down",
+       "exit": false,
+       "walkable": false,
+       "use": "appearance only"
+      }
+     ]
     },
     {
      "layer": -2,
      "x": 109,
      "y": 2004,
      "role": "intermediate",
+     "existing": false,
      "objects": [
-      "stairs_wood_down"
-     ],
-     "existing": false
+      {
+       "archetype": "stairs_wood_down",
+       "exit": false,
+       "walkable": false,
+       "use": "appearance only"
+      }
+     ]
     },
     {
      "layer": -3,
      "x": 109,
      "y": 2004,
      "role": "intermediate",
+     "existing": false,
      "objects": [
-      "stairs_wood_down"
-     ],
-     "existing": false
+      {
+       "archetype": "stairs_wood_down",
+       "exit": false,
+       "walkable": false,
+       "use": "appearance only"
+      }
+     ]
     },
     {
      "layer": -4,
      "x": 109,
      "y": 2004,
      "role": "bottom",
+     "existing": true,
      "objects": [
-      "stairs_wood_up"
-     ],
-     "existing": true
+      {
+       "archetype": "stairs_wood_up",
+       "exit": true
+      }
+     ]
     }
    ],
    "view_conflicts": [
@@ -691,44 +764,50 @@
    "bottom_layer": -3,
    "mode": "clear",
    "max_bend": 1,
-   "intermediate_object": null,
-   "intermediate_object_source": "no stair archetype among ['invis_exit', 'invis_exit']; owner to choose",
+   "intermediate_appearance": null,
+   "intermediate_appearance_source": "no stair archetype among ['invis_exit', 'invis_exit']; owner to choose",
    "tiles": [
     {
      "layer": 0,
      "x": 78,
      "y": 1681,
      "role": "top",
+     "existing": true,
      "objects": [
-      "invis_exit"
-     ],
-     "existing": true
+      {
+       "archetype": "invis_exit",
+       "exit": true
+      }
+     ]
     },
     {
      "layer": -1,
      "x": 79,
      "y": 1680,
      "role": "intermediate",
-     "objects": [],
-     "existing": false
+     "existing": false,
+     "objects": []
     },
     {
      "layer": -2,
      "x": 78,
      "y": 1681,
      "role": "intermediate",
-     "objects": [],
-     "existing": false
+     "existing": false,
+     "objects": []
     },
     {
      "layer": -3,
      "x": 78,
      "y": 1680,
      "role": "bottom",
+     "existing": true,
      "objects": [
-      "invis_exit"
-     ],
-     "existing": true
+      {
+       "archetype": "invis_exit",
+       "exit": true
+      }
+     ]
     }
    ],
    "view_conflicts": [],
@@ -799,48 +878,64 @@
    "bottom_layer": -3,
    "mode": "void-only",
    "max_bend": 0,
-   "intermediate_object": "stairs_stone_down",
-   "intermediate_object_source": "down archetype of the stairs_stone family used by this stairwell's exits",
+   "intermediate_appearance": "stairs_stone_down",
+   "intermediate_appearance_source": "appearance of the down archetype of the stairs_stone family used by this stairwell's exits; the intermediate objects are decorations, not exits",
    "tiles": [
     {
      "layer": 0,
      "x": 127,
      "y": 1371,
      "role": "top",
+     "existing": true,
      "objects": [
-      "stairs_stone_down"
-     ],
-     "existing": true
+      {
+       "archetype": "stairs_stone_down",
+       "exit": true
+      }
+     ]
     },
     {
      "layer": -1,
      "x": 127,
      "y": 1371,
      "role": "intermediate",
+     "existing": false,
      "objects": [
-      "stairs_stone_down"
-     ],
-     "existing": false
+      {
+       "archetype": "stairs_stone_down",
+       "exit": false,
+       "walkable": false,
+       "use": "appearance only"
+      }
+     ]
     },
     {
      "layer": -2,
      "x": 127,
      "y": 1371,
      "role": "intermediate",
+     "existing": false,
      "objects": [
-      "stairs_stone_down"
-     ],
-     "existing": false
+      {
+       "archetype": "stairs_stone_down",
+       "exit": false,
+       "walkable": false,
+       "use": "appearance only"
+      }
+     ]
     },
     {
      "layer": -3,
      "x": 127,
      "y": 1371,
      "role": "bottom",
+     "existing": true,
      "objects": [
-      "stairs_stone_up"
-     ],
-     "existing": true
+      {
+       "archetype": "stairs_stone_up",
+       "exit": true
+      }
+     ]
     }
    ],
    "view_conflicts": [
@@ -921,48 +1016,64 @@
    "bottom_layer": -3,
    "mode": "void-only",
    "max_bend": 0,
-   "intermediate_object": "stairs_stone_down",
-   "intermediate_object_source": "down archetype of the stairs_stone family used by this stairwell's exits",
+   "intermediate_appearance": "stairs_stone_down",
+   "intermediate_appearance_source": "appearance of the down archetype of the stairs_stone family used by this stairwell's exits; the intermediate objects are decorations, not exits",
    "tiles": [
     {
      "layer": 0,
      "x": 128,
      "y": 1371,
      "role": "top",
+     "existing": true,
      "objects": [
-      "stairs_stone_down"
-     ],
-     "existing": true
+      {
+       "archetype": "stairs_stone_down",
+       "exit": true
+      }
+     ]
     },
     {
      "layer": -1,
      "x": 128,
      "y": 1371,
      "role": "intermediate",
+     "existing": false,
      "objects": [
-      "stairs_stone_down"
-     ],
-     "existing": false
+      {
+       "archetype": "stairs_stone_down",
+       "exit": false,
+       "walkable": false,
+       "use": "appearance only"
+      }
+     ]
     },
     {
      "layer": -2,
      "x": 128,
      "y": 1371,
      "role": "intermediate",
+     "existing": false,
      "objects": [
-      "stairs_stone_down"
-     ],
-     "existing": false
+      {
+       "archetype": "stairs_stone_down",
+       "exit": false,
+       "walkable": false,
+       "use": "appearance only"
+      }
+     ]
     },
     {
      "layer": -3,
      "x": 128,
      "y": 1371,
      "role": "bottom",
+     "existing": true,
      "objects": [
-      "stairs_stone_up"
-     ],
-     "existing": true
+      {
+       "archetype": "stairs_stone_up",
+       "exit": true
+      }
+     ]
     }
    ],
    "view_conflicts": [
@@ -1052,48 +1163,64 @@
    "bottom_layer": -3,
    "mode": "void-only",
    "max_bend": 0,
-   "intermediate_object": "stairs_stone_down",
-   "intermediate_object_source": "down archetype of the stairs_stone family used by this stairwell's exits",
+   "intermediate_appearance": "stairs_stone_down",
+   "intermediate_appearance_source": "appearance of the down archetype of the stairs_stone family used by this stairwell's exits; the intermediate objects are decorations, not exits",
    "tiles": [
     {
      "layer": 0,
      "x": 129,
      "y": 1371,
      "role": "top",
+     "existing": true,
      "objects": [
-      "stairs_stone_down"
-     ],
-     "existing": true
+      {
+       "archetype": "stairs_stone_down",
+       "exit": true
+      }
+     ]
     },
     {
      "layer": -1,
      "x": 129,
      "y": 1371,
      "role": "intermediate",
+     "existing": false,
      "objects": [
-      "stairs_stone_down"
-     ],
-     "existing": false
+      {
+       "archetype": "stairs_stone_down",
+       "exit": false,
+       "walkable": false,
+       "use": "appearance only"
+      }
+     ]
     },
     {
      "layer": -2,
      "x": 129,
      "y": 1371,
      "role": "intermediate",
+     "existing": false,
      "objects": [
-      "stairs_stone_down"
-     ],
-     "existing": false
+      {
+       "archetype": "stairs_stone_down",
+       "exit": false,
+       "walkable": false,
+       "use": "appearance only"
+      }
+     ]
     },
     {
      "layer": -3,
      "x": 129,
      "y": 1371,
      "role": "bottom",
+     "existing": true,
      "objects": [
-      "stairs_stone_up"
-     ],
-     "existing": true
+      {
+       "archetype": "stairs_stone_up",
+       "exit": true
+      }
+     ]
     }
    ],
    "view_conflicts": [
@@ -1183,50 +1310,72 @@
    "bottom_layer": -4,
    "mode": "clear",
    "max_bend": 0,
-   "intermediate_object": "stairs_stone_down",
-   "intermediate_object_source": "down archetype of the stairs_stone family used by this stairwell's exits",
+   "intermediate_appearance": "stairs_stone_down",
+   "intermediate_appearance_source": "appearance of the down archetype of the stairs_stone family used by this stairwell's exits; the intermediate objects are decorations, not exits",
    "tiles": [
     {
      "layer": -1,
      "x": -7,
      "y": 1355,
      "role": "top",
+     "existing": true,
      "objects": [
-      "invis_exit",
-      "stairs_stone_down"
-     ],
-     "existing": true
+      {
+       "archetype": "invis_exit",
+       "exit": true
+      },
+      {
+       "archetype": "stairs_stone_down",
+       "exit": true
+      }
+     ]
     },
     {
      "layer": -2,
      "x": -7,
      "y": 1355,
      "role": "intermediate",
+     "existing": false,
      "objects": [
-      "stairs_stone_down"
-     ],
-     "existing": false
+      {
+       "archetype": "stairs_stone_down",
+       "exit": false,
+       "walkable": false,
+       "use": "appearance only"
+      }
+     ]
     },
     {
      "layer": -3,
      "x": -7,
      "y": 1355,
      "role": "intermediate",
+     "existing": false,
      "objects": [
-      "stairs_stone_down"
-     ],
-     "existing": false
+      {
+       "archetype": "stairs_stone_down",
+       "exit": false,
+       "walkable": false,
+       "use": "appearance only"
+      }
+     ]
     },
     {
      "layer": -4,
      "x": -7,
      "y": 1355,
      "role": "bottom",
+     "existing": true,
      "objects": [
-      "invis_exit",
-      "stairs_stone_up"
-     ],
-     "existing": true
+      {
+       "archetype": "invis_exit",
+       "exit": true
+      },
+      {
+       "archetype": "stairs_stone_up",
+       "exit": true
+      }
+     ]
     }
    ],
    "view_conflicts": [],
@@ -1347,50 +1496,72 @@
    "bottom_layer": -4,
    "mode": "clear",
    "max_bend": 0,
-   "intermediate_object": "stairs_stone_down",
-   "intermediate_object_source": "down archetype of the stairs_stone family used by this stairwell's exits",
+   "intermediate_appearance": "stairs_stone_down",
+   "intermediate_appearance_source": "appearance of the down archetype of the stairs_stone family used by this stairwell's exits; the intermediate objects are decorations, not exits",
    "tiles": [
     {
      "layer": -1,
      "x": -6,
      "y": 1355,
      "role": "top",
+     "existing": true,
      "objects": [
-      "invis_exit",
-      "stairs_stone_down"
-     ],
-     "existing": true
+      {
+       "archetype": "invis_exit",
+       "exit": true
+      },
+      {
+       "archetype": "stairs_stone_down",
+       "exit": true
+      }
+     ]
     },
     {
      "layer": -2,
      "x": -6,
      "y": 1355,
      "role": "intermediate",
+     "existing": false,
      "objects": [
-      "stairs_stone_down"
-     ],
-     "existing": false
+      {
+       "archetype": "stairs_stone_down",
+       "exit": false,
+       "walkable": false,
+       "use": "appearance only"
+      }
+     ]
     },
     {
      "layer": -3,
      "x": -6,
      "y": 1355,
      "role": "intermediate",
+     "existing": false,
      "objects": [
-      "stairs_stone_down"
-     ],
-     "existing": false
+      {
+       "archetype": "stairs_stone_down",
+       "exit": false,
+       "walkable": false,
+       "use": "appearance only"
+      }
+     ]
     },
     {
      "layer": -4,
      "x": -6,
      "y": 1355,
      "role": "bottom",
+     "existing": true,
      "objects": [
-      "invis_exit",
-      "stairs_stone_up"
-     ],
-     "existing": true
+      {
+       "archetype": "invis_exit",
+       "exit": true
+      },
+      {
+       "archetype": "stairs_stone_up",
+       "exit": true
+      }
+     ]
     }
    ],
    "view_conflicts": [],
@@ -1511,50 +1682,72 @@
    "bottom_layer": -4,
    "mode": "clear",
    "max_bend": 0,
-   "intermediate_object": "stairs_stone_down",
-   "intermediate_object_source": "down archetype of the stairs_stone family used by this stairwell's exits",
+   "intermediate_appearance": "stairs_stone_down",
+   "intermediate_appearance_source": "appearance of the down archetype of the stairs_stone family used by this stairwell's exits; the intermediate objects are decorations, not exits",
    "tiles": [
     {
      "layer": -1,
      "x": 3,
      "y": 1355,
      "role": "top",
+     "existing": true,
      "objects": [
-      "invis_exit",
-      "stairs_stone_down"
-     ],
-     "existing": true
+      {
+       "archetype": "invis_exit",
+       "exit": true
+      },
+      {
+       "archetype": "stairs_stone_down",
+       "exit": true
+      }
+     ]
     },
     {
      "layer": -2,
      "x": 3,
      "y": 1355,
      "role": "intermediate",
+     "existing": false,
      "objects": [
-      "stairs_stone_down"
-     ],
-     "existing": false
+      {
+       "archetype": "stairs_stone_down",
+       "exit": false,
+       "walkable": false,
+       "use": "appearance only"
+      }
+     ]
     },
     {
      "layer": -3,
      "x": 3,
      "y": 1355,
      "role": "intermediate",
+     "existing": false,
      "objects": [
-      "stairs_stone_down"
-     ],
-     "existing": false
+      {
+       "archetype": "stairs_stone_down",
+       "exit": false,
+       "walkable": false,
+       "use": "appearance only"
+      }
+     ]
     },
     {
      "layer": -4,
      "x": 3,
      "y": 1355,
      "role": "bottom",
+     "existing": true,
      "objects": [
-      "invis_exit",
-      "stairs_stone_up"
-     ],
-     "existing": true
+      {
+       "archetype": "invis_exit",
+       "exit": true
+      },
+      {
+       "archetype": "stairs_stone_up",
+       "exit": true
+      }
+     ]
     }
    ],
    "view_conflicts": [],
@@ -1675,50 +1868,72 @@
    "bottom_layer": -4,
    "mode": "clear",
    "max_bend": 0,
-   "intermediate_object": "stairs_stone_down",
-   "intermediate_object_source": "down archetype of the stairs_stone family used by this stairwell's exits",
+   "intermediate_appearance": "stairs_stone_down",
+   "intermediate_appearance_source": "appearance of the down archetype of the stairs_stone family used by this stairwell's exits; the intermediate objects are decorations, not exits",
    "tiles": [
     {
      "layer": -1,
      "x": 4,
      "y": 1355,
      "role": "top",
+     "existing": true,
      "objects": [
-      "invis_exit",
-      "stairs_stone_down"
-     ],
-     "existing": true
+      {
+       "archetype": "invis_exit",
+       "exit": true
+      },
+      {
+       "archetype": "stairs_stone_down",
+       "exit": true
+      }
+     ]
     },
     {
      "layer": -2,
      "x": 4,
      "y": 1355,
      "role": "intermediate",
+     "existing": false,
      "objects": [
-      "stairs_stone_down"
-     ],
-     "existing": false
+      {
+       "archetype": "stairs_stone_down",
+       "exit": false,
+       "walkable": false,
+       "use": "appearance only"
+      }
+     ]
     },
     {
      "layer": -3,
      "x": 4,
      "y": 1355,
      "role": "intermediate",
+     "existing": false,
      "objects": [
-      "stairs_stone_down"
-     ],
-     "existing": false
+      {
+       "archetype": "stairs_stone_down",
+       "exit": false,
+       "walkable": false,
+       "use": "appearance only"
+      }
+     ]
     },
     {
      "layer": -4,
      "x": 4,
      "y": 1355,
      "role": "bottom",
+     "existing": true,
      "objects": [
-      "invis_exit",
-      "stairs_stone_up"
-     ],
-     "existing": true
+      {
+       "archetype": "invis_exit",
+       "exit": true
+      },
+      {
+       "archetype": "stairs_stone_up",
+       "exit": true
+      }
+     ]
     }
    ],
    "view_conflicts": [],
@@ -1839,58 +2054,79 @@
    "bottom_layer": -5,
    "mode": "void-only",
    "max_bend": 0,
-   "intermediate_object": "stairs_stone_down",
-   "intermediate_object_source": "down archetype of the stairs_stone family used by this stairwell's exits",
+   "intermediate_appearance": "stairs_stone_down",
+   "intermediate_appearance_source": "appearance of the down archetype of the stairs_stone family used by this stairwell's exits; the intermediate objects are decorations, not exits",
    "tiles": [
     {
      "layer": -1,
      "x": 103,
      "y": 1625,
      "role": "top",
+     "existing": true,
      "objects": [
-      "stairs_stone_down"
-     ],
-     "existing": true
+      {
+       "archetype": "stairs_stone_down",
+       "exit": true
+      }
+     ]
     },
     {
      "layer": -2,
      "x": 103,
      "y": 1625,
      "role": "intermediate",
+     "existing": false,
      "objects": [
-      "stairs_stone_down"
-     ],
-     "existing": false
+      {
+       "archetype": "stairs_stone_down",
+       "exit": false,
+       "walkable": false,
+       "use": "appearance only"
+      }
+     ]
     },
     {
      "layer": -3,
      "x": 103,
      "y": 1625,
      "role": "intermediate",
+     "existing": false,
      "objects": [
-      "stairs_stone_down"
-     ],
-     "existing": false
+      {
+       "archetype": "stairs_stone_down",
+       "exit": false,
+       "walkable": false,
+       "use": "appearance only"
+      }
+     ]
     },
     {
      "layer": -4,
      "x": 103,
      "y": 1625,
      "role": "intermediate",
+     "existing": false,
      "objects": [
-      "stairs_stone_down"
-     ],
-     "existing": false
+      {
+       "archetype": "stairs_stone_down",
+       "exit": false,
+       "walkable": false,
+       "use": "appearance only"
+      }
+     ]
     },
     {
      "layer": -5,
      "x": 103,
      "y": 1625,
      "role": "bottom",
+     "existing": true,
      "objects": [
-      "stairs_stone_up"
-     ],
-     "existing": true
+      {
+       "archetype": "stairs_stone_up",
+       "exit": true
+      }
+     ]
     }
    ],
    "view_conflicts": [
