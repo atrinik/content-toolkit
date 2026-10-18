@@ -1,5 +1,5 @@
 {
- "schema": "atrinik-overworld-placement-plan/3",
+ "schema": "atrinik-overworld-placement-plan/4",
  "generated_by": "scripts/build_plan.py",
  "content_root": "/home/zoey/dev/worktrees/content-plan-v2-input",
  "content_git_head": "3ad20150da7656516dae06d4f504d09af4cba344",

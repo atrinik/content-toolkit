@@ -153,6 +153,7 @@ sys.dont_write_bytecode = True  # --content imports the generator; keep the sour
 
 WORLD_RE = re.compile(r"/world_(-?\d+)_(-?\d+)(?:_(-?\d+))?$")
 OW_SIZE = 24  # overworld maps are 24 x 24; plane tile = 24 * filename coordinate + tile
+SCHEMA = "atrinik-overworld-placement-plan/4"  # /4 adds exit_inventory and the failed-placement bookkeeping
 N8 = [(dx, dy) for dy in (-1, 0, 1) for dx in (-1, 0, 1) if (dx, dy) != (0, 0)]
 # Fields of an exit record that come from the content: equal to its inventory entry.
 SOURCE_FIELDS = ("source_map", "source_tile", "target_map", "target_tile", "arch", "line", "form", "vertical",
@@ -244,6 +245,18 @@ def flood(keys, same):
 
 
 def verify(plan: dict) -> dict:
+    """The JSON-only check. A malformed plan (a missing key, a value of the wrong shape) fails it with an
+    error rather than an exception."""
+    try:
+        return _verify(plan)
+    except Exception as exc:  # noqa: BLE001 - any malformation is a failed check, not a crash
+        return {"ok": False, "errors": ["the plan is malformed: {}: {}".format(type(exc).__name__, exc)]}
+
+
+def _verify(plan: dict) -> dict:
+    if plan.get("schema") != SCHEMA:
+        return {"ok": False, "errors": ["schema {} is not {}, the shape this verifier checks".format(
+            plan.get("schema"), SCHEMA)]}
     st = plan["settings"]
     R, M, tol = st["view_radius_tiles"], st["contact_margin_tiles"], st["stair_tolerance_tiles"]
     bend = st["stairwell_max_bend_tiles"]
@@ -1084,8 +1097,13 @@ def verify(plan: dict) -> dict:
         ideal, orient = pl.get("ideal") or {}, pl.get("orientation")
         step = {"below": -1, "above": 1}.get(orient)
         sh, extra = pl.get("shift_from_ideal") or [None, None], pl.get("extra_layers_from_ideal")
-        if None not in sh and isinstance(extra, int) and (
-                extra > st["max_extra_layers"] or max(abs(sh[0]), abs(sh[1])) > st["max_shift_tiles"]):
+        if not (type(extra) is int and isinstance(sh, list) and len(sh) == 2 and all(type(c) is int for c in sh)
+                and all(type(pl.get(f)) is int for f in ("x_offset", "y_offset", "layer_offset"))
+                and all(type(ideal.get(f)) is int for f in ("dx", "dy", "L"))):
+            errors.append("placement of {} has offsets, ideal, shift or extra layers that are not integers".format(
+                g["id"]))
+            continue
+        if extra > st["max_extra_layers"] or max(abs(sh[0]), abs(sh[1])) > st["max_shift_tiles"]:
             errors.append("placement of {} goes {} layer(s) and {} beyond its ideal spot, past the search limits "
                           "(max_extra_layers {}, max_shift_tiles {})".format(g["id"], extra, sh,
                                                                              st["max_extra_layers"],
@@ -1646,7 +1664,11 @@ def main(argv=None):
     plan = json.loads(args.plan.read_text(encoding="utf-8"))
     res = verify(plan)
     if args.content is not None:
-        res["content"] = verify_content(plan, args.content.resolve())
+        try:
+            res["content"] = verify_content(plan, args.content.resolve())
+        except Exception as exc:  # noqa: BLE001 - a checkout that cannot be rebuilt fails the check
+            res["content"] = {"ok": False, "errors": ["cannot rebuild from {}: {}: {}".format(
+                args.content, type(exc).__name__, exc)]}
         res["ok"] = res["ok"] and res["content"]["ok"]
     print(json.dumps(res, indent=1))
     return 0 if res["ok"] else 1

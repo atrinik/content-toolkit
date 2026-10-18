@@ -72,6 +72,21 @@ class CommittedPlan(VerifierTest):
         self.assertTrue(res["ok"], res["errors"][:8])
         self.assertEqual(res["exit_inventory_objects"], len(self.plan()["exit_inventory"]))
 
+    def test_a_malformed_plan_fails_without_a_crash(self):
+        for change in (lambda p: p["exit_inventory"][0].update(source_tile=None),
+                       lambda p: p.pop("stairwells"),
+                       lambda p: p["groups"][0].update(maps=None)):
+            p = self.plan()
+            change(p)
+            res = verify_plan.verify(p)
+            self.assertFalse(res["ok"])
+            self.assertTrue(res["errors"])
+
+    def test_another_schema(self):
+        p = self.plan()
+        p["schema"] = "atrinik-overworld-placement-plan/3"
+        self.assertCaught(p, "schema atrinik-overworld-placement-plan/3 is not atrinik-overworld-placement-plan/4")
+
 
 class ExitInventory(VerifierTest):
     """Fix 1: the exit records are checked against the complete source exit inventory."""
@@ -671,6 +686,15 @@ class FailedPlacement(VerifierTest):
         g["vertical_bounds_from_exit_semantics"] = [-4, -4]
         self.assertCaught(p, "layer offset -5 of {} is outside its vertical bounds [-4, -4]".format(
             MINE + "mine_unique_a"))
+
+    def test_placement_numbers_are_integers(self):
+        for field, value in (("extra_layers_from_ideal", True), ("shift_from_ideal", [False, 0]),
+                             ("layer_offset", -5.0)):
+            with self.subTest(field=field):
+                p = self.plan()
+                group(p, MINE + "mine_unique_a")["placement"][field] = value
+                self.assertCaught(p, "placement of {} has offsets, ideal, shift or extra layers that are not "
+                                     "integers".format(MINE + "mine_unique_a"))
 
     def test_search_limits(self):
         p = self.plan()

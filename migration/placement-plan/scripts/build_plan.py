@@ -1976,7 +1976,7 @@ def build(content: Path, allow_dirty: bool = False):
         counts["{}:{}".format(g["classification"], g["reason"])] += 1
     sw_spans = collections.Counter(sw["top_layer"] - sw["bottom_layer"] for sw in S.stairwells)
     plan = {
-        "schema": "atrinik-overworld-placement-plan/3",
+        "schema": "atrinik-overworld-placement-plan/4",
         "generated_by": "scripts/build_plan.py",
         "content_root": str(content),
         "content_git_head": revision["head"],
