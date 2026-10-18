@@ -197,11 +197,14 @@ def write_report(plan, out: Path):
     vr = ver.get("relayering", {})
     w("- Independent check (`scripts/verify_plan.py`, JSON only): **{}**: {} placed member maps, {} nearby owner "
       "pairs measured (closest unrelated pair {} tiles apart, gap rule needs more than {}), {} stairwells with "
-      "{} intermediate tiles, {} exit endpoints re-derived; relayering re-derived from {} overworld tiles and {} "
+      "{} intermediate tiles, {} exit record copies matched against the inventory of {} exit objects, {} exit "
+      "endpoints re-derived; relayering re-derived from {} overworld tiles and {} "
       "tile heights ({} regions, {} units, {} moved tiles, {} cut edges in {} seam pieces).".format(
           "PASS" if ver.get("ok") else "FAIL", ver.get("member_maps"), ver.get("owner_pairs_checked"),
           (ver.get("closest_pairs", {}).get("unrelated") or ["-"])[0], R, ver.get("stairwells_checked"),
-          ver.get("stairwell_intermediate_tiles"), ver.get("exit_endpoints_checked"), num(vr.get("overworld_tiles", 0)),
+          ver.get("stairwell_intermediate_tiles"), num(ver.get("exit_record_copies_checked", 0)),
+          num(ver.get("exit_inventory_objects", 0)), ver.get("exit_endpoints_checked"),
+          num(vr.get("overworld_tiles", 0)),
           num(vr.get("tile_heights", 0)), vr.get("regions"), vr.get("units"), num(vr.get("moved_tiles", 0)),
           vr.get("cut_edges"), vr.get("seam_pieces")))
     w("")
@@ -284,9 +287,12 @@ def write_report(plan, out: Path):
       "(`client/src/client/commands.c:139-140`). That is **10 tiles** each way.")
     w("- Replacement stack: neither `{}` nor `{}` defines a view radius yet.".format(CLIENT, SERVER))
     w("- **The plan uses {} tiles**, the server's bound. Comparison run with the shipped client's {} tiles "
-      "(`view_radius_sensitivity` in the JSON): {}; {} stairwells; groups that would sit elsewhere: {}.".format(
+      "(`view_radius_sensitivity` in the JSON): {}; {} stairwells; groups that would sit elsewhere: {}{}.".format(
           R, sens["view_radius_tiles"], fmt_counts(sens["crossing_exit_objects_after_placement"]),
-          sens["stairwells"], ", ".join("`{}`".format(base(x)) for x in sens["groups_placed_differently"]) or "none"))
+          sens["stairwells"], ", ".join("`{}`".format(base(x)) for x in sens["groups_placed_differently"]) or "none",
+          "; groups that could not be placed: {}".format(", ".join("`{}`".format(base(x)) for x in
+                                                                   sens["groups_unplaced"]))
+          if sens.get("groups_unplaced") else ""))
     w("- Other layers: classic also streams the linked levels from 6 below to 6 above "
       "(`MAP2_MAX_DEPTH 6`, `libatrinik/socket.h:87-89`), but levels hidden from the camera are pruned before "
       "they are sent (`server/src/server/los.c:737`); a level below the player is hidden by the floor of the "
@@ -1090,6 +1096,7 @@ def write_reproducing(plan, w):
     w("cd migration/placement-plan")
     w("python3 -I scripts/build_plan.py --content {} --out .".format(plan["content_root"]))
     w("python3 -I scripts/verify_plan.py placement-plan.json")
+    w("python3 -I scripts/test_placement_plan.py")
     w("```")
     w("")
     w("`--content` must be a clean checkout of `atrinik/content` at `{}` (the shared checkout was behind `main`, "
@@ -1097,7 +1104,10 @@ def write_reproducing(plan, w):
       "library (the PNGs are written by `raster.py`). The content checkout must be clean under `arch/` and "
       "`maps/` (`--allow-dirty` is for experiments and marks the JSON). Artifacts are generated in a staging "
       "directory, the staged JSON is verified again, and only then are `placement-plan.json`, `REPORT.md` and the "
-      "PNGs replaced; a failed run leaves the old artifacts in place.".format(plan["content_git_head"][:12]))
+      "PNGs replaced; a failed run leaves the old artifacts in place. A group that cannot be placed stays unplaced "
+      "and fails verification, so such a plan is never published. `test_placement_plan.py` tampers with copies of "
+      "the committed JSON and checks that the verifier rejects each one; it needs no content checkout.".format(
+          plan["content_git_head"][:12]))
     w("")
     w("The run is deterministic (sorted inputs, lexicographic tie-breaks) and read-only against the content "
       "checkout; rerunning with the same arguments on the same content rewrites `placement-plan.json`, "

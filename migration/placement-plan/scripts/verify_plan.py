@@ -4,6 +4,9 @@
     python3 -I scripts/verify_plan.py [placement-plan.json]
 
 Placement (every placed group, proposed and tentative):
+  * every place group has a proposed placement and every uncertain group a
+    tentative one; a failed placement fails the plan; the summary's placement
+    order, unplaced groups and failed placements are re-derived
   * member plane origin == local_offset + (x_offset, y_offset, layer_offset);
     no placed group has a relayered region (its member maps are recorded on
     one layer each; the generator refuses to publish otherwise)
@@ -28,12 +31,23 @@ Stairwells (SW placement, SL sloped, SR relayering):
     stairwell carries the engine rule segments_drawn_only_on_player_layer
   * a stairwell's direction matches the exits it replaces, and each end holds
     exactly the exit objects (archetype, exit flag) that start there (a
-    one-way stairwell's far end is a landing)
+    one-way stairwell's far end is a landing); every replaces entry equals its
+    exit record (tiles, target, archetype, plane endpoints, direction)
 Exits:
+  * exit_inventory lists every exit object of the content once; the exit
+    records are exactly the copies it calls for (one per group a crossing exit
+    touches, the overworld's own exits in internal_exits; a wired exit as
+    data_problems lists it) and each equals its inventory entry; the summary
+    and per-group crossing counts are re-derived from the records
+  * every other copy of an exit (blocked sites, relayering exits, wired and
+    kept dangling exits, data problems, main connections) equals its record
+    or inventory entry
   * the records of one exit (one per group it touches) are identical; an
     exit labelled stairwell is listed in exactly that stairwell's replaces
-  * every exit record's plane_source / plane_target equals origin + tile on
-    the tile's final layer, and its "becomes" label matches its geometry;
+  * an exit record has plane_source / plane_target exactly when both ends
+    are placed (or overworld); they and overworld_plane_source / _target
+    equal origin + tile on the tile's final layer, and its "becomes" label
+    matches its geometry;
     wired exits are plain stairs and their verdict follows from their evidence;
     exits the owner keeps as decoration have no exit record
   * every exit 2+ layers and at most one tile per layer apart is a stairwell
@@ -189,6 +203,38 @@ def verify(plan: dict) -> dict:
     for layer in owners.values():
         for rr in layer.values():
             rr.done()
+    placed_ids = {g["id"] for g in placed}
+    summ = plan["summary"]
+
+    # ----------------------------------------------------- placement status
+    # A failed placement must not be published; every place group is placed
+    # (proposed) and every uncertain group tentatively. The summary's order and
+    # unplaced lists are re-derived from the placement records.
+    others = [g for g in plan["groups"] if g["classification"] != "overworld"]
+    status = {g["id"]: (g.get("placement") or {}).get("status") for g in others}
+    for g in others:
+        gid, s = g["id"], status[g["id"]]
+        if s == "failed":
+            errors.append("placement of {} failed; a plan with a failed group must not be published".format(gid))
+        elif s not in (None, "proposed", "tentative"):
+            errors.append("placement of {} has an unknown status {}".format(gid, s))
+        want = {"place": "proposed", "uncertain": "tentative"}.get(g["classification"])
+        if want is not None and s != want:
+            errors.append("{} group {} has no {} placement".format(g["classification"], gid, want))
+        if s == "proposed" and g["classification"] != "place":
+            errors.append("{} group {} has a proposed placement".format(g["classification"], gid))
+    index = {g["id"]: g["placement"].get("placement_index") for g in placed}
+    order = summ["placement_order"] + summ["tentative_placement_order"]
+    if sorted(order) != sorted(index) or [index[gid] for gid in order] != list(range(len(order))) or \
+            sorted(summ["placement_order"]) != sorted(gid for gid, s in status.items() if s == "proposed"):
+        errors.append("placement order in the summary differs from the placed groups")
+    for key, cls, s_ok in (("unplaced_place_groups", "place", "proposed"),
+                           ("unplaced_uncertain_groups", "uncertain", "tentative")):
+        want = sorted(g["id"] for g in others if g["classification"] == cls and status[g["id"]] != s_ok)
+        if summ.get(key) != want:
+            errors.append("summary {} {} != {}".format(key, summ.get(key), want))
+    if summ.get("failed_placements") != sorted(gid for gid, s in status.items() if s == "failed"):
+        errors.append("summary failed_placements differs from the failed placement records")
 
     # rows coverage near every placed or stairwell tile
     used_cells = collections.defaultdict(set)
@@ -314,14 +360,119 @@ def verify(plan: dict) -> dict:
 
     # ----------------------------------------------------------- exit index
     records = {}
+    copies = collections.Counter()  # (group, list, exit key) -> copies
     for g in plan["groups"]:
         for key in ("entrances_from_overworld", "exits_to_overworld", "entrances_from_other_groups",
                     "exits_to_other_groups", "internal_exits"):
             for e in g.get(key, []):
                 k = (e["source_map"], e["line"])
+                copies[(g["id"], key, k)] += 1
                 if k in records and records[k] != e:
                     errors.append("exit {}:{} has two different records".format(*k))
                 records[k] = e
+
+    def same_as(what, copy, ref, fields, ref_name="exit record"):
+        """Every listed field of a copy of an exit equals the field of its reference."""
+        bad = [f for f in fields if copy.get(f) != ref.get(f)]
+        if bad:
+            errors.append("{} of exit {}:{} differs from its {} in {}".format(
+                what, ref["source_map"], ref["line"], ref_name, ", ".join(bad)))
+
+    # The exit inventory is the expected set: every exit object read from the
+    # content. Each one with a destination has a record in every group it touches
+    # (the overworld's own exits in its internal_exits, none for an exit inside
+    # one other group), and nothing else has a record.
+    group_of = {}
+    for g in others:
+        for m in g["maps"]:
+            if group_of.setdefault(m["path"], g["id"]) != g["id"]:
+                errors.append("map {} is a member of two groups".format(m["path"]))
+    for z, cells in ow["cells_by_layer"].items():
+        for X, Y in cells:
+            group_of.setdefault("{}{}_{}{}".format(prefix, X, Y, "" if int(z) == 0 else "_{}".format(z)), ow_id)
+    inv = {}
+    for x in plan["exit_inventory"]:
+        k = (x["source_map"], x["line"])
+        if k in inv:
+            errors.append("exit {}:{} is listed twice in the exit inventory".format(*k))
+        inv[k] = x
+    if len(plan["exit_inventory"]) != summ["exit_objects"]:
+        errors.append("the exit inventory lists {} exit objects, the summary {}".format(
+            len(plan["exit_inventory"]), summ["exit_objects"]))
+    wired_dp = {}
+    for d in plan["data_problems"]["dangling_exits_wired"]:
+        k = (d["source_map"], d["line"])
+        if k in wired_dp:
+            errors.append("wired exit {}:{} is listed twice".format(*k))
+        wired_dp[k] = d
+    if len(plan["data_problems"]["dangling_exits_wired"]) != summ["wired_exits"]:
+        errors.append("{} wired exits listed, the summary says {}".format(
+            len(plan["data_problems"]["dangling_exits_wired"]), summ["wired_exits"]))
+    expected_copies = set()
+    want_rec = {}  # exit key -> the record fields the inventory (and wiring) fix
+    for k, x in sorted(inv.items()):
+        want = {f: x.get(f) for f in ("source_map", "line", "source_tile", "arch", "form", "target_map", "target_tile")}
+        if k in wired_dp:
+            if x["form"] != "tiled-unresolved" or "target_map" in x:
+                errors.append("wired exit {}:{} is not a legacy exit that leads nowhere".format(*k))
+            want.update(form="wired", target_map=wired_dp[k].get("target_map"),
+                        target_tile=wired_dp[k].get("target_tile"))
+        if want["target_map"] is None:
+            continue
+        sg, tg = group_of.get(x["source_map"]), group_of.get(want["target_map"])
+        if sg is None or tg is None:
+            errors.append("exit {}:{} joins a map that is in no group".format(*k))
+            continue
+        want.update(source_group=sg, target_group=tg)
+        want_rec[k] = want
+        if sg == tg:
+            if sg == ow_id:
+                expected_copies.add((ow_id, "internal_exits", k))
+            continue
+        if sg != ow_id:
+            expected_copies.add((sg, "exits_to_overworld" if tg == ow_id else "exits_to_other_groups", k))
+        if tg != ow_id:
+            expected_copies.add((tg, "entrances_from_overworld" if sg == ow_id else "entrances_from_other_groups", k))
+    missing = sorted(expected_copies - set(copies))
+    extra = sorted(c for c, n in copies.items() if c not in expected_copies or n > 1)
+    if missing:
+        errors.append("{} exit record(s) missing, e.g. exit {}:{} from {} of {}".format(
+            len(missing), missing[0][2][0], missing[0][2][1], missing[0][1], missing[0][0]))
+    if extra:
+        errors.append("{} exit record(s) the exit inventory does not call for, e.g. exit {}:{} in {} of {}".format(
+            len(extra), extra[0][2][0], extra[0][2][1], extra[0][1], extra[0][0]))
+    for k, e in sorted(records.items()):
+        if k in want_rec:
+            same_as("record", e, want_rec[k], ("source_tile", "arch", "form", "target_map", "target_tile",
+                                                "source_group", "target_group"), "inventory entry")
+            if (e.get("form") == "wired") != ("wired" in e):
+                errors.append("exit {}:{} has form {} but {} wiring evidence".format(
+                    k[0], k[1], e.get("form"), "carries" if "wired" in e else "no"))
+    for k, d in sorted(wired_dp.items()):
+        e = records.get(k)
+        if e is None:
+            errors.append("wired exit {}:{} has no exit record".format(*k))
+            continue
+        same_as("wired exit", d, e, ("source_tile", "arch", "target_map", "target_tile"))
+        if d.get("verdict") != (e.get("wired") or {}).get("verdict"):
+            errors.append("wired exit {}:{} verdict differs from its record".format(*k))
+    # data problems and kept decoration describe exits without a record: compare with the inventory
+    for what, lst in (("data problem", plan["data_problems"]["exits"]),
+                      ("kept decoration", plan.get("exits_kept_as_decoration", [])),
+                      ("kept decoration problem", plan["data_problems"].get("dangling_exits_kept_as_decoration", []))):
+        for d in lst:
+            x = inv.get((d["source_map"], d["line"]))
+            if x is None:
+                errors.append("{} names exit {}:{}, which is not in the exit inventory".format(
+                    what, d["source_map"], d["line"]))
+                continue
+            same_as(what, d, x, ("source_tile", "arch"), "inventory entry")
+            if what != "data problem" and x["form"] != "tiled-unresolved":
+                errors.append("{} exit {}:{} is not a legacy exit that leads nowhere".format(
+                    what, d["source_map"], d["line"]))
+    if {(d["source_map"], d["line"]) for d in plan["data_problems"]["exits"] if d["kind"] == "tiled-exit-without-link"} \
+            != {k for k, x in inv.items() if x["form"] == "tiled-unresolved"}:
+        errors.append("tiled exits without a link in the data problems differ from the exit inventory")
 
     # ----------------------------------------------------------- stairwells
     chain = collections.defaultdict(dict)  # layer -> owner -> Rows
@@ -372,7 +523,15 @@ def verify(plan: dict) -> dict:
                 continue
             if e.get("becomes") != "stairwell" or e.get("stairwell") != sw["id"]:
                 errors.append("{} exit {}:{} is not marked as this stairwell".format(sw["id"], r["source_map"], r["line"]))
-            s, d = e["plane_source"], e["plane_target"]
+            # the copy in replaces is what the migration reads: it must be the record
+            same_as("{} replaces entry".format(sw["id"]), r, e,
+                    ("source_tile", "target_map", "target_tile", "arch", "plane_source", "plane_target"))
+            s, d = e.get("plane_source"), e.get("plane_target")
+            if s is None or d is None:
+                continue  # reported with the exit records
+            if r.get("goes") != ("down" if s[2] > d[2] else "up"):
+                errors.append("{} exit {}:{} goes {}, but its record goes {}".format(
+                    sw["id"], r["source_map"], r["line"], r.get("goes"), "down" if s[2] > d[2] else "up"))
             up, low = (s, d) if s[2] > d[2] else (d, s)
             if up[2] != top[2] or low[2] != bot[2] or cheb(up, top) > tol or cheb(low, bot) > tol:
                 errors.append("{} ends do not match exit {}:{}".format(sw["id"], r["source_map"], r["line"]))
@@ -428,18 +587,34 @@ def verify(plan: dict) -> dict:
             replaced_by[(r["source_map"], r["line"])].append(sw["id"])
     exits_checked = 0
     for (src_map, line), e in sorted(records.items()):
+        live = all(x == ow_id or x in placed_ids for x in (e["source_group"], e["target_group"]))
+        if live != ("plane_source" in e and "plane_target" in e):
+            errors.append("exit {}:{} {} plane endpoints, but {} of its ends is placed".format(
+                src_map, line, "lacks" if live else "has", "each" if live else "not each"))
+            continue
         ends = {}
-        for end, mkey, tkey, gkey in (("plane_source", "source_map", "source_tile", "source_group"),
-                                      ("plane_target", "target_map", "target_tile", "target_group")):
-            if end not in e:
-                continue
+        for end, ow_end, mkey, tkey, gkey in (
+                ("plane_source", "overworld_plane_source", "source_map", "source_tile", "source_group"),
+                ("plane_target", "overworld_plane_target", "target_map", "target_tile", "target_group")):
             mp, (tx, ty) = e[mkey], e[tkey]
+            if (e[gkey] == ow_id) != (ow_end in e):
+                errors.append("exit {}:{} {} {}".format(src_map, line, "lacks" if ow_end not in e else "has", ow_end))
             if e[gkey] == ow_id:
+                if world_cell(mp) is None:
+                    errors.append("exit {}:{} has an overworld end on {}, which is not an overworld map".format(
+                        src_map, line, mp))
+                    continue
                 X, Y, _Z = world_cell(mp)
                 exp = [24 * X + tx, 24 * Y + ty, ow_layer(mp, tx, ty)]
-            else:
+                if ow_end in e and e[ow_end] != exp:
+                    errors.append("exit {}:{} {} {} != {}".format(src_map, line, ow_end, e[ow_end], exp))
+            elif mp in origin and e[gkey] in placed_ids:
                 o = origin[mp]
                 exp = [o[0] + tx, o[1] + ty, o[2]]
+            else:
+                continue
+            if not live:
+                continue
             exits_checked += 1
             ends[end] = exp
             if exp != e[end]:
@@ -495,6 +670,37 @@ def verify(plan: dict) -> dict:
         if not d.get("decision") or "no exit" not in d.get("migrate_as", ""):
             errors.append("exit {}:{} is kept as decoration without its decision".format(d["source_map"], d["line"]))
 
+    # crossing counts, re-derived from the records (one per exit object)
+    def counted(es):
+        return dict(sorted(collections.Counter(str(e.get("becomes")) for e in es).items()))
+
+    crossing = [e for e in records.values() if e["source_group"] != e["target_group"]]
+    live_crossing = [e for e in crossing if "plane_source" in e and "plane_target" in e]
+    if counted(live_crossing) != summ["crossing_exit_objects_after_placement"]:
+        errors.append("summary crossing exits {} differ from the exit records {}".format(
+            summ["crossing_exit_objects_after_placement"], counted(live_crossing)))
+    if len(crossing) - len(live_crossing) != summ["crossing_exit_objects_into_separate_planes"]:
+        errors.append("summary crossing exits into separate planes {} differ from the exit records {}".format(
+            summ["crossing_exit_objects_into_separate_planes"], len(crossing) - len(live_crossing)))
+    reasons = collections.Counter(str(e.get("portal_reason")) for e in live_crossing if e.get("becomes") == "portal")
+    if dict(sorted(reasons.items())) != summ["portal_reasons"]:
+        errors.append("summary portal reasons differ from the exit records")
+    for g in placed:
+        mine = counted(e for e in live_crossing if g["id"] in (e["source_group"], e["target_group"]))
+        if mine != g["placement"].get("crossing_exits_after_placement"):
+            errors.append("crossing exits of {} {} differ from its exit records {}".format(
+                g["id"], g["placement"].get("crossing_exits_after_placement"), mine))
+        # the main connection is one of the group's exit records
+        mc = g["placement"].get("main_connection")
+        if mc is not None:
+            keys = ("entrances_from_overworld", "entrances_from_other_groups") if mc.get("kind") == "in" else \
+                ("exits_to_overworld", "exits_to_other_groups")
+            if not any([e["source_map"], e["source_tile"], e["target_map"], e["target_tile"], e["arch"],
+                        e["vertical"]] == [mc.get("source_map"), mc.get("source_tile"), mc.get("target_map"),
+                                           mc.get("target_tile"), mc.get("arch"), mc.get("vdir")]
+                       for key in keys for e in g.get(key, [])):
+                errors.append("main connection of {} is not one of its exit records".format(g["id"]))
+
     # ------------------------------------------------- required stairwells
     # Every exit whose ends are 2+ layers apart and at most one tile apart per
     # layer must be a stairwell, unless a blocked site lists it: crossing exits
@@ -505,7 +711,14 @@ def verify(plan: dict) -> dict:
                         ("relayering", rl["stairwells_blocked"])):
         for b in sites:
             for x in b["exits"]:
-                blocked_keys[(x["source_map"], x["line"])] = (key_, b)
+                k = (x["source_map"], x["line"])
+                if k in blocked_keys:
+                    errors.append("exit {}:{} is listed at two blocked stairwell sites".format(*k))
+                if k not in records:
+                    errors.append("blocked {} stairwell site lists exit {}:{}, which has no exit record".format(key_, *k))
+                else:
+                    same_as("blocked {} site entry".format(key_), x, records[k], ("source_tile", "arch"))
+                blocked_keys[k] = (key_, b)
     required = 0
     for (src_map, line), e in sorted(records.items()):
         if "plane_source" not in e or "plane_target" not in e:
@@ -868,6 +1081,8 @@ def verify(plan: dict) -> dict:
         moved_end(r["source_group"], r["source_map"], r["source_tile"]) or
         moved_end(r["target_group"], r["target_map"], r["target_tile"]))}
     listed = {(e["source_map"], e["line"]) for e in rl["exits"]}
+    if len(listed) != len(rl["exits"]):
+        errors.append("an exit is listed twice in the relayering exits")
     if expected != listed:
         errors.append("relayering exits differ: {} expected but not listed, {} listed but not expected".format(
             len(expected - listed), len(listed - expected)))
@@ -881,6 +1096,13 @@ def verify(plan: dict) -> dict:
         if e["layer_delta_before"] != ls[1] - ls[0] or e["layer_delta_after"] != r["layer_delta"] or \
                 e["becomes"] != r["becomes"]:
             errors.append("relayering exit {}:{} before/after does not match".format(e["source_map"], e["line"]))
+        same_as("relayering exit", e, r, ("source_tile", "target_map", "target_tile", "arch", "xy_distance",
+                                          "stairwell", "portal_reason"))
+        crosses = None if r["source_group"] == r["target_group"] else (
+            r["target_group"] if r["source_group"] == ow_id else r["source_group"])
+        if e.get("crosses_to_group") != crosses:
+            errors.append("relayering exit {}:{} crosses to {}, its record to {}".format(
+                e["source_map"], e["line"], e.get("crosses_to_group"), crosses))
     for g in placed:
         if any(r["relayered"] for r in rl["group_regions"].get(g["id"], [])):
             errors.append("placed group {} has a relayered region, but its maps are recorded on one layer "
@@ -892,6 +1114,7 @@ def verify(plan: dict) -> dict:
             "stairwells_checked": len(plan["stairwells"]), "stairwells_by_kind": dict(sorted(kinds.items())),
             "stairwell_exits_required": required,
             "stairwell_intermediate_tiles": intermediate, "exit_endpoints_checked": exits_checked,
+            "exit_inventory_objects": len(inv), "exit_record_copies_checked": sum(copies.values()),
             "relayering": {"overworld_tiles": len(leg), "tile_heights": len(heights), "regions": len(got_r),
                            "kept_regions": len(got_k), "units": len(units), "moved_units": len(got_u),
                            "moved_tiles": len(moved), "cut_edges": len(edges), "seam_pieces": len(pieces),

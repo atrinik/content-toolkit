@@ -298,6 +298,43 @@ def occupied_rows(rec) -> list:
     return ["".join("#" if (x, y) in rec.occupied else "." for x in range(rec.width)) for y in range(rec.height)]
 
 
+def placement_failed(res) -> bool:
+    return res is None or bool(res.get("failed"))
+
+
+def place_pool(pool, connected, blockers, depth, place):
+    """Place the groups of `pool` one at a time, in reach order; return (order, failed, unplaced).
+
+    connected(gid): gid has an exit to something already placed. blockers(gid,
+    remaining): unplaced groups that must be placed before gid. depth(gid): reach
+    depth, the first sort key. place(gid): the placement record, or None or
+    {"failed": True} when gid cannot be placed. A failed group stays unplaced: it
+    is not in `order`, it is never tried again, and nothing is placed through it,
+    so groups reachable only through it end up in `unplaced`.
+    """
+    remaining = sorted(pool)
+    order, failed = [], []
+    while remaining:
+        ready = [gid for gid in remaining if connected(gid)]
+        if not ready:
+            break
+        ok = [gid for gid in ready if not blockers(gid, set(remaining))]
+        pick = min(ok or ready, key=lambda gid: (depth(gid), gid))
+        remaining.remove(pick)
+        (failed if placement_failed(place(pick)) else order).append(pick)
+    return order, failed, remaining
+
+
+def inventory_entry(e: dict) -> dict:
+    """One exit object as read from the content, before placement or wiring."""
+    rec = {"source_map": e["source_map"], "line": e["line"], "source_tile": [e["source_x"], e["source_y"]],
+           "arch": e["arch"], "form": e["form"]}
+    if e.get("resolved_map"):
+        rec["target_map"] = e["resolved_map"]
+        rec["target_tile"] = [e["resolved_x"], e["resolved_y"]]
+    return rec
+
+
 # --------------------------------------------------------------------- main
 def build(content: Path, allow_dirty: bool = False):
     revision = content_revision(content)
@@ -1085,20 +1122,13 @@ def build(content: Path, allow_dirty: bool = False):
         return blockers
 
     def run_pool(pool, tentative):
-        remaining = sorted(pool)
-        order = []
-        while remaining:
-            ready = [gid for gid in remaining if connections_to_placed(gid)]
-            if not ready:
-                break
-            ok = [gid for gid in ready if not above_below_blockers(gid, set(remaining))]
-            pick_from = ok or ready
-            pick = min(pick_from, key=lambda gid: (G[gid]["reach_depth"] if G[gid]["reach_depth"] is not None else 99, gid))
-            res = place_group(pick, tentative=tentative)
-            S.placements[pick] = res
-            order.append(pick)
-            remaining.remove(pick)
-        return order, remaining
+        def place(gid):
+            res = place_group(gid, tentative=tentative)
+            S.placements[gid] = {"failed": True, "ideal": None} if res is None else res
+            return res
+
+        return place_pool(pool, lambda gid: bool(connections_to_placed(gid)), above_below_blockers,
+                          lambda gid: G[gid]["reach_depth"] if G[gid]["reach_depth"] is not None else 99, place)
 
     ow_relay = relay[ow_id]
     ow_pieces = ow_relay.pieces  # map -> final layer -> plane tiles
@@ -1172,17 +1202,20 @@ def build(content: Path, allow_dirty: bool = False):
                 if ts:
                     S.occ.add(m, L, functools.partial(_piece, m, L), bbox=fp.bbox_of(ts))
         build_relayer_stairwells()
-        o1, l1 = run_pool(to_place, False)
-        o2, l2 = run_pool(tentative_ids, True)
-        o3 = []
+        o1, f1, l1 = run_pool(to_place, False)
+        o2, f2, l2 = run_pool(tentative_ids, True)
+        o3, f3 = [], []
         for gid, (anchor, dl, why) in sorted(TENTATIVE_ALIGN.items()):
             if gid in G and gid not in S.placed and anchor in S.placed:
                 a = S.placed[anchor]
                 res = place_group(gid, tentative=True, forced={"dx": a["dx"], "dy": a["dy"], "L": a["L"] + dl})
-                if res:
-                    res["tentative_reason"] = why
-                    S.placements[gid] = res
-                    o3.append(gid)
+                if placement_failed(res):
+                    S.placements[gid] = {"failed": True, "ideal": (res or {}).get("ideal")}
+                    f3.append(gid)
+                    continue
+                res["tentative_reason"] = why
+                S.placements[gid] = res
+                o3.append(gid)
         # view conflicts against the final state (stairwell tiles count as their owner's tiles);
         # every stairwell is drawn only on the player's layer (owner decision 2026-10-18), so
         # the conflicts are listed but hidden in the engine.
@@ -1209,7 +1242,8 @@ def build(content: Path, allow_dirty: bool = False):
         for sw in S.stairwells:
             n[sw["kind"]] += 1
             sw["id"] = "{}{}".format(prefix[sw["kind"]], n[sw["kind"]])
-        return o1, l1, o2 + o3, l2
+        # A failed group stays unplaced (and fails verification, so the plan is not published).
+        return o1, sorted(l1 + f1), o2 + o3, sorted(l2 + f2), sorted(f1 + f2 + f3)
 
     def becomes_counts():
         c = collections.Counter()
@@ -1305,7 +1339,7 @@ def build(content: Path, allow_dirty: bool = False):
         return r
 
     # Sensitivity: the same placement with the shipped client's view radius.
-    run_placement(CLIENT_VIEW_RADIUS)
+    _o, sens_left1, _t, sens_left2, sens_failed = run_placement(CLIENT_VIEW_RADIUS)
     sens_placed = {gid: dict(p) for gid, p in S.placed.items()}
     sensitivity = {
         "view_radius_tiles": CLIENT_VIEW_RADIUS,
@@ -1314,8 +1348,9 @@ def build(content: Path, allow_dirty: bool = False):
         "crossing_exit_objects_after_placement": dict(sorted(becomes_counts().items())),
         "stairwells": len(S.stairwells),
         "stairwell_sites_blocked": len(S.blocked_sites),
+        "groups_unplaced": sorted(set(sens_left1) | set(sens_left2) | set(sens_failed)),
     }
-    order1, left1, order_t, left2 = run_placement(VIEW_RADIUS)
+    order1, left1, order_t, left2, failed_placements = run_placement(VIEW_RADIUS)
     place_index = {gid: i for i, gid in enumerate(S.order)}
     placements = S.placements
     sensitivity["groups_placed_differently"] = sorted(
@@ -1427,6 +1462,9 @@ def build(content: Path, allow_dirty: bool = False):
         e2 = dict(e, form="wired", resolved_map=tm, resolved_x=tx, resolved_y=ty, target_group=gof[tm])
         e2["wired"] = evidence
         wired.append(e2)
+        if sg == gof[tm] == ow_id:
+            ow_internal.append(e2)  # wired to another overworld map: an overworld exit, not a crossing
+            continue
         cross.append(e2)
         G[sg]["exits_out"].append(e2)
         G[gof[tm]]["entrances"].append(e2)
@@ -1959,6 +1997,9 @@ def build(content: Path, allow_dirty: bool = False):
                            "layer above or below (see its 'wired' evidence)",
             "exits_kept_as_decoration": "dangling exits the owner keeps as decoration (no exit): not wired, with the "
                                         "landing they would have had",
+            "exit_inventory": "every exit object read from the content (inventory exits excluded), keyed by "
+                              "source_map and line, with its legacy form and resolved target (none for an exit "
+                              "that leads nowhere); the exit records in the groups are checked against it",
         },
         "summary": {"maps_total": len(maps), "groups_total": len(groups), "non_overworld_groups": len(groups) - 1,
                     "by_classification": dict(sorted(counts.items())),
@@ -1980,7 +2021,8 @@ def build(content: Path, allow_dirty: bool = False):
                                    "seams": len(seams_out), "new_stairs": len(new_stairs),
                                    "steep_steps": len(steep_out), "new_contacts": len(contacts_out)},
                     "placement_order": order1, "tentative_placement_order": order_t,
-                    "unplaced_place_groups": left1, "unplaced_uncertain_groups": left2},
+                    "unplaced_place_groups": left1, "unplaced_uncertain_groups": left2,
+                    "failed_placements": failed_placements},
         "start_map": start_map,
         "view_radius_sensitivity": sensitivity,
         "stairwells": S.stairwells,
@@ -1988,6 +2030,7 @@ def build(content: Path, allow_dirty: bool = False):
         "sloped_stairwell_sites_blocked": S.slope_failed,
         "placement_changes_from_v1": changes_v1,
         "exits_kept_as_decoration": kept_decoration,
+        "exit_inventory": sorted((inventory_entry(e) for e in exits), key=lambda r: (r["source_map"], r["line"])),
         "groups": groups_out,
         "relayering": relayering,
         "data_problems": problems,
