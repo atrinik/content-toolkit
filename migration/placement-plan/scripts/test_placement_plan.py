@@ -146,7 +146,8 @@ class ExitInventory(VerifierTest):
         for _g, _lst, e in copies(p, CROSSING):
             for k in ("plane_source", "plane_target", "xy_distance", "layer_delta", "becomes"):
                 e.pop(k)
-        self.assertCaught(p, "exit {}:{} lacks plane endpoints".format(*CROSSING))
+        self.assertCaught(p, "exit {}:{} lacks placement fields ['plane_source', 'plane_target', 'xy_distance', "
+                             "'layer_delta', 'becomes'], although both of its ends are placed".format(*CROSSING))
 
     def test_a_wrong_overworld_plane_end(self):
         p = self.plan()
@@ -194,6 +195,56 @@ class ExitInventory(VerifierTest):
         p["data_problems"]["exits"][0]["source_tile"] = [99, 99]
         self.assertCaught(p, "data problem of exit")
 
+    def test_deleting_a_data_problem(self):
+        p = self.plan()
+        lst = p["data_problems"]["exits"]
+        d = next(d for d in lst if d["kind"] == "exit-without-destination")
+        lst.remove(d)
+        self.assertCaught(p, "1 exit data problem(s) differ from the exit inventory, e.g. exit-without-destination "
+                             "{} of exit {}:{}".format(d["severity"], d["source_map"], d["line"]))
+        p = self.plan()
+        d = p["data_problems"]["exits"][0]
+        d["severity"] = "info" if d.get("severity") == "problem" else "problem"
+        self.assertCaught(p, "exit data problem(s) differ from the exit inventory")
+
+    def test_a_reversed_exit_direction(self):
+        p = self.plan()
+        key = ("/shattered_islands/berri_lur/temple_loki/tol_0201", 441)
+        self.assertTrue(copies(p, key))
+        for _g, _lst, e in copies(p, key):
+            e["vertical"] = "down" if e["vertical"] == "up" else "up"
+        self.assertCaught(p, "record of exit {}:{} differs from its inventory entry in vertical".format(*key))
+
+    def test_partial_plane_endpoints_on_an_unplaced_exit(self):
+        p = self.plan()
+        key = ("/emergency", 17)
+        for _g, _lst, e in copies(p, key):
+            self.assertNotIn("plane_source", e)
+            e["plane_source"] = [0, 0, 0]
+        self.assertCaught(p, "exit {}:{} has placement fields ['plane_source'], although not both of its ends "
+                             "are placed".format(*key))
+
+    def test_placement_fields(self):
+        cases = (("xy_distance", 5, "records 5 tiles"), ("layer_delta", 3, "/ 3 layers"),
+                 ("stairwell", "SW1", "labelled stairs records stairwell SW1"),
+                 ("portal_reason", "overworld", "portal reason overworld"),
+                 ("bogus", 1, "has fields the verifier does not know: bogus"))
+        for field, value, needle in cases:
+            with self.subTest(field=field):
+                p = self.plan()
+                for _g, _lst, e in copies(p, CROSSING):
+                    e[field] = value
+                self.assertCaught(p, needle)
+
+    def test_a_wrong_portal_reason(self):
+        p = self.plan()
+        e = next(e for g in p["groups"] for e in g.get("entrances_from_other_groups", [])
+                 if e.get("portal_reason") == "other-entrance-aligned")
+        for _g, _lst, c in copies(p, (e["source_map"], e["line"])):
+            c["portal_reason"] = "group-shifted"
+        self.assertCaught(p, "portal reason group-shifted (slope reachable None); expected portal reason "
+                             "other-entrance-aligned")
+
 
 class StairwellReplaces(VerifierTest):
     """Fix 2: every stairwell replaces entry equals its indexed exit record."""
@@ -235,6 +286,15 @@ class StairwellReplaces(VerifierTest):
         p = self.plan()
         p["relayering"]["exits"][0]["crosses_to_group"] = "/emergency"
         self.assertCaught(p, "crosses to /emergency")
+
+    def test_an_unrelated_exit_at_a_blocked_site(self):
+        p = self.plan()
+        key = ("/shattered_islands/world_11_61", 668)
+        e = copies(p, key)[0][2]
+        self.assertEqual(e["becomes"], "stairs")
+        p["stairwell_sites_blocked"][0]["exits"].append(
+            {"source_map": e["source_map"], "source_tile": e["source_tile"], "arch": e["arch"], "line": e["line"]})
+        self.assertCaught(p, "blocked column stairwell site lists exit {}:{}, which needs no stairwell".format(*key))
 
 
 class FailedPlacement(VerifierTest):
@@ -279,6 +339,18 @@ class FailedPlacement(VerifierTest):
         gid = p["summary"]["tentative_placement_order"][0]
         self.fail(p, gid)
         self.assertCaught(p, "placement of {} failed".format(gid))
+
+    def test_tentative_placement_only_by_classification_or_hint(self):
+        p = self.plan()
+        gid = p["summary"]["tentative_placement_order"][0]
+        g = group(p, gid)
+        self.assertEqual((g["classification"], g["reason"]), ("separate", "unreachable"))
+        g["placement"].pop("tentative_reason")
+        self.assertCaught(p, "separate group {} (unreachable) has a tentative placement without an alignment "
+                             "hint".format(gid))
+        p = self.plan()
+        group(p, gid)["reason"] = "per_player"
+        self.assertCaught(p, "separate group {} (per_player) has a tentative placement".format(gid))
 
     def test_place_group_without_a_placement(self):
         p = self.plan()

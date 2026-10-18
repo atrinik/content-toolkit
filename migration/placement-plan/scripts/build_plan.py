@@ -325,13 +325,39 @@ def place_pool(pool, connected, blockers, depth, place):
     return order, failed, remaining
 
 
-def inventory_entry(e: dict) -> dict:
-    """One exit object as read from the content, before placement or wiring."""
-    rec = {"source_map": e["source_map"], "line": e["line"], "source_tile": [e["source_x"], e["source_y"]],
-           "arch": e["arch"], "form": e["form"]}
+def exit_source_fields(e: dict) -> dict:
+    """The fields of an exit that come from the content alone, in record order.
+
+    The exit records and the exit inventory both use them, so the verifier can
+    compare every record with the exit object it was made from."""
+    r = {"source_map": e["source_map"], "source_tile": [e["source_x"], e["source_y"]]}
     if e.get("resolved_map"):
-        rec["target_map"] = e["resolved_map"]
-        rec["target_tile"] = [e["resolved_x"], e["resolved_y"]]
+        r["target_map"] = e["resolved_map"]
+        r["target_tile"] = [e["resolved_x"], e["resolved_y"]]
+    r.update(arch=e["arch"], line=e["line"], form=e["form"], vertical=e["vdir"])
+    if e.get("target_map") is not None and e["target_map"] != e.get("resolved_map"):
+        r["authored_target"] = [e["target_map"], e.get("target_x"), e.get("target_y")]
+    if e.get("target_default_entry"):
+        r["target_is_map_default_entry"] = True
+    if e["per_player"]:
+        r["per_player_last_eat_1"] = True
+    if e["event_scripts"]:
+        r["event_scripts"] = e["event_scripts"]
+    if e.get("dir_inferred_from"):
+        r["vertical_inferred_from"] = e["dir_inferred_from"]
+    return r
+
+
+def inventory_entry(e: dict) -> dict:
+    """One exit object as read from the content, before placement or wiring.
+
+    Besides the record fields it carries the reader's facts the data problems
+    are derived from: a target problem and an explicit last_heal 0."""
+    rec = exit_source_fields(e)
+    if e.get("problem"):
+        rec["problem"] = e["problem"]
+    if e.get("explicit_last_heal_0"):
+        rec["explicit_last_heal_0"] = True
     return rec
 
 
@@ -1206,7 +1232,8 @@ def build(content: Path, allow_dirty: bool = False):
         o2, f2, l2 = run_pool(tentative_ids, True)
         o3, f3 = [], []
         for gid, (anchor, dl, why) in sorted(TENTATIVE_ALIGN.items()):
-            if gid in G and gid not in S.placed and anchor in S.placed:
+            # only for groups no pool tried: a group whose own placement failed stays failed
+            if gid in G and gid not in S.placements and anchor in S.placed:
                 a = S.placed[anchor]
                 res = place_group(gid, tentative=True, forced={"dx": a["dx"], "dy": a["dy"], "L": a["L"] + dl})
                 if placement_failed(res):
@@ -1308,22 +1335,11 @@ def build(content: Path, allow_dirty: bool = False):
         return out
 
     def exit_record(e, with_eval=True):
-        r = {
-            "source_map": e["source_map"], "source_tile": [e["source_x"], e["source_y"]],
-            "target_map": e["resolved_map"], "target_tile": [e["resolved_x"], e["resolved_y"]],
-            "arch": e["arch"], "line": e["line"], "form": e["form"], "vertical": e["vdir"],
-            "source_group": e["source_group"], "target_group": e["target_group"],
-        }
-        if e["resolved_map"] != e.get("target_map"):
-            r["authored_target"] = [e.get("target_map"), e.get("target_x"), e.get("target_y")]
-        if e.get("target_default_entry"):
-            r["target_is_map_default_entry"] = True
-        if e["per_player"]:
-            r["per_player_last_eat_1"] = True
-        if e["event_scripts"]:
-            r["event_scripts"] = e["event_scripts"]
-        if e.get("dir_inferred_from"):
-            r["vertical_inferred_from"] = e["dir_inferred_from"]
+        src = exit_source_fields(e)
+        r = {k: src.pop(k) for k in ("source_map", "source_tile", "target_map", "target_tile", "arch", "line",
+                                     "form", "vertical")}
+        r.update(source_group=e["source_group"], target_group=e["target_group"])
+        r.update(src)
         if e.get("wired"):
             r["wired"] = e["wired"]
         if with_eval:
