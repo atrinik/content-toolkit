@@ -30,12 +30,11 @@ GPL-distributed. See the
 [canonical project authorship statement](https://github.com/atrinik/atrinik/issues/331)
 for the project-wide direction and authorship boundaries.
 
-Maps, quests, lore, dialogue, archetypes, pixel art, and other creative game
-content are human-authored inputs with their own exact provenance and licenses.
-Deterministic parsing, compilation, schema generation, migration, validation,
-and their generated artifacts remain distinct from both those creative inputs
-and the toolkit's code authorship. These operations must not become a path for
-generating creative content.
+Maps, quests, lore, dialogue, archetypes, pixel art, and other game content are
+inputs with their own exact provenance and licenses. Deterministic parsing,
+compilation, schema generation, migration, validation, and their generated
+artifacts remain distinct from those inputs and from the toolkit's code
+authorship.
 
 ## Build and validate
 
