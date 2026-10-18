@@ -21,6 +21,9 @@ fidelity guarantee; that is --content.
 
 verify(plan) checks:
 
+Values:
+  * the plan's numbers are integers: no floats, and booleans only under
+    the flag keys (BOOL_KEYS); the plan file is at most MAX_PLAN_BYTES
 Groups:
   * overworld maps are 24 x 24 (settings.overworld_map_size, every rows grid)
   * one overworld group; group ids and member maps (overworld cells
@@ -154,6 +157,30 @@ sys.dont_write_bytecode = True  # --content imports the generator; keep the sour
 WORLD_RE = re.compile(r"/world_(-?\d+)_(-?\d+)(?:_(-?\d+))?$")
 OW_SIZE = 24  # overworld maps are 24 x 24; plane tile = 24 * filename coordinate + tile
 SCHEMA = "atrinik-overworld-placement-plan/4"  # /4 adds exit_inventory and the failed-placement bookkeeping
+MAX_PLAN_BYTES = 64 * 1024 * 1024  # the plan is about 3 MB; a larger file is not a plan
+# The plan's numbers are integers; JSON booleans appear only under these flag keys, and no value is a float.
+BOOL_KEYS = {"content_worktree_clean", "segments_drawn_only_on_player_layer", "existing", "exit", "walkable",
+             "landing_blocked", "per_player_last_eat_1", "explicit_last_heal_0", "target_is_map_default_entry",
+             "unique_getpath", "test_only", "house_tuple_unique", "main_stairwell_blocked", "slope_reachable",
+             "relayered", "ok"}
+
+
+def number_type_errors(plan, limit=5) -> list:
+    """Paths of booleans outside the flag keys and of floats: a boolean is not a count or a coordinate,
+    however Python compares it."""
+    bad, stack = [], [(plan, None, "")]
+    while stack and len(bad) < limit:
+        x, key, path = stack.pop()
+        if isinstance(x, bool):
+            if key not in BOOL_KEYS:
+                bad.append(path)
+        elif isinstance(x, float):
+            bad.append(path)
+        elif isinstance(x, dict):
+            stack.extend((v, k, "{}/{}".format(path, k)) for k, v in x.items())
+        elif isinstance(x, list):
+            stack.extend((v, key, "{}[{}]".format(path, i)) for i, v in enumerate(x))
+    return sorted(bad)
 N8 = [(dx, dy) for dy in (-1, 0, 1) for dx in (-1, 0, 1) if (dx, dy) != (0, 0)]
 # Fields of an exit record that come from the content: equal to its inventory entry.
 SOURCE_FIELDS = ("source_map", "source_tile", "target_map", "target_tile", "arch", "line", "form", "vertical",
@@ -257,6 +284,10 @@ def _verify(plan: dict) -> dict:
     if plan.get("schema") != SCHEMA:
         return {"ok": False, "errors": ["schema {} is not {}, the shape this verifier checks".format(
             plan.get("schema"), SCHEMA)]}
+    errors = []
+    bad_numbers = number_type_errors(plan)
+    if bad_numbers:
+        errors.append("the plan has booleans or floats where integers belong, e.g. {}".format(", ".join(bad_numbers)))
     st = plan["settings"]
     R, M, tol = st["view_radius_tiles"], st["contact_margin_tiles"], st["stair_tolerance_tiles"]
     bend = st["stairwell_max_bend_tiles"]
@@ -264,7 +295,6 @@ def _verify(plan: dict) -> dict:
     ow = next(g for g in plan["groups"] if g["classification"] == "overworld")
     ow_id = ow["id"]
     rl = plan["relayering"]
-    errors = []
 
     # ------------------------------------------------------------ occupancy
     owners = collections.defaultdict(dict)  # layer -> owner -> Rows
@@ -1582,21 +1612,36 @@ def _verify(plan: dict) -> dict:
                            "steep_steps": len(steep), "new_contacts": len(contacts)}}
 
 
-def canonical(v) -> str:
-    """JSON text of a value with sorted keys: equal texts mean equal JSON (true is not 1, 1.0 is not 1)."""
-    return json.dumps(v, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+def same_json(a, b) -> bool:
+    """JSON equality without Python's coercions (true is not 1, 1.0 is not 1), compared in place."""
+    stack = [(a, b)]
+    while stack:
+        x, y = stack.pop()
+        if type(x) is not type(y):
+            return False
+        if isinstance(x, dict):
+            if x.keys() != y.keys():
+                return False
+            stack.extend((x[k], y[k]) for k in x)
+        elif isinstance(x, list):
+            if len(x) != len(y):
+                return False
+            stack.extend(zip(x, y))
+        elif x != y:
+            return False
+    return True
 
 
 def first_difference(a, b, path="", limit=12):
     """Paths where two JSON values differ, at most `limit` of them (deepest common path)."""
     if type(a) is not type(b) or not isinstance(a, (dict, list)):
-        return [path or "/"] if canonical(a) != canonical(b) else []
+        return [path or "/"] if not same_json(a, b) else []
     if isinstance(a, dict):
         out = []
         for k in sorted(set(a) | set(b)):
             if k not in a or k not in b:
                 out.append("{}/{}".format(path, k))
-            elif canonical(a[k]) != canonical(b[k]):
+            elif not same_json(a[k], b[k]):
                 out += first_difference(a[k], b[k], "{}/{}".format(path, k), limit - len(out))
             if len(out) >= limit:
                 break
@@ -1606,12 +1651,12 @@ def first_difference(a, b, path="", limit=12):
             return ["{} (length {} != {})".format(path or "/", len(a), len(b))]
         out = []
         for i, (x, y) in enumerate(zip(a, b)):
-            if canonical(x) != canonical(y):
+            if not same_json(x, y):
                 out += first_difference(x, y, "{}[{}]".format(path, i), limit - len(out))
             if len(out) >= limit:
                 break
         return out[:limit]
-    return [path or "/"] if canonical(a) != canonical(b) else []
+    return [path or "/"] if not same_json(a, b) else []
 
 
 def rebuild(content: Path) -> dict:
@@ -1624,11 +1669,11 @@ def rebuild(content: Path) -> dict:
 
 def compare_with_rebuild(plan: dict, fresh: dict) -> list:
     """Errors unless `plan` equals the rebuild as JSON, content_root (the checkout's path) aside."""
-    published = canonical({k: v for k, v in plan.items() if k != "content_root"})
-    if published == canonical({k: v for k, v in fresh.items() if k != "content_root"}):
+    published = {k: v for k, v in plan.items() if k != "content_root"}
+    rebuilt = {k: v for k, v in fresh.items() if k != "content_root"}
+    if same_json(published, rebuilt):
         return []
-    diff = first_difference({k: v for k, v in plan.items() if k != "content_root"},
-                            {k: v for k, v in fresh.items() if k != "content_root"})
+    diff = first_difference(published, rebuilt)
     return ["the plan differs from a rebuild from the content at {}: {}".format(
         str(fresh.get("content_git_head"))[:12], ", ".join(diff) or "(value types)")]
 
@@ -1661,6 +1706,9 @@ def main(argv=None):
     ap.add_argument("--content", type=Path,
                     help="content checkout at the plan's content_git_head: also check the plan against a rebuild")
     args = ap.parse_args(argv if argv is not None else sys.argv[1:])
+    if args.plan.stat().st_size > MAX_PLAN_BYTES:
+        print(json.dumps({"ok": False, "errors": ["{} is larger than {} bytes".format(args.plan, MAX_PLAN_BYTES)]}))
+        return 1
     plan = json.loads(args.plan.read_text(encoding="utf-8"))
     res = verify(plan)
     if args.content is not None:

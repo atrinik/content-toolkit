@@ -82,6 +82,32 @@ class CommittedPlan(VerifierTest):
             self.assertFalse(res["ok"])
             self.assertTrue(res["errors"])
 
+    def test_booleans_and_floats_are_not_numbers(self):
+        key = ("/shattered_islands/berri_lur/temple_loki/tol_0201", 441)
+        p = self.plan()
+        for _g, _lst, e in copies(p, key):
+            e["layer_delta"] = True
+        for r in p["relayering"]["exits"]:
+            if (r["source_map"], r["line"]) == key:
+                r["layer_delta_after"] = True
+        self.assertCaught(p, "the plan has booleans or floats where integers belong")
+        p = self.plan()
+        p["stairwells"][0]["tiles"][1]["layer"] = float(p["stairwells"][0]["tiles"][1]["layer"])
+        self.assertCaught(p, "the plan has booleans or floats where integers belong, e.g. /stairwells[0]/tiles[1]/layer")
+
+    def test_strict_json_comparison(self):
+        self.assertTrue(verify_plan.same_json({"a": [1, {"b": None}]}, {"a": [1, {"b": None}]}))
+        for a, b in (([1], [True]), ({"a": 1}, {"a": 1.0}), ({"a": None}, {}), ([1, 2], [2, 1])):
+            self.assertFalse(verify_plan.same_json(a, b), (a, b))
+
+    def test_an_oversized_plan_file(self):
+        limit = verify_plan.MAX_PLAN_BYTES
+        try:
+            verify_plan.MAX_PLAN_BYTES = 1000
+            self.assertEqual(verify_plan.main([str(PLAN)]), 1)
+        finally:
+            verify_plan.MAX_PLAN_BYTES = limit
+
     def test_another_schema(self):
         p = self.plan()
         p["schema"] = "atrinik-overworld-placement-plan/3"
@@ -792,9 +818,15 @@ class ContentFidelity(VerifierTest):
         for _g, _lst, e in copies(p, CROSSING):
             e["target_is_map_default_entry"] = None
         self.assertUnfaithful(p)
-        p = self.plan()  # a value of another JSON type that compares equal in Python
-        p["summary"]["wired_exits"] = 5.0
+        p = self.plan()  # explanatory text the JSON-only check does not re-derive
+        group(p, "/emergency")["evidence"][0] = "made up"
         self.assertUnfaithful(p)
+
+    def test_type_strict_comparison(self):
+        p = self.plan()  # caught by both checks, and by the rebuild comparison type for type
+        p["summary"]["wired_exits"] = 5.0
+        self.assertFalse(verify_plan.verify(p)["ok"])
+        self.assertFalse(verify_plan.verify_content(p, self.content, self.fresh)["ok"])
 
 
 class PlacePool(unittest.TestCase):
