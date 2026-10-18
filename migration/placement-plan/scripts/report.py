@@ -175,9 +175,12 @@ def write_report(plan, out: Path):
           slope_exits, slope_exits + slope_failed, len(sw_kind["sloped"]), slope_failed))
     wired = wired_exits(plan)
     verdicts = collections.Counter(e["wired"]["verdict"] for e in wired)
-    w("- **Wired exits**: {} legacy exits that led nowhere now lead to the content on the next layer ({}). "
-      "See [Wired exits](#wired-exits).".format(len(wired), ", ".join(
-          "{} {}".format(verdicts[k], k) for k in ("confirmed", "plausible", "doubtful") if verdicts.get(k))))
+    kept = plan.get("exits_kept_as_decoration", [])
+    w("- **Wired exits**: {} legacy exits that led nowhere now lead to the content on the next layer ({}). The "
+      "{} Greyton jail cell ladders stay bunk-bed decoration without an exit (owner decision 2026-10-18). See "
+      "[Wired exits](#wired-exits).".format(len(wired), ", ".join(
+          "{} {}".format(verdicts[k], k) for k in ("confirmed", "plausible", "doubtful") if verdicts.get(k)),
+          len(kept)))
     ch = plan["placement_changes_from_v1"]
     w("- Placement changes from version 1: {}.".format("; ".join(
         "`{}` layer offset {} -> {}".format(base(x["group"]), x["v1"][2], x["v2"][2]) if x["v1"] else
@@ -230,6 +233,10 @@ def write_report(plan, out: Path):
     w("4. **Dangling exits are wired.** Legacy ladders and stairs that led nowhere and now sit under or over "
       "placed content lead there as plain stairs. Each one is listed with its evidence in "
       "[Wired exits](#wired-exits).")
+    w("5. **The Greyton jail cell ladders stay decoration** (decided 2026-10-18, after review of the wiring "
+      "evidence). The six ladders stand on beds in the jail cells and five of them would land on water, so they "
+      "are not wired: the migration keeps them as bunk-bed decoration, objects with the ladder's look and no "
+      "exit.")
     w("")
     w("### Settled in version 1 (still applied)")
     w("")
@@ -808,6 +815,20 @@ def write_wired(plan, w, wired):
     w("`world_-7_76 (8,14)` is version 1's settled decision 2; the other {} are the ladders and stairs the owner "
       "asked to wire.".format(sum(1 for e in wired if base(e["source_map"]) != "world_-7_76")))
     w("")
+    kept = plan.get("exits_kept_as_decoration", [])
+    if kept:
+        w("**Kept as decoration** (owner decision 2026-10-18): these dangling exits are not wired. The migration "
+          "keeps each one as an object with the same look and no exit (`exits_kept_as_decoration` in the JSON).")
+        w("")
+        w("| source (legacy tile) | would have landed on | source tile holds | migrate as |")
+        w("|---|---|---|---|")
+        for d in kept:
+            x = d["would_land_on"]
+            w("| {} {} | {} L{}: {} | {} | {} |".format(
+                tile_name(d["source_map"], d["source_tile"]), d["arch"], tile_name(x["map"], x["tile"]),
+                x["plane_target"][2], "/".join(x["landing_floor_terrain"]) or "no floor",
+                ", ".join(x["source_tile_objects"]), d["migrate_as"]))
+        w("")
 
 
 def write_followup(plan, w):
@@ -946,22 +967,23 @@ def write_open_decisions(plan, w, lab, placed, tent, wired):
     dec.append("**New: confirm the relayering judgement calls** ([list](#relayering-judgement-calls)): in "
                "particular the cave lowered in place ({}), the caves moved down as a whole and the placements they "
                "push one layer deeper ({}), and the {} new seam stairs with their default archetype.".format(
-                   ", ".join("{} in {}".format(", ".join(c["regions"]), c["unit"]) for c in rl["caves"]
+                   ", ".join(", ".join(c["regions"]) for c in rl["caves"]
                              if c["choice"] == "lower-regions-in-place") or "none",
                    ", ".join("`{}`".format(base(x["group"])) for x in plan["placement_changes_from_v1"]) or "none",
                    len(rl["new_stairs"])))
     for i, d in enumerate(dec, 1):
         w("{}. {}".format(i, d))
     w("")
-    w("Resolved by the 2026-10-18 decisions (version 1's open items): the layer-height relayering (applied), "
-      "stairwells in view of unrelated areas (hidden in the engine), sloped staircases (built where free) and the "
-      "dangling stairs (wired).")
+    w("Resolved by the 2026-10-18 decisions: the layer-height relayering (applied), stairwells in view of "
+      "unrelated areas (hidden in the engine), sloped staircases (built where free), the dangling stairs (wired) "
+      "and the Greyton jail ladders (kept as decoration).")
     w("")
 
 
 def write_problems(plan, w, wired):
     dp = plan["data_problems"]
     wired_keys = {(e["source_map"], tuple(e["source_tile"]), e["arch"]) for e in wired}
+    kept_keys = {(d["source_map"], tuple(d["source_tile"]), d["arch"]) for d in plan.get("exits_kept_as_decoration", [])}
     w("## Data problems found")
     w("")
     w("- Tile links: {} broken, {} non-reciprocal, {} edge-size mismatches.".format(
@@ -981,20 +1003,23 @@ def write_problems(plan, w, wired):
     probs = [x for x in dp["exits"] if x.get("severity") == "problem"]
     infos = [x for x in dp["exits"] if x.get("severity") == "info"]
     w("- Exits: {} exit objects lead nowhere in legacy ({} tiled stairs/ladders whose `last_heal` slot has no tile "
-      "link, {} with no destination at all and no script; **{} of them are wired by this plan**, marked *wired*); "
+      "link, {} with no destination at all and no script; **{} of them are wired by this plan**, marked *wired*, and "
+      "{} are kept as decoration by owner decision, marked *kept as decoration*); "
       "{} more are harmless (decorative duplicates on a tile with a working exit, explicit `last_heal 0`, or "
       "`/random/` exits). {} exit(s) point at a missing map, {} at coordinates outside the target, {} exit "
       "object(s) lie outside their own map.".format(
           len(probs), sum(1 for x in probs if x["kind"] == "tiled-exit-without-link"),
           sum(1 for x in probs if x["kind"] == "exit-without-destination"),
           sum(1 for x in probs if (x["source_map"], tuple(x["source_tile"]), x["arch"]) in wired_keys),
+          sum(1 for x in probs if (x["source_map"], tuple(x["source_tile"]), x["arch"]) in kept_keys),
           len(infos),
           sum(1 for x in dp["exits"] if x["kind"].startswith("missing-target-map")),
           sum(1 for x in dp["exits"] if x["kind"].startswith("invalid-target-coordinates")),
           sum(1 for x in dp["exits"] if x["kind"] == "exit-outside-map-bounds")))
     bym = collections.defaultdict(list)
     for x in probs:
-        tag = " *wired*" if (x["source_map"], tuple(x["source_tile"]), x["arch"]) in wired_keys else ""
+        key_ = (x["source_map"], tuple(x["source_tile"]), x["arch"])
+        tag = " *wired*" if key_ in wired_keys else (" *kept as decoration*" if key_ in kept_keys else "")
         bym[x["source_map"]].append("({},{}) {}{}".format(*x["source_tile"], x["arch"], tag))
     for m in sorted(bym):
         w("  - `{}`: {}".format(short(m), ", ".join(bym[m])))

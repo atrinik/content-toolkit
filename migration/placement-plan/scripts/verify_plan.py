@@ -34,7 +34,8 @@ Exits:
     exit labelled stairwell is listed in exactly that stairwell's replaces
   * every exit record's plane_source / plane_target equals origin + tile on
     the tile's final layer, and its "becomes" label matches its geometry;
-    wired exits are plain stairs and their verdict follows from their evidence
+    wired exits are plain stairs and their verdict follows from their evidence;
+    exits the owner keeps as decoration have no exit record
   * every exit 2+ layers and at most one tile per layer apart is a stairwell
     (crossing exits always, overworld exits when the relayering changed their
     span), unless a blocked site lists it; a blocked site has no void chain
@@ -469,6 +470,16 @@ def verify(plan: dict) -> dict:
             if w.get("verdict") != want:
                 errors.append("wired exit {}:{} verdict {} does not follow from its evidence ({})".format(
                     src_map, line, w.get("verdict"), want))
+
+    # exits the owner keeps as decoration are not wired and carry their decision
+    kept = [(d["source_map"], d["line"]) for d in plan.get("exits_kept_as_decoration", [])]
+    if len(kept) != len(set(kept)):
+        errors.append("an exit is listed twice as kept decoration")
+    for d in plan.get("exits_kept_as_decoration", []):
+        if (d["source_map"], d["line"]) in records:
+            errors.append("exit {}:{} is kept as decoration but has an exit record".format(d["source_map"], d["line"]))
+        if not d.get("decision") or "no exit" not in d.get("migrate_as", ""):
+            errors.append("exit {}:{} is kept as decoration without its decision".format(d["source_map"], d["line"]))
 
     # ------------------------------------------------- required stairwells
     # Every exit whose ends are 2+ layers apart and at most one tile apart per

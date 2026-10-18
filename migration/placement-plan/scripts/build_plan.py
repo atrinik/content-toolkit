@@ -97,6 +97,15 @@ OWNER_PLACE = {
         "owner decision 2 (settled): the new-character start map is placed under world_-7_76, where the "
         "existing stairs line up",
 }
+# Owner decision 2026-10-18: the six Greyton jail cell ladders (each on a bed
+# tile, five of them over water) stay bunk-bed decoration. They are not wired;
+# the migration keeps their look as objects without an exit.
+JAIL = "/shattered_islands/strakewood_island/greyton/jail/jail"
+OWNER_KEEP_AS_DECORATION = {
+    (JAIL, (x, y), "ladder_up"): "owner decision 2026-10-18: keep as bunk-bed decoration, an object without an exit"
+    for (x, y) in ((2, 1), (2, 7), (2, 13), (13, 1), (13, 7), (13, 13))
+}
+
 # Placements of plan v1 (PR #44, toolkit 7ba54b0, content b9657299a6e7):
 # (x_offset, y_offset, layer_offset) per placed group id under /shattered_islands/.
 # Used only to report which placements this version changes.
@@ -1332,7 +1341,7 @@ def build(content: Path, allow_dirty: bool = False):
 
     terrain_names = {"0": "nothing", "1": "land", "2": "water", "4": "deep water", "8": "fire", "16": "fire",
                      "32": "cloud", "64": "shallow water"}
-    wired = []
+    wired, kept_decoration = [], []
     for e in exits:
         if e["form"] != "tiled-unresolved" or e.get("tiled_slot") not in (9, 10):
             continue
@@ -1401,12 +1410,22 @@ def build(content: Path, allow_dirty: bool = False):
             verdict, why = "plausible", "walkable land floor on the landing tile and no exit contradicts it"
         if near_entr is not None:
             why += "; the landing is {} tile(s) from this group's nearest entrance on that layer".format(near_entr)
+        evidence = {"target_from": how, "plane_landing": list(land), "plane_target": list(target),
+                    "source_tile_objects": src_objs, "landing_tile_objects": [n for n, _a in dst],
+                    "landing_floor_terrain": terr, "landing_blocked": blocked_,
+                    "exits_on_source_tile": co, "return_exits_near_landing": back,
+                    "verdict": verdict, "why": why}
+        decision = OWNER_KEEP_AS_DECORATION.get((e["source_map"], (e["source_x"], e["source_y"]), e["arch"]))
+        if decision:
+            kept_decoration.append({"source_map": e["source_map"], "source_tile": [e["source_x"], e["source_y"]],
+                                    "arch": e["arch"], "line": e["line"], "plane_source": list(s_),
+                                    "decision": decision,
+                                    "migrate_as": "decoration with the {} look: no exit, no destination".format(
+                                        e["arch"]),
+                                    "would_land_on": {"map": tm, "tile": [tx, ty], **evidence}})
+            continue
         e2 = dict(e, form="wired", resolved_map=tm, resolved_x=tx, resolved_y=ty, target_group=gof[tm])
-        e2["wired"] = {"target_from": how, "plane_landing": list(land), "plane_target": list(target),
-                       "source_tile_objects": src_objs, "landing_tile_objects": [n for n, _a in dst],
-                       "landing_floor_terrain": terr, "landing_blocked": blocked_,
-                       "exits_on_source_tile": co, "return_exits_near_landing": back,
-                       "verdict": verdict, "why": why}
+        e2["wired"] = evidence
         wired.append(e2)
         cross.append(e2)
         G[sg]["exits_out"].append(e2)
@@ -1417,6 +1436,12 @@ def build(content: Path, allow_dirty: bool = False):
             related[a].add(owner_of(b_end[0], b_end[1]))
             if b_end[0] == ow_id:
                 related_ow_layers[a][b_end[1]].add(b_end[2])
+
+    matched = {(d["source_map"], tuple(d["source_tile"]), d["arch"]) for d in kept_decoration}
+    stale = sorted(k for k in OWNER_KEEP_AS_DECORATION if k not in matched)
+    if stale:
+        raise SystemExit("owner decision lists exits to keep as decoration that are no longer dangling exits "
+                         "landing on content: {}".format(stale))
 
     stats = collections.defaultdict(collections.Counter)
     portal_reasons = collections.Counter()
@@ -1482,6 +1507,9 @@ def build(content: Path, allow_dirty: bool = False):
                                          "arch": e["arch"], "line": e["line"], "target_map": e["resolved_map"],
                                          "target_tile": [e["resolved_x"], e["resolved_y"]], "verdict": e["wired"]["verdict"]}
                                         for e in wired]
+    problems["dangling_exits_kept_as_decoration"] = [
+        {"source_map": d["source_map"], "source_tile": d["source_tile"], "arch": d["arch"], "line": d["line"],
+         "decision": d["decision"]} for d in kept_decoration]
 
     # ------------------------------------------------------ relayering record
     for gid, Rg in sorted(relay.items()):
@@ -1924,6 +1952,8 @@ def build(content: Path, allow_dirty: bool = False):
                           "occupied_rows_by_layer gives each map's tiles per final layer",
             "wired_exits": "an exit with form 'wired' led nowhere in legacy; it now targets the content on the "
                            "layer above or below (see its 'wired' evidence)",
+            "exits_kept_as_decoration": "dangling exits the owner keeps as decoration (no exit): not wired, with the "
+                                        "landing they would have had",
         },
         "summary": {"maps_total": len(maps), "groups_total": len(groups), "non_overworld_groups": len(groups) - 1,
                     "by_classification": dict(sorted(counts.items())),
@@ -1938,6 +1968,7 @@ def build(content: Path, allow_dirty: bool = False):
                     "sloped_stairwell_sites_blocked": len(S.slope_failed),
                     "relayering_stairwell_sites_blocked": len(S.relayer_blocked),
                     "wired_exits": len(wired),
+                    "dangling_exits_kept_as_decoration": len(kept_decoration),
                     "relayering": {"regions": len(regions_out), "kept_regions": len(kept_out),
                                    "tiles_relayered": len(R.relayered), "tiles_moved": len(R.moved),
                                    "maps_moved": len(maps_moved), "units_moved": len(units_out),
@@ -1951,6 +1982,7 @@ def build(content: Path, allow_dirty: bool = False):
         "stairwell_sites_blocked": S.blocked_sites,
         "sloped_stairwell_sites_blocked": S.slope_failed,
         "placement_changes_from_v1": changes_v1,
+        "exits_kept_as_decoration": kept_decoration,
         "groups": groups_out,
         "relayering": relayering,
         "data_problems": problems,

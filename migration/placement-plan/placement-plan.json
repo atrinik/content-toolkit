@@ -46,7 +46,8 @@
   "stairwell_contacts": "contacts: intermediate tiles within contact_margin_tiles of a related area (other than the stairwell's own group); the chain search avoids them where it can",
   "stairwell_ids": "SWn = stairwell built for a placed group's aligned exits, SLn = sloped stairwell, SRn = stairwell for an overworld exit whose ends the relayering put 2+ layers apart",
   "relayering": "overworld tiles are on their final layer everywhere in this plan (see relayering); occupied_rows_by_layer gives each map's tiles per final layer",
-  "wired_exits": "an exit with form 'wired' led nowhere in legacy; it now targets the content on the layer above or below (see its 'wired' evidence)"
+  "wired_exits": "an exit with form 'wired' led nowhere in legacy; it now targets the content on the layer above or below (see its 'wired' evidence)",
+  "exits_kept_as_decoration": "dangling exits the owner keeps as decoration (no exit): not wired, with the landing they would have had"
  },
  "summary": {
   "maps_total": 3629,
@@ -65,7 +66,7 @@
   "inventory_exit_objects_ignored": 14,
   "crossing_exit_objects_after_placement": {
    "portal": 19,
-   "stairs": 72,
+   "stairs": 66,
    "stairwell": 52
   },
   "portal_reasons": {
@@ -89,7 +90,8 @@
   },
   "sloped_stairwell_sites_blocked": 1,
   "relayering_stairwell_sites_blocked": 0,
-  "wired_exits": 11,
+  "wired_exits": 5,
+  "dangling_exits_kept_as_decoration": 6,
   "relayering": {
    "regions": 12,
    "kept_regions": 7,
@@ -6186,6 +6188,320 @@
     -7
    ],
    "blocked_by": []
+  }
+ ],
+ "exits_kept_as_decoration": [
+  {
+   "source_map": "/shattered_islands/strakewood_island/greyton/jail/jail",
+   "source_tile": [
+    2,
+    1
+   ],
+   "arch": "ladder_up",
+   "line": 415,
+   "plane_source": [
+    281,
+    1597,
+    -1
+   ],
+   "decision": "owner decision 2026-10-18: keep as bunk-bed decoration, an object without an exit",
+   "migrate_as": "decoration with the ladder_up look: no exit, no destination",
+   "would_land_on": {
+    "map": "/shattered_islands/world_11_66",
+    "tile": [
+     17,
+     13
+    ],
+    "target_from": "the tile above (plus the landing offset [0, 0])",
+    "plane_landing": [
+     281,
+     1597,
+     0
+    ],
+    "plane_target": [
+     281,
+     1597,
+     0
+    ],
+    "source_tile_objects": [
+     "floor_marble_b1a",
+     "bed_1b.111",
+     "bedpost_b",
+     "bed_1b.111",
+     "ladder_up"
+    ],
+    "landing_tile_objects": [
+     "water_lt2"
+    ],
+    "landing_floor_terrain": [
+     "water"
+    ],
+    "landing_blocked": false,
+    "exits_on_source_tile": [],
+    "return_exits_near_landing": [],
+    "verdict": "doubtful",
+    "why": "the landing floor is water (terrain_type 2), which a walking player cannot enter (classic blocked(), server/src/server/map.c:697); the landing is 18 tile(s) from this group's nearest entrance on that layer"
+   }
+  },
+  {
+   "source_map": "/shattered_islands/strakewood_island/greyton/jail/jail",
+   "source_tile": [
+    2,
+    7
+   ],
+   "arch": "ladder_up",
+   "line": 476,
+   "plane_source": [
+    281,
+    1603,
+    -1
+   ],
+   "decision": "owner decision 2026-10-18: keep as bunk-bed decoration, an object without an exit",
+   "migrate_as": "decoration with the ladder_up look: no exit, no destination",
+   "would_land_on": {
+    "map": "/shattered_islands/world_11_66",
+    "tile": [
+     17,
+     19
+    ],
+    "target_from": "the tile above (plus the landing offset [0, 0])",
+    "plane_landing": [
+     281,
+     1603,
+     0
+    ],
+    "plane_target": [
+     281,
+     1603,
+     0
+    ],
+    "source_tile_objects": [
+     "floor_marble_b1a",
+     "bed_1b.111",
+     "bedpost_b",
+     "bed_1b.111",
+     "ladder_up"
+    ],
+    "landing_tile_objects": [
+     "water_lt"
+    ],
+    "landing_floor_terrain": [
+     "water"
+    ],
+    "landing_blocked": false,
+    "exits_on_source_tile": [],
+    "return_exits_near_landing": [],
+    "verdict": "doubtful",
+    "why": "the landing floor is water (terrain_type 2), which a walking player cannot enter (classic blocked(), server/src/server/map.c:697); the landing is 12 tile(s) from this group's nearest entrance on that layer"
+   }
+  },
+  {
+   "source_map": "/shattered_islands/strakewood_island/greyton/jail/jail",
+   "source_tile": [
+    2,
+    13
+   ],
+   "arch": "ladder_up",
+   "line": 541,
+   "plane_source": [
+    281,
+    1609,
+    -1
+   ],
+   "decision": "owner decision 2026-10-18: keep as bunk-bed decoration, an object without an exit",
+   "migrate_as": "decoration with the ladder_up look: no exit, no destination",
+   "would_land_on": {
+    "map": "/shattered_islands/world_11_67",
+    "tile": [
+     17,
+     1
+    ],
+    "target_from": "the tile above (plus the landing offset [0, 0])",
+    "plane_landing": [
+     281,
+     1609,
+     0
+    ],
+    "plane_target": [
+     281,
+     1609,
+     0
+    ],
+    "source_tile_objects": [
+     "floor_marble_b1a",
+     "bed_1b.111",
+     "bedpost_b",
+     "bed_1b.111",
+     "ladder_up"
+    ],
+    "landing_tile_objects": [
+     "floor_flagm3"
+    ],
+    "landing_floor_terrain": [
+     "land"
+    ],
+    "landing_blocked": false,
+    "exits_on_source_tile": [],
+    "return_exits_near_landing": [],
+    "verdict": "plausible",
+    "why": "walkable land floor on the landing tile and no exit contradicts it; the landing is 6 tile(s) from this group's nearest entrance on that layer"
+   }
+  },
+  {
+   "source_map": "/shattered_islands/strakewood_island/greyton/jail/jail",
+   "source_tile": [
+    13,
+    1
+   ],
+   "arch": "ladder_up",
+   "line": 2619,
+   "plane_source": [
+    292,
+    1597,
+    -1
+   ],
+   "decision": "owner decision 2026-10-18: keep as bunk-bed decoration, an object without an exit",
+   "migrate_as": "decoration with the ladder_up look: no exit, no destination",
+   "would_land_on": {
+    "map": "/shattered_islands/world_12_66",
+    "tile": [
+     4,
+     13
+    ],
+    "target_from": "the tile above (plus the landing offset [0, 0])",
+    "plane_landing": [
+     292,
+     1597,
+     0
+    ],
+    "plane_target": [
+     292,
+     1597,
+     0
+    ],
+    "source_tile_objects": [
+     "floor_marble_b1b",
+     "bed_1b.111",
+     "bedpost_b",
+     "bed_1b.111",
+     "ladder_up"
+    ],
+    "landing_tile_objects": [
+     "water_lt"
+    ],
+    "landing_floor_terrain": [
+     "water"
+    ],
+    "landing_blocked": false,
+    "exits_on_source_tile": [],
+    "return_exits_near_landing": [],
+    "verdict": "doubtful",
+    "why": "the landing floor is water (terrain_type 2), which a walking player cannot enter (classic blocked(), server/src/server/map.c:697); the landing is 18 tile(s) from this group's nearest entrance on that layer"
+   }
+  },
+  {
+   "source_map": "/shattered_islands/strakewood_island/greyton/jail/jail",
+   "source_tile": [
+    13,
+    7
+   ],
+   "arch": "ladder_up",
+   "line": 2688,
+   "plane_source": [
+    292,
+    1603,
+    -1
+   ],
+   "decision": "owner decision 2026-10-18: keep as bunk-bed decoration, an object without an exit",
+   "migrate_as": "decoration with the ladder_up look: no exit, no destination",
+   "would_land_on": {
+    "map": "/shattered_islands/world_12_66",
+    "tile": [
+     4,
+     19
+    ],
+    "target_from": "the tile above (plus the landing offset [0, 0])",
+    "plane_landing": [
+     292,
+     1603,
+     0
+    ],
+    "plane_target": [
+     292,
+     1603,
+     0
+    ],
+    "source_tile_objects": [
+     "floor_marble_b1a",
+     "bed_1b.111",
+     "bedpost_b",
+     "bed_1b.111",
+     "ladder_up"
+    ],
+    "landing_tile_objects": [
+     "water_lt3"
+    ],
+    "landing_floor_terrain": [
+     "water"
+    ],
+    "landing_blocked": false,
+    "exits_on_source_tile": [],
+    "return_exits_near_landing": [],
+    "verdict": "doubtful",
+    "why": "the landing floor is water (terrain_type 2), which a walking player cannot enter (classic blocked(), server/src/server/map.c:697); the landing is 12 tile(s) from this group's nearest entrance on that layer"
+   }
+  },
+  {
+   "source_map": "/shattered_islands/strakewood_island/greyton/jail/jail",
+   "source_tile": [
+    13,
+    13
+   ],
+   "arch": "ladder_up",
+   "line": 2757,
+   "plane_source": [
+    292,
+    1609,
+    -1
+   ],
+   "decision": "owner decision 2026-10-18: keep as bunk-bed decoration, an object without an exit",
+   "migrate_as": "decoration with the ladder_up look: no exit, no destination",
+   "would_land_on": {
+    "map": "/shattered_islands/world_12_67",
+    "tile": [
+     4,
+     1
+    ],
+    "target_from": "the tile above (plus the landing offset [0, 0])",
+    "plane_landing": [
+     292,
+     1609,
+     0
+    ],
+    "plane_target": [
+     292,
+     1609,
+     0
+    ],
+    "source_tile_objects": [
+     "floor_marble_b1b",
+     "bed_1b.111",
+     "bedpost_b",
+     "bed_1b.111",
+     "ladder_up"
+    ],
+    "landing_tile_objects": [
+     "water_lt3"
+    ],
+    "landing_floor_terrain": [
+     "water"
+    ],
+    "landing_blocked": false,
+    "exits_on_source_tile": [],
+    "return_exits_near_landing": [],
+    "verdict": "doubtful",
+    "why": "the landing floor is water (terrain_type 2), which a walking player cannot enter (classic blocked(), server/src/server/map.c:697); the landing is 12 tile(s) from this group's nearest entrance on that layer"
+   }
   }
  ],
  "groups": [
@@ -24613,22 +24929,10 @@
    "layout_problems": [],
    "related_owners": [
     "/shattered_islands/strakewood_island/greyton/jail/jail_a",
-    "/shattered_islands/world_11_66",
-    "/shattered_islands/world_11_67",
-    "/shattered_islands/world_12_66",
-    "/shattered_islands/world_12_67"
+    "/shattered_islands/world_11_67"
    ],
    "related_overworld_layers": {
-    "/shattered_islands/world_11_66": [
-     0
-    ],
     "/shattered_islands/world_11_67": [
-     0
-    ],
-    "/shattered_islands/world_12_66": [
-     0
-    ],
-    "/shattered_islands/world_12_67": [
      0
     ]
    },
@@ -24776,438 +25080,6 @@
      "overworld_plane_target": [
       280,
       1616,
-      0
-     ]
-    },
-    {
-     "source_map": "/shattered_islands/strakewood_island/greyton/jail/jail",
-     "source_tile": [
-      2,
-      1
-     ],
-     "target_map": "/shattered_islands/world_11_66",
-     "target_tile": [
-      17,
-      13
-     ],
-     "arch": "ladder_up",
-     "line": 415,
-     "form": "wired",
-     "vertical": "up",
-     "source_group": "/shattered_islands/strakewood_island/greyton/jail/jail",
-     "target_group": "/shattered_islands/world",
-     "authored_target": [
-      null,
-      null,
-      null
-     ],
-     "wired": {
-      "target_from": "the tile above (plus the landing offset [0, 0])",
-      "plane_landing": [
-       281,
-       1597,
-       0
-      ],
-      "plane_target": [
-       281,
-       1597,
-       0
-      ],
-      "source_tile_objects": [
-       "floor_marble_b1a",
-       "bed_1b.111",
-       "bedpost_b",
-       "bed_1b.111",
-       "ladder_up"
-      ],
-      "landing_tile_objects": [
-       "water_lt2"
-      ],
-      "landing_floor_terrain": [
-       "water"
-      ],
-      "landing_blocked": false,
-      "exits_on_source_tile": [],
-      "return_exits_near_landing": [],
-      "verdict": "doubtful",
-      "why": "the landing floor is water (terrain_type 2), which a walking player cannot enter (classic blocked(), server/src/server/map.c:697); the landing is 18 tile(s) from this group's nearest entrance on that layer"
-     },
-     "plane_source": [
-      281,
-      1597,
-      -1
-     ],
-     "plane_target": [
-      281,
-      1597,
-      0
-     ],
-     "xy_distance": 0,
-     "layer_delta": 1,
-     "becomes": "stairs",
-     "overworld_plane_target": [
-      281,
-      1597,
-      0
-     ]
-    },
-    {
-     "source_map": "/shattered_islands/strakewood_island/greyton/jail/jail",
-     "source_tile": [
-      2,
-      7
-     ],
-     "target_map": "/shattered_islands/world_11_66",
-     "target_tile": [
-      17,
-      19
-     ],
-     "arch": "ladder_up",
-     "line": 476,
-     "form": "wired",
-     "vertical": "up",
-     "source_group": "/shattered_islands/strakewood_island/greyton/jail/jail",
-     "target_group": "/shattered_islands/world",
-     "authored_target": [
-      null,
-      null,
-      null
-     ],
-     "wired": {
-      "target_from": "the tile above (plus the landing offset [0, 0])",
-      "plane_landing": [
-       281,
-       1603,
-       0
-      ],
-      "plane_target": [
-       281,
-       1603,
-       0
-      ],
-      "source_tile_objects": [
-       "floor_marble_b1a",
-       "bed_1b.111",
-       "bedpost_b",
-       "bed_1b.111",
-       "ladder_up"
-      ],
-      "landing_tile_objects": [
-       "water_lt"
-      ],
-      "landing_floor_terrain": [
-       "water"
-      ],
-      "landing_blocked": false,
-      "exits_on_source_tile": [],
-      "return_exits_near_landing": [],
-      "verdict": "doubtful",
-      "why": "the landing floor is water (terrain_type 2), which a walking player cannot enter (classic blocked(), server/src/server/map.c:697); the landing is 12 tile(s) from this group's nearest entrance on that layer"
-     },
-     "plane_source": [
-      281,
-      1603,
-      -1
-     ],
-     "plane_target": [
-      281,
-      1603,
-      0
-     ],
-     "xy_distance": 0,
-     "layer_delta": 1,
-     "becomes": "stairs",
-     "overworld_plane_target": [
-      281,
-      1603,
-      0
-     ]
-    },
-    {
-     "source_map": "/shattered_islands/strakewood_island/greyton/jail/jail",
-     "source_tile": [
-      2,
-      13
-     ],
-     "target_map": "/shattered_islands/world_11_67",
-     "target_tile": [
-      17,
-      1
-     ],
-     "arch": "ladder_up",
-     "line": 541,
-     "form": "wired",
-     "vertical": "up",
-     "source_group": "/shattered_islands/strakewood_island/greyton/jail/jail",
-     "target_group": "/shattered_islands/world",
-     "authored_target": [
-      null,
-      null,
-      null
-     ],
-     "wired": {
-      "target_from": "the tile above (plus the landing offset [0, 0])",
-      "plane_landing": [
-       281,
-       1609,
-       0
-      ],
-      "plane_target": [
-       281,
-       1609,
-       0
-      ],
-      "source_tile_objects": [
-       "floor_marble_b1a",
-       "bed_1b.111",
-       "bedpost_b",
-       "bed_1b.111",
-       "ladder_up"
-      ],
-      "landing_tile_objects": [
-       "floor_flagm3"
-      ],
-      "landing_floor_terrain": [
-       "land"
-      ],
-      "landing_blocked": false,
-      "exits_on_source_tile": [],
-      "return_exits_near_landing": [],
-      "verdict": "plausible",
-      "why": "walkable land floor on the landing tile and no exit contradicts it; the landing is 6 tile(s) from this group's nearest entrance on that layer"
-     },
-     "plane_source": [
-      281,
-      1609,
-      -1
-     ],
-     "plane_target": [
-      281,
-      1609,
-      0
-     ],
-     "xy_distance": 0,
-     "layer_delta": 1,
-     "becomes": "stairs",
-     "overworld_plane_target": [
-      281,
-      1609,
-      0
-     ]
-    },
-    {
-     "source_map": "/shattered_islands/strakewood_island/greyton/jail/jail",
-     "source_tile": [
-      13,
-      1
-     ],
-     "target_map": "/shattered_islands/world_12_66",
-     "target_tile": [
-      4,
-      13
-     ],
-     "arch": "ladder_up",
-     "line": 2619,
-     "form": "wired",
-     "vertical": "up",
-     "source_group": "/shattered_islands/strakewood_island/greyton/jail/jail",
-     "target_group": "/shattered_islands/world",
-     "authored_target": [
-      null,
-      null,
-      null
-     ],
-     "wired": {
-      "target_from": "the tile above (plus the landing offset [0, 0])",
-      "plane_landing": [
-       292,
-       1597,
-       0
-      ],
-      "plane_target": [
-       292,
-       1597,
-       0
-      ],
-      "source_tile_objects": [
-       "floor_marble_b1b",
-       "bed_1b.111",
-       "bedpost_b",
-       "bed_1b.111",
-       "ladder_up"
-      ],
-      "landing_tile_objects": [
-       "water_lt"
-      ],
-      "landing_floor_terrain": [
-       "water"
-      ],
-      "landing_blocked": false,
-      "exits_on_source_tile": [],
-      "return_exits_near_landing": [],
-      "verdict": "doubtful",
-      "why": "the landing floor is water (terrain_type 2), which a walking player cannot enter (classic blocked(), server/src/server/map.c:697); the landing is 18 tile(s) from this group's nearest entrance on that layer"
-     },
-     "plane_source": [
-      292,
-      1597,
-      -1
-     ],
-     "plane_target": [
-      292,
-      1597,
-      0
-     ],
-     "xy_distance": 0,
-     "layer_delta": 1,
-     "becomes": "stairs",
-     "overworld_plane_target": [
-      292,
-      1597,
-      0
-     ]
-    },
-    {
-     "source_map": "/shattered_islands/strakewood_island/greyton/jail/jail",
-     "source_tile": [
-      13,
-      7
-     ],
-     "target_map": "/shattered_islands/world_12_66",
-     "target_tile": [
-      4,
-      19
-     ],
-     "arch": "ladder_up",
-     "line": 2688,
-     "form": "wired",
-     "vertical": "up",
-     "source_group": "/shattered_islands/strakewood_island/greyton/jail/jail",
-     "target_group": "/shattered_islands/world",
-     "authored_target": [
-      null,
-      null,
-      null
-     ],
-     "wired": {
-      "target_from": "the tile above (plus the landing offset [0, 0])",
-      "plane_landing": [
-       292,
-       1603,
-       0
-      ],
-      "plane_target": [
-       292,
-       1603,
-       0
-      ],
-      "source_tile_objects": [
-       "floor_marble_b1a",
-       "bed_1b.111",
-       "bedpost_b",
-       "bed_1b.111",
-       "ladder_up"
-      ],
-      "landing_tile_objects": [
-       "water_lt3"
-      ],
-      "landing_floor_terrain": [
-       "water"
-      ],
-      "landing_blocked": false,
-      "exits_on_source_tile": [],
-      "return_exits_near_landing": [],
-      "verdict": "doubtful",
-      "why": "the landing floor is water (terrain_type 2), which a walking player cannot enter (classic blocked(), server/src/server/map.c:697); the landing is 12 tile(s) from this group's nearest entrance on that layer"
-     },
-     "plane_source": [
-      292,
-      1603,
-      -1
-     ],
-     "plane_target": [
-      292,
-      1603,
-      0
-     ],
-     "xy_distance": 0,
-     "layer_delta": 1,
-     "becomes": "stairs",
-     "overworld_plane_target": [
-      292,
-      1603,
-      0
-     ]
-    },
-    {
-     "source_map": "/shattered_islands/strakewood_island/greyton/jail/jail",
-     "source_tile": [
-      13,
-      13
-     ],
-     "target_map": "/shattered_islands/world_12_67",
-     "target_tile": [
-      4,
-      1
-     ],
-     "arch": "ladder_up",
-     "line": 2757,
-     "form": "wired",
-     "vertical": "up",
-     "source_group": "/shattered_islands/strakewood_island/greyton/jail/jail",
-     "target_group": "/shattered_islands/world",
-     "authored_target": [
-      null,
-      null,
-      null
-     ],
-     "wired": {
-      "target_from": "the tile above (plus the landing offset [0, 0])",
-      "plane_landing": [
-       292,
-       1609,
-       0
-      ],
-      "plane_target": [
-       292,
-       1609,
-       0
-      ],
-      "source_tile_objects": [
-       "floor_marble_b1b",
-       "bed_1b.111",
-       "bedpost_b",
-       "bed_1b.111",
-       "ladder_up"
-      ],
-      "landing_tile_objects": [
-       "water_lt3"
-      ],
-      "landing_floor_terrain": [
-       "water"
-      ],
-      "landing_blocked": false,
-      "exits_on_source_tile": [],
-      "return_exits_near_landing": [],
-      "verdict": "doubtful",
-      "why": "the landing floor is water (terrain_type 2), which a walking player cannot enter (classic blocked(), server/src/server/map.c:697); the landing is 12 tile(s) from this group's nearest entrance on that layer"
-     },
-     "plane_source": [
-      292,
-      1609,
-      -1
-     ],
-     "plane_target": [
-      292,
-      1609,
-      0
-     ],
-     "xy_distance": 0,
-     "layer_delta": 1,
-     "becomes": "stairs",
-     "overworld_plane_target": [
-      292,
-      1609,
       0
      ]
     }
@@ -25403,7 +25275,7 @@
     "placement_index": 10,
     "main_stairwell_blocked": false,
     "crossing_exits_after_placement": {
-     "stairs": 14
+     "stairs": 8
     }
    }
   },
@@ -118215,96 +118087,6 @@
     "verdict": "plausible"
    },
    {
-    "source_map": "/shattered_islands/strakewood_island/greyton/jail/jail",
-    "source_tile": [
-     2,
-     1
-    ],
-    "arch": "ladder_up",
-    "line": 415,
-    "target_map": "/shattered_islands/world_11_66",
-    "target_tile": [
-     17,
-     13
-    ],
-    "verdict": "doubtful"
-   },
-   {
-    "source_map": "/shattered_islands/strakewood_island/greyton/jail/jail",
-    "source_tile": [
-     2,
-     7
-    ],
-    "arch": "ladder_up",
-    "line": 476,
-    "target_map": "/shattered_islands/world_11_66",
-    "target_tile": [
-     17,
-     19
-    ],
-    "verdict": "doubtful"
-   },
-   {
-    "source_map": "/shattered_islands/strakewood_island/greyton/jail/jail",
-    "source_tile": [
-     2,
-     13
-    ],
-    "arch": "ladder_up",
-    "line": 541,
-    "target_map": "/shattered_islands/world_11_67",
-    "target_tile": [
-     17,
-     1
-    ],
-    "verdict": "plausible"
-   },
-   {
-    "source_map": "/shattered_islands/strakewood_island/greyton/jail/jail",
-    "source_tile": [
-     13,
-     1
-    ],
-    "arch": "ladder_up",
-    "line": 2619,
-    "target_map": "/shattered_islands/world_12_66",
-    "target_tile": [
-     4,
-     13
-    ],
-    "verdict": "doubtful"
-   },
-   {
-    "source_map": "/shattered_islands/strakewood_island/greyton/jail/jail",
-    "source_tile": [
-     13,
-     7
-    ],
-    "arch": "ladder_up",
-    "line": 2688,
-    "target_map": "/shattered_islands/world_12_66",
-    "target_tile": [
-     4,
-     19
-    ],
-    "verdict": "doubtful"
-   },
-   {
-    "source_map": "/shattered_islands/strakewood_island/greyton/jail/jail",
-    "source_tile": [
-     13,
-     13
-    ],
-    "arch": "ladder_up",
-    "line": 2757,
-    "target_map": "/shattered_islands/world_12_67",
-    "target_tile": [
-     4,
-     1
-    ],
-    "verdict": "doubtful"
-   },
-   {
     "source_map": "/shattered_islands/strakewood_island/rockforge/rockforge_0101",
     "source_tile": [
      11,
@@ -118349,6 +118131,68 @@
     ],
     "verdict": "confirmed"
    }
+  ],
+  "dangling_exits_kept_as_decoration": [
+   {
+    "source_map": "/shattered_islands/strakewood_island/greyton/jail/jail",
+    "source_tile": [
+     2,
+     1
+    ],
+    "arch": "ladder_up",
+    "line": 415,
+    "decision": "owner decision 2026-10-18: keep as bunk-bed decoration, an object without an exit"
+   },
+   {
+    "source_map": "/shattered_islands/strakewood_island/greyton/jail/jail",
+    "source_tile": [
+     2,
+     7
+    ],
+    "arch": "ladder_up",
+    "line": 476,
+    "decision": "owner decision 2026-10-18: keep as bunk-bed decoration, an object without an exit"
+   },
+   {
+    "source_map": "/shattered_islands/strakewood_island/greyton/jail/jail",
+    "source_tile": [
+     2,
+     13
+    ],
+    "arch": "ladder_up",
+    "line": 541,
+    "decision": "owner decision 2026-10-18: keep as bunk-bed decoration, an object without an exit"
+   },
+   {
+    "source_map": "/shattered_islands/strakewood_island/greyton/jail/jail",
+    "source_tile": [
+     13,
+     1
+    ],
+    "arch": "ladder_up",
+    "line": 2619,
+    "decision": "owner decision 2026-10-18: keep as bunk-bed decoration, an object without an exit"
+   },
+   {
+    "source_map": "/shattered_islands/strakewood_island/greyton/jail/jail",
+    "source_tile": [
+     13,
+     7
+    ],
+    "arch": "ladder_up",
+    "line": 2688,
+    "decision": "owner decision 2026-10-18: keep as bunk-bed decoration, an object without an exit"
+   },
+   {
+    "source_map": "/shattered_islands/strakewood_island/greyton/jail/jail",
+    "source_tile": [
+     13,
+     13
+    ],
+    "arch": "ladder_up",
+    "line": 2757,
+    "decision": "owner decision 2026-10-18: keep as bunk-bed decoration, an object without an exit"
+   }
   ]
  },
  "verification": {
@@ -118373,7 +118217,7 @@
   },
   "stairwell_exits_required": 89,
   "stairwell_intermediate_tiles": 76,
-  "exit_endpoints_checked": 1468,
+  "exit_endpoints_checked": 1456,
   "relayering": {
    "overworld_tiles": 242824,
    "tile_heights": 82133,
