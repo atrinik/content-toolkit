@@ -98,7 +98,7 @@
   "relayering": "overworld tiles are on their final layer everywhere in this plan (see relayering); occupied_rows_by_layer gives each map's tiles per final layer",
   "wired_exits": "an exit with form 'wired' led nowhere in legacy; it now targets the content on the layer above or below (see its 'wired' evidence)",
   "exits_kept_as_decoration": "dangling exits the owner keeps as decoration (no exit): not wired, with the landing they would have had",
-  "exit_inventory": "every exit object read from the content (inventory exits excluded), keyed by source_map and line, with its legacy form and resolved target (none for an exit that leads nowhere); the exit records in the groups are checked against it"
+  "exit_inventory": "every exit object read from the content (inventory exits excluded), keyed by source_map and line: the content fields of its exit record with its legacy form and resolved target (none for an exit that leads nowhere), plus the facts its data problems come from; the exit records and data problems are checked against it"
  },
  "summary": {
   "maps_total": 3629,
@@ -6618,7 +6618,8 @@
    "arch": "stairs_wood_up",
    "line": 2078,
    "form": "tiled-unresolved",
-   "vertical": "up"
+   "vertical": "up",
+   "tiled_slot": 9
   },
   {
    "source_map": "/guilds/quick_wolves/guild",
@@ -6629,7 +6630,8 @@
    "arch": "stairs_wood_down",
    "line": 2631,
    "form": "tiled-unresolved",
-   "vertical": "down"
+   "vertical": "down",
+   "tiled_slot": 10
   },
   {
    "source_map": "/guilds/quick_wolves/guild",
@@ -6768,7 +6770,8 @@
    "arch": "stairs_stone_up",
    "line": 1676,
    "form": "tiled-unresolved",
-   "vertical": "up"
+   "vertical": "up",
+   "tiled_slot": 9
   },
   {
    "source_map": "/planes/bone_cairn/bone_cairn_0_0",
@@ -6779,7 +6782,8 @@
    "arch": "stairs_stone_up",
    "line": 1845,
    "form": "tiled-unresolved",
-   "vertical": "up"
+   "vertical": "up",
+   "tiled_slot": 9
   },
   {
    "source_map": "/planes/bone_cairn/bone_cairn_0_0",
@@ -6806,7 +6810,8 @@
    "arch": "stairs_stone_up",
    "line": 2009,
    "form": "tiled-unresolved",
-   "vertical": "up"
+   "vertical": "up",
+   "tiled_slot": 9
   },
   {
    "source_map": "/planes/creation/creation_0501",
@@ -7802,7 +7807,8 @@
    "arch": "ladder_down",
    "line": 64,
    "form": "tiled-unresolved",
-   "vertical": "down"
+   "vertical": "down",
+   "tiled_slot": 10
   },
   {
    "source_map": "/shattered_islands/eld_woods_island/clearhaven/mine/mine_entrance",
@@ -7829,7 +7835,8 @@
    "arch": "ladder_up",
    "line": 181,
    "form": "tiled-unresolved",
-   "vertical": "up"
+   "vertical": "up",
+   "tiled_slot": 9
   },
   {
    "source_map": "/shattered_islands/eld_woods_island/clearhaven/mine/mine_entrance",
@@ -7840,7 +7847,8 @@
    "arch": "ladder_down",
    "line": 537,
    "form": "tiled-unresolved",
-   "vertical": "down"
+   "vertical": "down",
+   "tiled_slot": 10
   },
   {
    "source_map": "/shattered_islands/eld_woods_island/clearhaven/mine/mine_entrance",
@@ -7851,7 +7859,8 @@
    "arch": "ladder_up",
    "line": 732,
    "form": "tiled-unresolved",
-   "vertical": "up"
+   "vertical": "up",
+   "tiled_slot": 9
   },
   {
    "source_map": "/shattered_islands/eld_woods_island/clearhaven/mine/mine_entrance",
@@ -10508,7 +10517,8 @@
    "arch": "ladder_up",
    "line": 415,
    "form": "tiled-unresolved",
-   "vertical": "up"
+   "vertical": "up",
+   "tiled_slot": 9
   },
   {
    "source_map": "/shattered_islands/strakewood_island/greyton/jail/jail",
@@ -10519,7 +10529,8 @@
    "arch": "ladder_up",
    "line": 476,
    "form": "tiled-unresolved",
-   "vertical": "up"
+   "vertical": "up",
+   "tiled_slot": 9
   },
   {
    "source_map": "/shattered_islands/strakewood_island/greyton/jail/jail",
@@ -10530,7 +10541,8 @@
    "arch": "ladder_up",
    "line": 541,
    "form": "tiled-unresolved",
-   "vertical": "up"
+   "vertical": "up",
+   "tiled_slot": 9
   },
   {
    "source_map": "/shattered_islands/strakewood_island/greyton/jail/jail",
@@ -10557,7 +10569,8 @@
    "arch": "ladder_up",
    "line": 2619,
    "form": "tiled-unresolved",
-   "vertical": "up"
+   "vertical": "up",
+   "tiled_slot": 9
   },
   {
    "source_map": "/shattered_islands/strakewood_island/greyton/jail/jail",
@@ -10568,7 +10581,8 @@
    "arch": "ladder_up",
    "line": 2688,
    "form": "tiled-unresolved",
-   "vertical": "up"
+   "vertical": "up",
+   "tiled_slot": 9
   },
   {
    "source_map": "/shattered_islands/strakewood_island/greyton/jail/jail",
@@ -10579,7 +10593,8 @@
    "arch": "ladder_up",
    "line": 2757,
    "form": "tiled-unresolved",
-   "vertical": "up"
+   "vertical": "up",
+   "tiled_slot": 9
   },
   {
    "source_map": "/shattered_islands/strakewood_island/greyton/jail/jail",
@@ -10895,7 +10910,8 @@
    "arch": "stairs_stone_up",
    "line": 954,
    "form": "tiled-unresolved",
-   "vertical": "up"
+   "vertical": "up",
+   "tiled_slot": 9
   },
   {
    "source_map": "/shattered_islands/strakewood_island/rockforge/rockforge_0101",
@@ -10939,7 +10955,8 @@
    "arch": "stairs_stone_up",
    "line": 1161,
    "form": "tiled-unresolved",
-   "vertical": "up"
+   "vertical": "up",
+   "tiled_slot": 9
   },
   {
    "source_map": "/shattered_islands/strakewood_island/rockforge/rockforge_0101",
@@ -11033,7 +11050,8 @@
    "arch": "stairs_stone_up",
    "line": 343,
    "form": "tiled-unresolved",
-   "vertical": "up"
+   "vertical": "up",
+   "tiled_slot": 9
   },
   {
    "source_map": "/shattered_islands/strakewood_island/rockforge/rockforge_a_0101",
@@ -11077,7 +11095,8 @@
    "arch": "stairs_stone_up",
    "line": 506,
    "form": "tiled-unresolved",
-   "vertical": "up"
+   "vertical": "up",
+   "tiled_slot": 9
   },
   {
    "source_map": "/shattered_islands/strakewood_island/rockforge/rockforge_a_0101",
@@ -11137,7 +11156,8 @@
    "arch": "stairs_stone_up",
    "line": 591,
    "form": "tiled-unresolved",
-   "vertical": "up"
+   "vertical": "up",
+   "tiled_slot": 9
   },
   {
    "source_map": "/shattered_islands/strakewood_island/rockforge/rockforge_a_0101",
@@ -11165,7 +11185,8 @@
    "arch": "stairs_stone_up",
    "line": 608,
    "form": "tiled-unresolved",
-   "vertical": "up"
+   "vertical": "up",
+   "tiled_slot": 9
   },
   {
    "source_map": "/shattered_islands/strakewood_island/rockforge/rockforge_a_0101",
@@ -11176,7 +11197,8 @@
    "arch": "stairs_stone_up",
    "line": 629,
    "form": "tiled-unresolved",
-   "vertical": "up"
+   "vertical": "up",
+   "tiled_slot": 9
   },
   {
    "source_map": "/shattered_islands/strakewood_island/rockforge/rockforge_a_0101",
@@ -11203,7 +11225,8 @@
    "arch": "stairs_stone_up",
    "line": 735,
    "form": "tiled-unresolved",
-   "vertical": "up"
+   "vertical": "up",
+   "tiled_slot": 9
   },
   {
    "source_map": "/shattered_islands/strakewood_island/rockforge/rockforge_a_0101",
@@ -11231,7 +11254,8 @@
    "arch": "stairs_stone_up",
    "line": 759,
    "form": "tiled-unresolved",
-   "vertical": "up"
+   "vertical": "up",
+   "tiled_slot": 9
   },
   {
    "source_map": "/shattered_islands/strakewood_island/rockforge/rockforge_a_0101",
@@ -11242,7 +11266,8 @@
    "arch": "stairs_stone_up",
    "line": 787,
    "form": "tiled-unresolved",
-   "vertical": "up"
+   "vertical": "up",
+   "tiled_slot": 9
   },
   {
    "source_map": "/shattered_islands/strakewood_island/rockforge/rockforge_a_0101",
@@ -11269,7 +11294,8 @@
    "arch": "stairs_stone_up",
    "line": 1425,
    "form": "tiled-unresolved",
-   "vertical": "up"
+   "vertical": "up",
+   "tiled_slot": 9
   },
   {
    "source_map": "/shattered_islands/strakewood_island/rockforge/rockforge_a_0101",
@@ -11297,7 +11323,8 @@
    "arch": "stairs_stone_up",
    "line": 1442,
    "form": "tiled-unresolved",
-   "vertical": "up"
+   "vertical": "up",
+   "tiled_slot": 9
   },
   {
    "source_map": "/shattered_islands/strakewood_island/rockforge/rockforge_a_0101",
@@ -11308,7 +11335,8 @@
    "arch": "stairs_stone_up",
    "line": 1470,
    "form": "tiled-unresolved",
-   "vertical": "up"
+   "vertical": "up",
+   "tiled_slot": 9
   },
   {
    "source_map": "/shattered_islands/strakewood_island/rockforge/rockforge_a_0101",
@@ -11319,7 +11347,8 @@
    "arch": "stairs_stone_up",
    "line": 1504,
    "form": "tiled-unresolved",
-   "vertical": "up"
+   "vertical": "up",
+   "tiled_slot": 9
   },
   {
    "source_map": "/shattered_islands/strakewood_island/rockforge/rockforge_a_0101",
@@ -11379,7 +11408,8 @@
    "arch": "stairs_stone_up",
    "line": 1589,
    "form": "tiled-unresolved",
-   "vertical": "up"
+   "vertical": "up",
+   "tiled_slot": 9
   },
   {
    "source_map": "/shattered_islands/strakewood_island/rockforge/rockforge_a_0101",
@@ -11407,7 +11437,8 @@
    "arch": "stairs_stone_up",
    "line": 1613,
    "form": "tiled-unresolved",
-   "vertical": "up"
+   "vertical": "up",
+   "tiled_slot": 9
   },
   {
    "source_map": "/shattered_islands/strakewood_island/rockforge/rockforge_a_0101",
@@ -11418,7 +11449,8 @@
    "arch": "stairs_stone_up",
    "line": 1641,
    "form": "tiled-unresolved",
-   "vertical": "up"
+   "vertical": "up",
+   "tiled_slot": 9
   },
   {
    "source_map": "/shattered_islands/strakewood_island/rockforge/rockforge_a_0101",
@@ -11429,7 +11461,8 @@
    "arch": "stairs_stone_up",
    "line": 1675,
    "form": "tiled-unresolved",
-   "vertical": "up"
+   "vertical": "up",
+   "tiled_slot": 9
   },
   {
    "source_map": "/shattered_islands/strakewood_island/rockforge/rockforge_a_0101",
@@ -12629,7 +12662,8 @@
    "arch": "stairs_stone_down",
    "line": 2207,
    "form": "tiled-unresolved",
-   "vertical": "down"
+   "vertical": "down",
+   "tiled_slot": 10
   },
   {
    "source_map": "/shattered_islands/world_-1_44",
@@ -12640,7 +12674,8 @@
    "arch": "stairs_stone_up",
    "line": 1592,
    "form": "tiled-unresolved",
-   "vertical": "up"
+   "vertical": "up",
+   "tiled_slot": 9
   },
   {
    "source_map": "/shattered_islands/world_-1_44",
@@ -12651,7 +12686,8 @@
    "arch": "stairs_stone_up",
    "line": 1607,
    "form": "tiled-unresolved",
-   "vertical": "up"
+   "vertical": "up",
+   "tiled_slot": 9
   },
   {
    "source_map": "/shattered_islands/world_-1_44",
@@ -12662,7 +12698,8 @@
    "arch": "stairs_stone_up",
    "line": 1733,
    "form": "tiled-unresolved",
-   "vertical": "up"
+   "vertical": "up",
+   "tiled_slot": 9
   },
   {
    "source_map": "/shattered_islands/world_-1_44",
@@ -12673,7 +12710,8 @@
    "arch": "stairs_stone_up",
    "line": 1748,
    "form": "tiled-unresolved",
-   "vertical": "up"
+   "vertical": "up",
+   "tiled_slot": 9
   },
   {
    "source_map": "/shattered_islands/world_-1_57",
@@ -13134,7 +13172,8 @@
    "arch": "stairs_wood_down",
    "line": 1192,
    "form": "tiled-unresolved",
-   "vertical": "down"
+   "vertical": "down",
+   "tiled_slot": 10
   },
   {
    "source_map": "/shattered_islands/world_-7_76",
@@ -15973,7 +16012,8 @@
    "arch": "stairs_stone_up",
    "line": 737,
    "form": "tiled-unresolved",
-   "vertical": "up"
+   "vertical": "up",
+   "tiled_slot": 9
   },
   {
    "source_map": "/shattered_islands/world_10_43_-2",
@@ -16173,7 +16213,8 @@
    "arch": "stairs_stone_down",
    "line": 540,
    "form": "tiled-unresolved",
-   "vertical": "down"
+   "vertical": "down",
+   "tiled_slot": 10
   },
   {
    "source_map": "/shattered_islands/world_11_67",
@@ -16411,7 +16452,8 @@
    "arch": "stairs_wood_down",
    "line": 2058,
    "form": "tiled-unresolved",
-   "vertical": "down"
+   "vertical": "down",
+   "tiled_slot": 10
   },
   {
    "source_map": "/shattered_islands/world_12_4",
@@ -16518,7 +16560,8 @@
    "arch": "stairs_stone_down",
    "line": 2382,
    "form": "tiled-unresolved",
-   "vertical": "down"
+   "vertical": "down",
+   "tiled_slot": 10
   },
   {
    "source_map": "/shattered_islands/world_12_68",
@@ -16585,7 +16628,8 @@
    "arch": "stairs_stone_down",
    "line": 1148,
    "form": "tiled-unresolved",
-   "vertical": "down"
+   "vertical": "down",
+   "tiled_slot": 10
   },
   {
    "source_map": "/shattered_islands/world_13_64",
@@ -17195,7 +17239,8 @@
    "arch": "stairs_stone_down",
    "line": 1958,
    "form": "dynamic",
-   "vertical": "down"
+   "vertical": "down",
+   "dynamic_target": "/random/"
   },
   {
    "source_map": "/shattered_islands/world_19_4",
@@ -17715,7 +17760,8 @@
    "arch": "stairs_stone_up",
    "line": 2367,
    "form": "tiled-unresolved",
-   "vertical": "up"
+   "vertical": "up",
+   "tiled_slot": 9
   },
   {
    "source_map": "/shattered_islands/world_1_73",
@@ -17726,7 +17772,8 @@
    "arch": "stairs_stone_down",
    "line": 2384,
    "form": "dynamic",
-   "vertical": "down"
+   "vertical": "down",
+   "dynamic_target": "/random/"
   },
   {
    "source_map": "/shattered_islands/world_1_73",
@@ -18702,7 +18749,8 @@
    "arch": "ladder_down",
    "line": 295,
    "form": "tiled-unresolved",
-   "vertical": "down"
+   "vertical": "down",
+   "tiled_slot": 10
   },
   {
    "source_map": "/shattered_islands/world_2_60",
@@ -19273,7 +19321,8 @@
    "arch": "stairs_stone_down",
    "line": 2231,
    "form": "tiled-unresolved",
-   "vertical": "down"
+   "vertical": "down",
+   "tiled_slot": 10
   },
   {
    "source_map": "/shattered_islands/world_2_87",
@@ -19300,7 +19349,8 @@
    "arch": "ladder_down3",
    "line": 374,
    "form": "tiled-unresolved",
-   "vertical": "down"
+   "vertical": "down",
+   "tiled_slot": 10
   },
   {
    "source_map": "/shattered_islands/world_3_44",
@@ -19375,7 +19425,8 @@
    "arch": "ladder_down3",
    "line": 2212,
    "form": "tiled-unresolved",
-   "vertical": "down"
+   "vertical": "down",
+   "tiled_slot": 10
   },
   {
    "source_map": "/shattered_islands/world_3_56",
@@ -19419,7 +19470,8 @@
    "arch": "stairs_stone_down",
    "line": 1504,
    "form": "tiled-unresolved",
-   "vertical": "down"
+   "vertical": "down",
+   "tiled_slot": 10
   },
   {
    "source_map": "/shattered_islands/world_3_60",
@@ -19716,7 +19768,8 @@
    "arch": "ladder_down",
    "line": 591,
    "form": "tiled-unresolved",
-   "vertical": "down"
+   "vertical": "down",
+   "tiled_slot": 10
   },
   {
    "source_map": "/shattered_islands/world_3_83_-2",
@@ -19954,7 +20007,8 @@
    "arch": "stairs_stone_down",
    "line": 1250,
    "form": "tiled-unresolved",
-   "vertical": "down"
+   "vertical": "down",
+   "tiled_slot": 10
   },
   {
    "source_map": "/shattered_islands/world_4_52",
@@ -20384,7 +20438,8 @@
    "arch": "stairs_stone_down",
    "line": 2033,
    "form": "tiled-unresolved",
-   "vertical": "down"
+   "vertical": "down",
+   "tiled_slot": 10
   },
   {
    "source_map": "/shattered_islands/world_4_58",
@@ -20414,7 +20469,8 @@
    "arch": "stairs_stone_down",
    "line": 3269,
    "form": "tiled-unresolved",
-   "vertical": "down"
+   "vertical": "down",
+   "tiled_slot": 10
   },
   {
    "source_map": "/shattered_islands/world_4_67",
@@ -22052,7 +22108,8 @@
    "arch": "ladder_down",
    "line": 439,
    "form": "tiled-unresolved",
-   "vertical": "down"
+   "vertical": "down",
+   "tiled_slot": 10
   },
   {
    "source_map": "/shattered_islands/world_6_43_-1",

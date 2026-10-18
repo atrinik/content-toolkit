@@ -40,11 +40,14 @@ Exits:
     touches, the overworld's own exits in internal_exits; a wired exit as
     data_problems lists it); every content field of a record (tiles, target,
     archetype, form, direction, flags) equals its inventory entry, and a record
-    holds no field the verifier does not know; the exit data problems (kind,
-    severity) and the summary and per-group crossing counts are re-derived
+    holds no field the verifier does not know; the exit data problems (every
+    entry, field by field) and the summary and per-group crossing counts are
+    re-derived
   * every other copy of an exit (blocked sites, relayering exits, wired and
     kept dangling exits, data problems, main connections) equals its record
-    or inventory entry; a blocked site lists only exits that need a stairwell;
+    or inventory entry; a blocked site lists only exits that need a stairwell,
+    between its own two owners (or top and bottom maps); a kept decoration
+    sits at its tile on the plane;
     every placement has a main connection to something placed before it,
     except one forced by an alignment hint
   * the records of one exit (one per group it touches) are identical; an
@@ -94,6 +97,8 @@ PLACED_FIELDS = ("plane_source", "plane_target", "xy_distance", "layer_delta", "
 LABEL_FIELDS = ("stairwell", "portal_reason", "portal_reason_text", "slope_reachable")
 RECORD_FIELDS = set(SOURCE_FIELDS) | set(PLACED_FIELDS) | set(LABEL_FIELDS) | {
     "source_group", "target_group", "wired", "overworld_plane_source", "overworld_plane_target"}
+# Tile-link slot names of the map format (the reader's SLOT_NAMES), used in data-problem details.
+SLOT_NAMES = {1: "N", 2: "E", 3: "S", 4: "W", 5: "NE", 6: "SE", 7: "SW", 8: "NW", 9: "up", 10: "down"}
 
 
 def world_cell(path: str):
@@ -439,11 +444,15 @@ def verify(plan: dict) -> dict:
                 errors.append("wired exit {}:{} is not a legacy exit that leads nowhere".format(*k))
             want.update(form="wired", target_map=wired_dp[k].get("target_map"),
                         target_tile=wired_dp[k].get("target_tile"))
+        sg = group_of.get(x["source_map"])
+        if sg is None:
+            errors.append("exit {}:{} is on a map that is in no group".format(*k))
+            continue
         if want["target_map"] is None:
             continue
-        sg, tg = group_of.get(x["source_map"]), group_of.get(want["target_map"])
-        if sg is None or tg is None:
-            errors.append("exit {}:{} joins a map that is in no group".format(*k))
+        tg = group_of.get(want["target_map"])
+        if tg is None:
+            errors.append("exit {}:{} leads to {}, which is in no group".format(k[0], k[1], want["target_map"]))
             continue
         want.update(source_group=sg, target_group=tg)
         want_rec[k] = want
@@ -494,33 +503,41 @@ def verify(plan: dict) -> dict:
             if what != "data problem" and x["form"] != "tiled-unresolved":
                 errors.append("{} exit {}:{} is not a legacy exit that leads nowhere".format(
                     what, d["source_map"], d["line"]))
-    # the exit data problems, re-derived from the inventory: kind and severity of each
+    # the exit data problems, re-derived entry by entry from the inventory
     size = {m["path"]: (m["width"], m["height"]) for g in others for m in g["maps"]}
     working = {(x["source_map"], tuple(x["source_tile"])) for x in inv.values() if "target_map" in x}
-    want_dp = collections.Counter()
+    want_dp = []
     for k, x in sorted(inv.items()):
         form, tile = x["form"], tuple(x["source_tile"])
-        sev = None
+        base = {f: x[f] for f in ("source_map", "source_tile", "arch", "line")}
         if form in ("tiled-unresolved", "unresolved") and not x.get("event_scripts"):
-            sev = "info" if (x["source_map"], tile) in working or x.get("explicit_last_heal_0") else "problem"
+            if (x["source_map"], tile) in working:
+                base.update(severity="info", note="another exit object on the same tile has a destination "
+                                                  "(decorative duplicate)")
+            elif x.get("explicit_last_heal_0"):
+                base.update(severity="info", note="explicitly disabled with last_heal 0 (decorative)")
+            else:
+                base["severity"] = "problem"
         w, h = size.get(x["source_map"], (st["overworld_map_size"],) * 2)
         if not (0 <= tile[0] < w and 0 <= tile[1] < h):
-            want_dp[(k, "exit-outside-map-bounds", sev)] += 1
+            want_dp.append(dict(base, kind="exit-outside-map-bounds"))
         if form == "tiled-unresolved":
-            want_dp[(k, "tiled-exit-without-link", sev)] += 1
+            want_dp.append(dict(base, kind="tiled-exit-without-link", detail="last_heal {} ({}) but the map has no "
+                                "such tile link; the exit leads nowhere".format(x.get("tiled_slot"),
+                                                                                 SLOT_NAMES.get(x.get("tiled_slot")))))
         elif form == "unresolved":
             if not x.get("event_scripts"):
-                want_dp[(k, "exit-without-destination", sev)] += 1
+                want_dp.append(dict(base, kind="exit-without-destination",
+                                    detail="no slaying, no tiled slot, hp/sp -1 and no event script"))
         elif x.get("problem"):
-            want_dp[(k, x["problem"], sev)] += 1
+            want_dp.append(dict(base, kind=x["problem"], target=x.get("problem_target")))
         elif form == "dynamic":
-            want_dp[(k, "dynamic-random-map-exit", "info")] += 1
-    got_dp = collections.Counter(((d["source_map"], d["line"]), d["kind"], d.get("severity"))
-                                 for d in plan["data_problems"]["exits"])
+            want_dp.append(dict(base, kind="dynamic-random-map-exit", detail=x.get("dynamic_target"), severity="info"))
+    want_dp = collections.Counter(json.dumps(d, sort_keys=True) for d in want_dp)
+    got_dp = collections.Counter(json.dumps(d, sort_keys=True) for d in plan["data_problems"]["exits"])
     if got_dp != want_dp:
-        diff = sorted((want_dp - got_dp) + (got_dp - want_dp), key=str)
-        errors.append("{} exit data problem(s) differ from the exit inventory, e.g. {} {} of exit {}:{}".format(
-            len(diff), diff[0][1], diff[0][2], *diff[0][0]))
+        diff = sorted((want_dp - got_dp) + (got_dp - want_dp))
+        errors.append("{} exit data problem(s) differ from the exit inventory, e.g. {}".format(len(diff), diff[0]))
 
     # ----------------------------------------------------------- stairwells
     chain = collections.defaultdict(dict)  # layer -> owner -> Rows
@@ -643,6 +660,10 @@ def verify(plan: dict) -> dict:
             return abs(world_cell(e["target_map"])[2] - world_cell(e["source_map"])[2]) != dl
         return True
 
+    def owner_of_end(e, side):
+        """The owner of one end of an exit: the overworld map itself, else the group."""
+        return e[side + "_map"] if e[side + "_group"] == ow_id else e[side + "_group"]
+
     blocked_keys = {}
     for key_, sites in (("column", plan["stairwell_sites_blocked"]), ("sloped", plan["sloped_stairwell_sites_blocked"]),
                         ("relayering", rl["stairwells_blocked"])):
@@ -659,6 +680,16 @@ def verify(plan: dict) -> dict:
                     if "plane_source" not in r or "plane_target" not in r or not needs_stairwell(r):
                         errors.append("blocked {} stairwell site lists exit {}:{}, which needs no stairwell".format(
                             key_, *k))
+                    elif key_ == "relayering":
+                        up_src = r["plane_source"][2] > r["plane_target"][2]
+                        ends_ = [r["source_map"], r["target_map"]] if up_src else [r["target_map"], r["source_map"]]
+                        if ends_ != [b.get("top_map"), b.get("bottom_map")]:
+                            errors.append("blocked relayering site {} -> {} lists exit {}:{} between {}".format(
+                                b.get("top_map"), b.get("bottom_map"), k[0], k[1], ends_))
+                    elif sorted([owner_of_end(r, "source"), owner_of_end(r, "target")]) != \
+                            sorted([b.get("group"), b.get("other")]):
+                        errors.append("blocked {} site of {} / {} lists exit {}:{} of other owners".format(
+                            key_, b.get("group"), b.get("other"), *k))
                 blocked_keys[k] = (key_, b)
 
     def portal_reason(e, k, dist, dl):
@@ -777,6 +808,17 @@ def verify(plan: dict) -> dict:
             errors.append("exit {}:{} is kept as decoration but has an exit record".format(d["source_map"], d["line"]))
         if not d.get("decision") or "no exit" not in d.get("migrate_as", ""):
             errors.append("exit {}:{} is kept as decoration without its decision".format(d["source_map"], d["line"]))
+        # where the kept object ends up: its tile on the plane, like an exit's source end
+        mp, (tx, ty) = d["source_map"], d["source_tile"]
+        if group_of.get(mp) == ow_id:
+            X, Y, _Z = world_cell(mp)
+            exp = [24 * X + tx, 24 * Y + ty, ow_layer(mp, tx, ty)]
+        else:
+            o = origin.get(mp)
+            exp = None if o is None else [o[0] + tx, o[1] + ty, o[2]]
+        if d.get("plane_source") != exp:
+            errors.append("exit {}:{} kept as decoration is at {}, its tile is at {}".format(
+                d["source_map"], d["line"], d.get("plane_source"), exp))
 
     # crossing counts, re-derived from the records (one per exit object)
     def counted(es):

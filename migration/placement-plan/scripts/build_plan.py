@@ -352,10 +352,17 @@ def inventory_entry(e: dict) -> dict:
     """One exit object as read from the content, before placement or wiring.
 
     Besides the record fields it carries the reader's facts the data problems
-    are derived from: a target problem and an explicit last_heal 0."""
+    are derived from: the tile-link slot of a tiled exit without a link, the
+    authored path of a dynamic exit, a target problem with its authored target,
+    and an explicit last_heal 0."""
     rec = exit_source_fields(e)
+    if e["form"] == "tiled-unresolved":
+        rec["tiled_slot"] = e["tiled_slot"]
+    if e["form"] == "dynamic":
+        rec["dynamic_target"] = e.get("raw_target")
     if e.get("problem"):
         rec["problem"] = e["problem"]
+        rec["problem_target"] = [e.get("target_map"), e.get("target_x"), e.get("target_y")]
     if e.get("explicit_last_heal_0"):
         rec["explicit_last_heal_0"] = True
     return rec
@@ -2014,8 +2021,9 @@ def build(content: Path, allow_dirty: bool = False):
             "exits_kept_as_decoration": "dangling exits the owner keeps as decoration (no exit): not wired, with the "
                                         "landing they would have had",
             "exit_inventory": "every exit object read from the content (inventory exits excluded), keyed by "
-                              "source_map and line, with its legacy form and resolved target (none for an exit "
-                              "that leads nowhere); the exit records in the groups are checked against it",
+                              "source_map and line: the content fields of its exit record with its legacy form "
+                              "and resolved target (none for an exit that leads nowhere), plus the facts its data "
+                              "problems come from; the exit records and data problems are checked against it",
         },
         "summary": {"maps_total": len(maps), "groups_total": len(groups), "non_overworld_groups": len(groups) - 1,
                     "by_classification": dict(sorted(counts.items())),

@@ -223,12 +223,36 @@ class ExitInventory(VerifierTest):
         lst = p["data_problems"]["exits"]
         d = next(d for d in lst if d["kind"] == "exit-without-destination")
         lst.remove(d)
-        self.assertCaught(p, "1 exit data problem(s) differ from the exit inventory, e.g. exit-without-destination "
-                             "{} of exit {}:{}".format(d["severity"], d["source_map"], d["line"]))
+        self.assertCaught(p, "1 exit data problem(s) differ from the exit inventory, e.g. ",
+                          '"kind": "exit-without-destination", "line": {}'.format(d["line"]))
         p = self.plan()
         d = p["data_problems"]["exits"][0]
         d["severity"] = "info" if d.get("severity") == "problem" else "problem"
         self.assertCaught(p, "exit data problem(s) differ from the exit inventory")
+
+    def test_an_exit_on_a_map_that_is_in_no_group(self):
+        p = self.plan()
+        key = ("/shattered_islands/deserted_tutorial_island/ship_lower_deck", 64)
+        for d in p["exit_inventory"] + p["data_problems"]["exits"]:
+            if (d["source_map"], d["line"]) == key:
+                d["source_map"] = "/not/a/map"
+        self.assertCaught(p, "exit /not/a/map:64 is on a map that is in no group")
+
+    def test_a_dynamic_exit_target(self):
+        key = ("/shattered_islands/world_18_4", 1958)
+        p = self.plan()
+        d = next(d for d in p["data_problems"]["exits"] if (d["source_map"], d["line"]) == key)
+        self.assertEqual(d["kind"], "dynamic-random-map-exit")
+        d["detail"] = "/somewhere/else"
+        self.assertCaught(p, "exit data problem(s) differ from the exit inventory")
+        p = self.plan()
+        next(x for x in p["exit_inventory"] if (x["source_map"], x["line"]) == key)["dynamic_target"] = "/elsewhere"
+        self.assertCaught(p, "exit data problem(s) differ from the exit inventory")
+
+    def test_a_kept_decoration_in_the_wrong_place(self):
+        p = self.plan()
+        p["exits_kept_as_decoration"][0]["plane_source"] = [0, 0, 0]
+        self.assertCaught(p, "kept as decoration is at [0, 0, 0]")
 
     def test_a_reversed_exit_direction(self):
         p = self.plan()
@@ -309,6 +333,12 @@ class StairwellReplaces(VerifierTest):
         p = self.plan()
         p["relayering"]["exits"][0]["crosses_to_group"] = "/emergency"
         self.assertCaught(p, "crosses to /emergency")
+
+    def test_blocked_site_owners(self):
+        p = self.plan()
+        p["stairwell_sites_blocked"][0]["other"] = "/shattered_islands/world_0_0"
+        self.assertCaught(p, "lists exit {}:{} of other owners".format(
+            p["stairwell_sites_blocked"][0]["exits"][0]["source_map"], p["stairwell_sites_blocked"][0]["exits"][0]["line"]))
 
     def test_an_unrelated_exit_at_a_blocked_site(self):
         p = self.plan()
