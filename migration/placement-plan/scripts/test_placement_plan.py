@@ -354,6 +354,21 @@ class ExitInventory(VerifierTest):
         p["summary"]["maps_total"] += 1
         self.assertCaught(p, "summary group and map counts differ from the groups")
 
+    def test_unknown_source_values(self):
+        for field, value, needle in (("form", "banana", "has form banana"),
+                                     ("vertical", "sideways", "has form explicit, direction sideways")):
+            with self.subTest(field=field):
+                p = self.plan()
+                next(x for x in p["exit_inventory"] if (x["source_map"], x["line"]) == CROSSING)[field] = value
+                for _g, _lst, e in copies(p, CROSSING):
+                    e[field] = value
+                self.assertCaught(p, "exit {}:{} {}".format(CROSSING[0], CROSSING[1], needle))
+        p = self.plan()
+        x = next(x for x in p["exit_inventory"] if x["form"] == "unresolved")
+        x.update(target_map="/emergency", target_tile=[0, 0])
+        self.assertCaught(p, "exit {}:{} has form unresolved, direction {} and a target".format(
+            x["source_map"], x["line"], x["vertical"]))
+
     def test_a_target_outside_its_map(self):
         p = self.plan()
         key = ("/shattered_islands/ships/ship_1", 122)
@@ -429,6 +444,11 @@ class StairwellReplaces(VerifierTest):
         bent = [sw["id"] for sw in p["stairwells"] if sw["shape"] == "column" and sw["max_bend"]]
         self.assertTrue(bent)
         self.assertCaught(p, *("{} bends 1 tile(s) from its column".format(i) for i in bent))
+
+    def test_stairwell_mode(self):
+        p = self.plan()
+        p["stairwells"][0]["mode"] = "banana"
+        self.assertCaught(p, "SW1 mode banana disagrees")
 
     def test_series_bend_and_counts(self):
         p = self.plan()
@@ -541,6 +561,24 @@ class FailedPlacement(VerifierTest):
         p = self.plan()
         group(p, gid)["reason"] = "per_player"
         self.assertCaught(p, "separate group {} (per_player) has a tentative placement".format(gid))
+
+    def test_a_fabricated_alignment_hint(self):
+        # the last proposed placement turned into an uncertain group with a made-up hint instead of a connection
+        p = self.plan()
+        s = p["summary"]
+        gid = s["placement_order"].pop()
+        s["tentative_placement_order"].insert(0, gid)
+        s["by_classification"]["place:place"] -= 1
+        s["by_classification"]["uncertain:uncertain"] = 1
+        g = group(p, gid)
+        g.update(classification="uncertain", reason="uncertain")
+        g["placement"].update(status="tentative", main_connection=None, tentative_reason="made up")
+        self.assertCaught(p, "alignment hint of {} is not a configured alignment to a placed anchor".format(gid))
+        # a configured hint whose layer distance does not match the placement
+        p = self.plan()
+        p["settings"]["tentative_alignments"][0]["layer_delta"] -= 1
+        self.assertCaught(p, "alignment hint of {} is not a configured alignment".format(
+            p["settings"]["tentative_alignments"][0]["group"]))
 
     def test_place_group_without_a_placement(self):
         p = self.plan()

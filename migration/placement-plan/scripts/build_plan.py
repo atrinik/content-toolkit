@@ -1981,6 +1981,8 @@ def build(content: Path, allow_dirty: bool = False):
                      "stairwell_max_bend_tiles": STAIRWELL_MAX_BEND, "layer_height_z": LAYER_HEIGHT_Z,
                      "relayer_min_region_tiles": relayer.MIN_REGION_TILES, "walkable_dz": relayer.WALKABLE_DZ,
                      "owner_keep_as_decoration": [[m, list(t), a] for (m, t, a) in sorted(OWNER_KEEP_AS_DECORATION)],
+                     "tentative_alignments": [{"group": gid, "anchor": anchor, "layer_delta": dl, "why": why}
+                                              for gid, (anchor, dl, why) in sorted(TENTATIVE_ALIGN.items())],
                      "overworld_map_size": 24, "excluded_trees": list(md.EXCLUDED_TOP)},
         "conventions": {
             "plane": "overworld plane; layer 0 surface, negative below, positive above",

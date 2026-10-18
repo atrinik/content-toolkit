@@ -18,7 +18,9 @@ Placement (every placed group, proposed and tentative):
     far end, one layer away in the exit's direction, within the recorded
     vertical bounds), which is one of the group's exits to the overworld or
     an earlier placed group; only an alignment-hinted tentative placement
-    has none (a proposed placement carries no hint)
+    has none (a proposed placement carries no hint), and its hint is one of
+    settings.tentative_alignments: its ideal is the anchor's offsets, the
+    configured layers away
   * member plane origin == local_offset + (x_offset, y_offset, layer_offset);
     no placed group has a relayered region (its member maps are recorded on
     one layer each; the generator refuses to publish otherwise)
@@ -52,8 +54,9 @@ Stairwells (SW placement, SL sloped, SR relayering):
     decoration (the exits' stair family) are re-derived; so are the summary's
     stairwell and blocked-site counts
 Exits:
-  * exit_inventory lists every exit object of the content once, each
-    resolved target on a tile of its target map; the exit
+  * exit_inventory lists every exit object of the content once, with a
+    known form and direction and a target exactly when its form resolves one,
+    each resolved target on a tile of its target map; the exit
     records are exactly the copies it calls for (one per group a crossing exit
     touches, the overworld's own exits in internal_exits; a wired exit as
     data_problems lists it); every content field of a record (tiles, target,
@@ -134,6 +137,9 @@ STAIR_FAMILIES = (("stairs_spiral_stone_", "stairs_spiral_stone_down"), ("stairs
                   ("stairs_wood_", "stairs_wood_down"), ("stairs_red_", "stairs_red_down"),
                   ("stairs_", "stairs_down"), ("ladder_", "ladder_down"))
 SW_PREFIX = {"placement": "SW", "sloped": "SL", "relayering": "SR"}
+# The reader's exit forms: those that resolve to a target, and those that never do.
+TARGET_FORMS = {"explicit", "tiled", "same-map", "automatic-link", "shop-mat"}
+NO_TARGET_FORMS = {"tiled-unresolved", "unresolved", "dynamic"}
 # Tile-link slot names of the map format (the reader's SLOT_NAMES), used in data-problem details.
 SLOT_NAMES = {1: "N", 2: "E", 3: "S", 4: "W", 5: "NE", 6: "SE", 7: "SW", 8: "NW", 9: "up", 10: "down"}
 
@@ -491,6 +497,14 @@ def verify(plan: dict) -> dict:
         if k in inv:
             errors.append("exit {}:{} is listed twice in the exit inventory".format(*k))
         inv[k] = x
+        # a known form and direction; a target exactly when the form resolves one and the map exists
+        if x.get("form") not in TARGET_FORMS | NO_TARGET_FORMS or x.get("vertical") not in ("up", "down", "none") or \
+                ("target_map" in x) != ("target_tile" in x) or \
+                "target_map" in x and x["form"] not in TARGET_FORMS or \
+                "target_map" not in x and x["form"] in TARGET_FORMS and not str(x.get("problem", "")).startswith(
+                    "missing-target-map"):
+            errors.append("exit {}:{} has form {}, direction {} and {} target".format(
+                k[0], k[1], x.get("form"), x.get("vertical"), "a" if "target_map" in x else "no"))
     if len(plan["exit_inventory"]) != summ["exit_objects"]:
         errors.append("the exit inventory lists {} exit objects, the summary {}".format(
             len(plan["exit_inventory"]), summ["exit_objects"]))
@@ -771,7 +785,7 @@ def verify(plan: dict) -> dict:
                  and rr.any_within(x["x"], x["y"], M)})
             if touch != touched.get(key, []):
                 errors.append("{} tile {} contacts {} != recorded {}".format(sw["id"], key, touch, touched.get(key, [])))
-        if (sw["mode"] == "clear") != (not sw["view_conflicts"] and not sw["contacts"]):
+        if sw.get("mode") != ("clear" if not sw["view_conflicts"] and not sw["contacts"] else "void-only"):
             errors.append("{} mode {} disagrees with its view conflicts and contacts".format(sw["id"], sw["mode"]))
 
     # ---------------------------------------------------------------- exits
@@ -850,6 +864,11 @@ def verify(plan: dict) -> dict:
             "layer(s) apart".format(later, dist, dl), slope
 
     placed_by_id = {g["id"]: g for g in placed}
+    aligns = {}
+    for a in st.get("tentative_alignments", []):
+        if a.get("group") in aligns:
+            errors.append("tentative alignment of {} is configured twice".format(a.get("group")))
+        aligns[a.get("group")] = a
     exits_checked = 0
     for (src_map, line), e in sorted(records.items()):
         live = all(x == ow_id or x in placed_ids for x in (e["source_group"], e["target_group"]))
@@ -999,6 +1018,15 @@ def verify(plan: dict) -> dict:
         if hinted and pl.get("status") != "tentative":
             errors.append("{} placement of {} carries an alignment hint".format(pl.get("status"), g["id"]))
             hinted = False
+        if hinted:
+            # a configured alignment hint: the group's ideal spot is its anchor's, the given layers away
+            a = aligns.get(g["id"])
+            anchor = placed_by_id.get(a["anchor"]) if a else None
+            if anchor is None or pl["tentative_reason"] != a["why"] or ideal != {
+                    "dx": anchor["placement"]["x_offset"], "dy": anchor["placement"]["y_offset"],
+                    "L": anchor["placement"]["layer_offset"] + a["layer_delta"]} or \
+                    not index.get(a["anchor"], len(index)) < index.get(g["id"], -1):
+                errors.append("alignment hint of {} is not a configured alignment to a placed anchor".format(g["id"]))
         if mc is None or hinted:
             if (mc is None) != hinted:
                 errors.append("placement of {} has {}".format(

@@ -73,6 +73,14 @@
     "ladder_up"
    ]
   ],
+  "tentative_alignments": [
+   {
+    "group": "/shattered_islands/strakewood_island/rockforge/rockforge_c",
+    "anchor": "/shattered_islands/strakewood_island/rockforge/rockforge_b",
+    "layer_delta": -1,
+    "why": "rockforge_a/_b/_c share the same 5x5 sheet naming (0101..ab05) and rockforge_a<->rockforge_b stairs connect identical local coordinates; rockforge_c ('Rockforge: Mines') is assumed to be the next sheet below rockforge_b at the same x/y."
+   }
+  ],
   "overworld_map_size": 24,
   "excluded_trees": [
    "python",
