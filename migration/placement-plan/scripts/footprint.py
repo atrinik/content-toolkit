@@ -205,3 +205,51 @@ def find_chain(top, bottom, free_void, free_strict, max_bend: int):
             if ends:
                 return mode, min(ends)[1]
     return None, []
+
+
+def find_slope_chain(top, bottom, free_void, free_strict):
+    """Sloped stairwell tiles for every layer strictly between `top` and `bottom`.
+
+    top/bottom are plane tiles (x, y, layer) with n = top layer - bottom layer
+    >= 2 and Chebyshev xy distance between them <= n. Intermediate tile i
+    (i = 1 .. n-1, on layer top - i) lies within i tiles of `top` and within
+    n - i tiles of `bottom`, so every consecutive pair (top, chain..., bottom)
+    is exactly one layer and at most one tile apart: the staircase shifts at
+    most one tile sideways per layer.
+
+    Returns (mode, tiles) like find_chain(): "clear" when every tile passes
+    free_strict, "void-only" when every tile is void, None when no chain
+    exists. Among chains of one mode the one closest to the straight line
+    between the ends wins (sum of Chebyshev deviations, scaled by n to stay
+    integral), then the lexicographically smallest.
+    """
+    n = top[2] - bottom[2]
+    layers = [top[2] - i for i in range(1, n)]
+    for mode, ok in (("clear", free_strict), ("void-only", free_void)):
+        prev = {(top[0], top[1]): (0, [])}
+        for i, z in enumerate(layers, 1):
+            cur = {}
+            x_lo, x_hi = max(top[0] - i, bottom[0] - (n - i)), min(top[0] + i, bottom[0] + (n - i))
+            y_lo, y_hi = max(top[1] - i, bottom[1] - (n - i)), min(top[1] + i, bottom[1] + (n - i))
+            for y in range(y_lo, y_hi + 1):
+                for x in range(x_lo, x_hi + 1):
+                    if not ok((x, y, z)):
+                        continue
+                    dev = max(abs(n * x - (n - i) * top[0] - i * bottom[0]),
+                              abs(n * y - (n - i) * top[1] - i * bottom[1]))
+                    best = None
+                    for q, (cost, path) in prev.items():
+                        if max(abs(x - q[0]), abs(y - q[1])) <= 1:
+                            cand = (cost + dev, path + [(x, y, z)])
+                            if best is None or cand < best:
+                                best = cand
+                    if best is not None:
+                        cur[(x, y)] = best
+            prev = cur
+            if not prev:
+                break
+        if prev:
+            ends = [v for p, v in prev.items() if max(abs(p[0] - bottom[0]), abs(p[1] - bottom[1])) <= 1]
+            if ends:
+                return mode, min(ends)[1]
+    return None, []
