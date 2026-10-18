@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import collections
 import os
-from typing import Optional
 
 import mapdata as md
 
@@ -250,23 +249,23 @@ def collect_exits(maps: dict, archs: dict, all_files: set) -> tuple:
                 e.update(form="explicit", raw_target=slaying)
             else:
                 tiled = md.to_int(attrs.get("last_heal"))
+                land = (0, 0)
+                if tiled is not None and 1 <= tiled <= 10 and attrs.get("xrays") == "1":
+                    d = md.to_int(attrs.get("direction"))
+                    if d is not None and 1 <= d <= 8:
+                        if tiled == 9:
+                            d = ((d + 3) % 8) + 1
+                        land = LANDING[d]
                 if tiled is not None and 1 <= tiled <= 10 and (tiled in rec.links or any(
                         b["slot"] == tiled for b in rec.broken_links)):
                     if tiled in rec.links:
                         target = rec.links[tiled]
                     else:
                         target = next(b["normalized"] for b in rec.broken_links if b["slot"] == tiled)
-                    tx, ty = x, y
-                    if attrs.get("xrays") == "1":
-                        d = md.to_int(attrs.get("direction"))
-                        if d is not None and 1 <= d <= 8:
-                            if tiled == 9:
-                                d = ((d + 3) % 8) + 1
-                            tx += LANDING[d][0]
-                            ty += LANDING[d][1]
+                    tx, ty = x + land[0], y + land[1]
                     e.update(form="tiled", tiled_slot=tiled)
                 elif tiled is not None and 1 <= tiled <= 10:
-                    e.update(form="tiled-unresolved", tiled_slot=tiled)
+                    e.update(form="tiled-unresolved", tiled_slot=tiled, landing_offset=list(land))
                     exits.append(e)
                     continue
                 elif md.to_int(attrs.get("hp"), -1) != -1 or md.to_int(attrs.get("sp"), -1) != -1:
