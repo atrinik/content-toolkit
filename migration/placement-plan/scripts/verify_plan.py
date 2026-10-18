@@ -30,7 +30,8 @@ Stairwells (SW placement, SL sloped, SR relayering):
     exactly the exit objects (archetype, exit flag) that start there (a
     one-way stairwell's far end is a landing)
 Exits:
-  * the records of one exit (one per group it touches) are identical
+  * the records of one exit (one per group it touches) are identical; an
+    exit labelled stairwell is listed in exactly that stairwell's replaces
   * every exit record's plane_source / plane_target equals origin + tile on
     the tile's final layer, and its "becomes" label matches its geometry;
     wired exits are plain stairs and their verdict follows from their evidence
@@ -418,6 +419,10 @@ def verify(plan: dict) -> dict:
             errors.append("{} mode {} disagrees with its view conflicts and contacts".format(sw["id"], sw["mode"]))
 
     # ---------------------------------------------------------------- exits
+    replaced_by = collections.defaultdict(list)  # exit key -> stairwells listing it in replaces
+    for sw in plan["stairwells"]:
+        for r in sw["replaces"]:
+            replaced_by[(r["source_map"], r["line"])].append(sw["id"])
     exits_checked = 0
     for (src_map, line), e in sorted(records.items()):
         ends = {}
@@ -447,6 +452,9 @@ def verify(plan: dict) -> dict:
                   "portal": not (dl == 1 and dist <= tol) and not (dl == 0 and dist == 0)}.get(b, False)
             if not ok:
                 errors.append("exit {}:{} labelled {} but is {} tiles / {} layers apart".format(src_map, line, b, dist, dl))
+            if b == "stairwell" and replaced_by.get((src_map, line)) != [e.get("stairwell")]:
+                errors.append("exit {}:{} is labelled {} but is replaced by {}".format(
+                    src_map, line, e.get("stairwell"), replaced_by.get((src_map, line), "no stairwell")))
         if e.get("form") == "wired":
             w = e.get("wired") or {}
             if e.get("becomes") != "stairs" or w.get("plane_target") != e.get("plane_target"):
