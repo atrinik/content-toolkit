@@ -580,6 +580,20 @@ class FailedPlacement(VerifierTest):
         self.assertCaught(p, "alignment hint of {} is not a configured alignment".format(
             p["settings"]["tentative_alignments"][0]["group"]))
 
+    def test_search_limits(self):
+        p = self.plan()
+        p["settings"]["max_extra_layers"] = 0
+        self.assertCaught(p, "placement of /shattered_islands/incuna/ellamin goes 4 layer(s)")
+        p = self.plan()
+        p["settings"]["max_shift_tiles"] = -1
+        self.assertCaught(p, "past the search limits")
+
+    def test_a_dangling_alignment(self):
+        p = self.plan()
+        p["settings"]["tentative_alignments"].append(
+            {"group": "/not/a/group", "anchor": "/also/missing", "layer_delta": 0, "why": "fabricated"})
+        self.assertCaught(p, "tentative alignment of /not/a/group to /also/missing does not join two placed groups")
+
     def test_place_group_without_a_placement(self):
         p = self.plan()
         group(p, self.GID).pop("placement")

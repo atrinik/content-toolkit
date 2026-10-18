@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import filecmp
 import functools
 import hashlib
 import json
@@ -2092,10 +2093,13 @@ def publish(stage: Path, out: Path) -> list:
 
 
 def compare_artifacts(stage: Path, out: Path) -> list:
-    """Artifacts that differ between a fresh run in `stage` and the published set in `out`."""
+    """Artifacts that differ between a fresh run in `stage` and the published set in `out`.
+
+    Sizes are compared first and contents in fixed-size chunks (filecmp), so an
+    oversized file in `out` is a difference, not a whole-file read."""
     names = sorted({p.name for d in (stage, out) for p in d.iterdir() if ARTIFACT_RE.match(p.name)})
     return [n for n in names if not ((stage / n).is_file() and (out / n).is_file()
-                                     and (stage / n).read_bytes() == (out / n).read_bytes())]
+                                     and filecmp.cmp(stage / n, out / n, shallow=False))]
 
 
 def main(argv=None):

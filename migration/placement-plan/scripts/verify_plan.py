@@ -20,7 +20,9 @@ Placement (every placed group, proposed and tentative):
     an earlier placed group; only an alignment-hinted tentative placement
     has none (a proposed placement carries no hint), and its hint is one of
     settings.tentative_alignments: its ideal is the anchor's offsets, the
-    configured layers away
+    configured layers away; every configured alignment joins two placed groups
+  * no placement goes further from its ideal spot than max_extra_layers and
+    max_shift_tiles allow
   * member plane origin == local_offset + (x_offset, y_offset, layer_offset);
     no placed group has a relayered region (its member maps are recorded on
     one layer each; the generator refuses to publish otherwise)
@@ -874,6 +876,11 @@ def verify(plan: dict) -> dict:
         if a.get("group") in aligns:
             errors.append("tentative alignment of {} is configured twice".format(a.get("group")))
         aligns[a.get("group")] = a
+        # a configured alignment names real groups and was applied: its anchor and its group are placed
+        if a.get("group") not in placed_by_id or a.get("anchor") not in placed_by_id or \
+                not isinstance(a.get("layer_delta"), int) or not a.get("why"):
+            errors.append("tentative alignment of {} to {} does not join two placed groups".format(
+                a.get("group"), a.get("anchor")))
     exits_checked = 0
     for (src_map, line), e in sorted(records.items()):
         live = all(x == ow_id or x in placed_ids for x in (e["source_group"], e["target_group"]))
@@ -1009,6 +1016,12 @@ def verify(plan: dict) -> dict:
         ideal, orient = pl.get("ideal") or {}, pl.get("orientation")
         step = {"below": -1, "above": 1}.get(orient)
         sh, extra = pl.get("shift_from_ideal") or [None, None], pl.get("extra_layers_from_ideal")
+        if None not in sh and isinstance(extra, int) and (
+                extra > st["max_extra_layers"] or max(abs(sh[0]), abs(sh[1])) > st["max_shift_tiles"]):
+            errors.append("placement of {} goes {} layer(s) and {} beyond its ideal spot, past the search limits "
+                          "(max_extra_layers {}, max_shift_tiles {})".format(g["id"], extra, sh,
+                                                                             st["max_extra_layers"],
+                                                                             st["max_shift_tiles"]))
         if step is None or not isinstance(extra, int) or extra < 0 or None in (ideal.get("dx"), ideal.get("dy"),
                                                                                  ideal.get("L"), *sh) or \
                 [pl["x_offset"], pl["y_offset"], pl["layer_offset"]] != [
