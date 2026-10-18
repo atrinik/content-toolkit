@@ -149,6 +149,8 @@ import re
 import sys
 from pathlib import Path
 
+sys.dont_write_bytecode = True  # --content imports the generator; keep the source tree free of caches
+
 WORLD_RE = re.compile(r"/world_(-?\d+)_(-?\d+)(?:_(-?\d+))?$")
 OW_SIZE = 24  # overworld maps are 24 x 24; plane tile = 24 * filename coordinate + tile
 N8 = [(dx, dy) for dy in (-1, 0, 1) for dx in (-1, 0, 1) if (dx, dy) != (0, 0)]
