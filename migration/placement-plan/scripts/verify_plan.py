@@ -3,11 +3,19 @@
 
     python3 -I scripts/verify_plan.py [placement-plan.json]
 
+Groups:
+  * one overworld group; every group's classification and reason are known
+    values; the summary's group, map and classification counts are re-derived
 Placement (every placed group, proposed and tentative):
   * every place group has a proposed placement and every uncertain group a
     tentative one (an unreachable group may have one from an alignment hint);
     a failed placement fails the plan; the summary's placement order, unplaced
     groups and failed placements are re-derived
+  * offsets = ideal + shift_from_ideal and extra_layers_from_ideal in the
+    orientation's direction; the ideal follows from the main connection (its
+    far end, one layer away in the exit's direction, within the recorded
+    vertical bounds), which is one of the group's exits to the overworld or
+    an earlier placed group; only an alignment-hinted placement has none
   * member plane origin == local_offset + (x_offset, y_offset, layer_offset);
     no placed group has a relayered region (its member maps are recorded on
     one layer each; the generator refuses to publish otherwise)
@@ -34,6 +42,10 @@ Stairwells (SW placement, SL sloped, SR relayering):
     exactly the exit objects (archetype, exit flag) that start there (a
     one-way stairwell's far end is a landing); every replaces entry equals its
     exit record (tiles, target, archetype, plane endpoints, direction)
+  * kind, shape (from its ends), id series, max_bend, owners (group, owner,
+    other, connects: from the exits it replaces) and the intermediate tiles'
+    decoration (the exits' stair family) are re-derived; so are the summary's
+    stairwell and blocked-site counts
 Exits:
   * exit_inventory lists every exit object of the content once; the exit
     records are exactly the copies it calls for (one per group a crossing exit
@@ -45,9 +57,10 @@ Exits:
     re-derived
   * every other copy of an exit (blocked sites, relayering exits, wired and
     kept dangling exits, data problems, main connections) equals its record
-    or inventory entry; a blocked site lists only exits that need a stairwell,
-    between its own two owners (or top and bottom maps); a kept decoration
-    sits at its tile on the plane;
+    or inventory entry; a blocked site lists at least one exit, only exits
+    that need a stairwell, between its own two owners (or top and bottom
+    maps), and has the shape of its ends; a kept decoration sits at its tile
+    on the plane;
     every placement has a main connection to something placed before it,
     except one forced by an alignment hint
   * the records of one exit (one per group it touches) are identical; an
@@ -56,8 +69,8 @@ Exits:
     exactly when both ends are placed (or overworld); the plane ends and
     overworld_plane_source / _target equal origin + tile on the tile's final
     layer, xy_distance and layer_delta follow from them, the "becomes" label
-    matches the geometry, and a portal's reason (and slope_reachable) is
-    re-derived from the blocked sites, the layers and the later placed end;
+    matches the geometry, and a portal's reason, its text and slope_reachable
+    are re-derived from the blocked sites, the layers and the later placed end;
     wired exits are plain stairs and their verdict follows from their evidence;
     exits the owner keeps as decoration have no exit record
   * every exit 2+ layers and at most one tile per layer apart is a stairwell
@@ -74,6 +87,18 @@ Relayering (re-derived from the overworld rows and tile heights):
     moved tile ends on layer 0
   * cut walkable edges, seams, seam pieces and their new stairs; steep steps;
     new contacts; moved maps and the before/after layer deltas of exits
+Not re-derived: the generator's explanations and evidence, which the
+migration does not act on. That is classification evidence, reach depth and
+script references; the placement rationale beyond the consistency above
+(orientation and its evidence, the vertical bounds and constraint note,
+conflicts_resolved, main_stairwell_blocked, bounding boxes, formulas); the
+evidence of blocked sites (column_occupied, layers, reason), of wiring and of
+kept decorations (would_land_on) other than the verdict and target; the
+relayering's descriptions (why, resolution, judgement calls, cave options, the
+maps, boxes and z ranges listed per region and unit) beyond the re-derived
+regions, units and final layers; placement_changes_from_v1,
+view_radius_sensitivity and conventions; and the tile-link, layout and
+connectivity data problems.
 Exit status 0 when every check passes.
 """
 
@@ -97,6 +122,12 @@ PLACED_FIELDS = ("plane_source", "plane_target", "xy_distance", "layer_delta", "
 LABEL_FIELDS = ("stairwell", "portal_reason", "portal_reason_text", "slope_reachable")
 RECORD_FIELDS = set(SOURCE_FIELDS) | set(PLACED_FIELDS) | set(LABEL_FIELDS) | {
     "source_group", "target_group", "wired", "overworld_plane_source", "overworld_plane_target"}
+# Stair families: a stairwell's intermediate tiles show the down archetype of the first family
+# (in this order) that one of its exit archetypes belongs to (build_plan.STAIR_FAMILIES).
+STAIR_FAMILIES = (("stairs_spiral_stone_", "stairs_spiral_stone_down"), ("stairs_stone_", "stairs_stone_down"),
+                  ("stairs_wood_", "stairs_wood_down"), ("stairs_red_", "stairs_red_down"),
+                  ("stairs_", "stairs_down"), ("ladder_", "ladder_down"))
+SW_PREFIX = {"placement": "SW", "sloped": "SL", "relayering": "SR"}
 # Tile-link slot names of the map format (the reader's SLOT_NAMES), used in data-problem details.
 SLOT_NAMES = {1: "N", 2: "E", 3: "S", 4: "W", 5: "NE", 6: "SE", 7: "SW", 8: "NW", 9: "up", 10: "down"}
 
@@ -232,6 +263,20 @@ def verify(plan: dict) -> dict:
     # (proposed) and every uncertain group tentatively. The summary's order and
     # unplaced lists are re-derived from the placement records.
     others = [g for g in plan["groups"] if g["classification"] != "overworld"]
+    reasons = {"overworld": {"overworld"}, "place": {"place"}, "uncertain": {"uncertain"},
+               "separate": {"guild", "other_world", "per_player", "ship", "system", "unreachable"}}
+    for g in plan["groups"]:
+        if g.get("reason") not in reasons.get(g["classification"], ()):
+            errors.append("group {} has classification {} with reason {}".format(
+                g["id"], g["classification"], g.get("reason")))
+    if sum(1 for g in plan["groups"] if g["classification"] == "overworld") != 1:
+        errors.append("the plan has no single overworld group")
+    if summ.get("groups_total") != len(plan["groups"]) or summ.get("non_overworld_groups") != len(others) or \
+            summ.get("maps_total") != sum(g["map_count"] for g in plan["groups"]) or \
+            any(g["map_count"] != len(g["maps"]) for g in others) or \
+            summ.get("by_classification") != dict(sorted(collections.Counter(
+                "{}:{}".format(g["classification"], g["reason"]) for g in others).items())):
+        errors.append("summary group and map counts differ from the groups")
     status = {g["id"]: (g.get("placement") or {}).get("status") for g in others}
     for g in others:
         gid, s = g["id"], status[g["id"]]
@@ -405,6 +450,10 @@ def verify(plan: dict) -> dict:
             errors.append("{} of exit {}:{} differs from its {} in {}".format(
                 what, ref["source_map"], ref["line"], ref_name, ", ".join(bad)))
 
+    def owner_of_end(e, side):
+        """The owner of one end of an exit: the overworld map itself, else the group."""
+        return e[side + "_map"] if e[side + "_group"] == ow_id else e[side + "_group"]
+
     # The exit inventory is the expected set: every exit object read from the
     # content. Each one with a destination has a record in every group it touches
     # (the overworld's own exits in its internal_exits, none for an exit inside
@@ -551,6 +600,18 @@ def verify(plan: dict) -> dict:
     for layer in chain.values():
         for rr in layer.values():
             rr.done()
+    n_kind = collections.Counter()
+    for sw in plan["stairwells"]:
+        n_kind[sw["kind"]] += 1
+        if sw["id"] != "{}{}".format(SW_PREFIX.get(sw["kind"], "?"), n_kind[sw["kind"]]):
+            errors.append("stairwell {} of kind {} is out of its series".format(sw["id"], sw["kind"]))
+    if summ.get("stairwells") != len(plan["stairwells"]) or summ.get("stairwells_by_kind") != dict(sorted(
+            n_kind.items())) or summ.get("stairwell_spans_layers") != {str(k): v for k, v in sorted(collections.Counter(
+                sw["top_layer"] - sw["bottom_layer"] for sw in plan["stairwells"]).items())} or \
+            summ.get("stairwell_sites_blocked") != len(plan["stairwell_sites_blocked"]) or \
+            summ.get("sloped_stairwell_sites_blocked") != len(plan["sloped_stairwell_sites_blocked"]) or \
+            summ.get("relayering_stairwell_sites_blocked") != len(rl["stairwells_blocked"]):
+        errors.append("summary stairwell and blocked-site counts differ from the lists")
     sw_tiles = {}
     intermediate = 0
     kinds = collections.Counter()
@@ -574,13 +635,54 @@ def verify(plan: dict) -> dict:
         bot = (t[-1]["x"], t[-1]["y"], t[-1]["layer"])
         span = top[2] - bot[2]
         off = cheb(top, bot)
-        if sw["shape"] == "column" and off > tol or sw["shape"] == "sloped" and not tol < off <= span * tol:
+        if sw["shape"] != ("column" if off <= tol else "sloped") or off > span * tol:
             errors.append("{} shape {} does not fit ends {} tiles apart over {} layers".format(
                 sw["id"], sw["shape"], off, span))
         if sw["horizontal_offset"] != off:
             errors.append("{} horizontal_offset {} != {}".format(sw["id"], sw["horizontal_offset"], off))
-        if sw["kind"] == "placement" and sw["shape"] != "column" or sw["kind"] == "sloped" and sw["shape"] != "sloped":
+        if sw["kind"] not in SW_PREFIX or sw["kind"] == "placement" and sw["shape"] != "column" or \
+                sw["kind"] == "sloped" and sw["shape"] != "sloped":
             errors.append("{} kind {} does not match shape {}".format(sw["id"], sw["kind"], sw["shape"]))
+        if sw.get("max_bend") != max([cheb((x_["x"], x_["y"]), top) for x_ in t[1:-1]] or [0]):
+            errors.append("{} max_bend {} does not match its tiles".format(sw["id"], sw.get("max_bend")))
+        if not sw["replaces"]:
+            errors.append("{} replaces no exit".format(sw["id"]))
+        # owners, re-derived from the exits it replaces: a placed group's stairwell joins that group
+        # (placed after the other end) and the other owner; a relayering one two overworld maps
+        pairs_ = set()
+        for r in sw["replaces"]:
+            e = records.get((r["source_map"], r["line"]))
+            if e is not None and "plane_source" in e and "plane_target" in e:
+                if sw["kind"] == "relayering":
+                    up_src = e["plane_source"][2] > e["plane_target"][2]
+                    pairs_.add((e["source_map"], e["target_map"]) if up_src else (e["target_map"], e["source_map"]))
+                else:
+                    pairs_.add(tuple(sorted([owner_of_end(e, "source"), owner_of_end(e, "target")])))
+        if sw["kind"] == "relayering":
+            want_o = None if len(pairs_) != 1 else {
+                "group": None, "owner": "stairwell@{},{},{}".format(*top), "other": next(iter(pairs_))[1],
+                "connects": sorted(set(next(iter(pairs_))))}
+        else:
+            g_, o_ = sw.get("group"), sw.get("other")
+            want_o = None if len(pairs_) != 1 or tuple(sorted([g_, o_])) not in pairs_ or g_ not in placed_ids or \
+                o_ in placed_ids and not (index.get(o_, len(index)) < index.get(g_, -1)) else {
+                    "group": g_, "owner": g_, "other": o_, "connects": sorted({g_, o_})}
+        if want_o is None or any(sw.get(f) != v for f, v in want_o.items()):
+            errors.append("{} owners (group {}, owner {}, other {}, connects {}) do not follow from the exits it "
+                          "replaces".format(sw["id"], sw.get("group"), sw.get("owner"), sw.get("other"),
+                                            sw.get("connects")))
+        # intermediate tiles show the down archetype of the exits' stair family; they are not exits
+        ends_arch = sorted({r["arch"] for r in sw["replaces"] if r["goes"] == "down"}) + \
+            sorted({r["arch"] for r in sw["replaces"] if r["goes"] == "up"})
+        fam = next((down for a in ends_arch for prefix, down in STAIR_FAMILIES if a.casefold().startswith(prefix)),
+                   None)
+        app_src = ("appearance of the down archetype of the {} family used by this stairwell's exits; the "
+                   "intermediate objects are decorations, not exits".format(fam.rsplit("_", 1)[0]) if fam else
+                   "no stair archetype among {}; owner to choose".format(ends_arch))
+        want_objs_mid = [{"archetype": fam, "exit": False, "walkable": False, "use": "appearance only"}] if fam else []
+        if sw.get("intermediate_appearance") != fam or sw.get("intermediate_appearance_source") != app_src or \
+                any(x_.get("objects") != want_objs_mid or x_.get("existing") is not False for x_ in t[1:-1]):
+            errors.append("{} intermediate tiles do not show {} as a decoration".format(sw["id"], fam))
         for r in sw["replaces"]:
             e = records.get((r["source_map"], r["line"]))
             if e is None:
@@ -660,14 +762,18 @@ def verify(plan: dict) -> dict:
             return abs(world_cell(e["target_map"])[2] - world_cell(e["source_map"])[2]) != dl
         return True
 
-    def owner_of_end(e, side):
-        """The owner of one end of an exit: the overworld map itself, else the group."""
-        return e[side + "_map"] if e[side + "_group"] == ow_id else e[side + "_group"]
-
     blocked_keys = {}
     for key_, sites in (("column", plan["stairwell_sites_blocked"]), ("sloped", plan["sloped_stairwell_sites_blocked"]),
                         ("relayering", rl["stairwells_blocked"])):
         for b in sites:
+            shape_ = "sloped" if cheb(b["top"], b["bottom"]) > tol else "column"
+            if not b["exits"] or b.get("shape") != shape_ or key_ != "relayering" and shape_ != key_:
+                errors.append("blocked {} stairwell site at {} lists {} exits with shape {} ({} by its ends)".format(
+                    key_, b["top"], len(b["exits"]), b.get("shape"), shape_))
+            if key_ != "relayering" and (b.get("group") not in placed_ids or b.get("other") in placed_ids and not (
+                    index.get(b["other"], len(index)) < index.get(b["group"], -1))):
+                errors.append("blocked {} stairwell site at {} belongs to {}, which is not the later placed "
+                              "end".format(key_, b["top"], b.get("group")))
             for x in b["exits"]:
                 k = (x["source_map"], x["line"])
                 if k in blocked_keys:
@@ -692,24 +798,29 @@ def verify(plan: dict) -> dict:
                             key_, b.get("group"), b.get("other"), *k))
                 blocked_keys[k] = (key_, b)
 
-    def portal_reason(e, k, dist, dl):
-        """The generator's reason an exit stays a portal, and whether a sloped stairwell would reach."""
+    def portal_reason(e, k, s, dist, dl):
+        """The generator's reason an exit stays a portal, its text, and whether a sloped stairwell would reach."""
+        if k in blocked_keys and blocked_keys[k][0] == "sloped":
+            return "slope-blocked", "{} tiles and {} layers apart, but no void sloped chain exists".format(
+                dist, dl), True
         if k in blocked_keys:
-            return ("slope-blocked", True) if blocked_keys[k][0] == "sloped" else ("stairwell-blocked", None)
+            return "stairwell-blocked", "aligned over {} layers, but no void stair chain exists".format(dl), None
         if dl == 0:
-            return "same-layer", None
+            return "same-layer", "both ends on layer {}, {} tiles apart".format(s[2], dist), None
         ends_ = [x for x in (e["source_group"], e["target_group"]) if x != ow_id]
         if not ends_:
-            return "overworld", None
+            return "overworld", "overworld exit whose ends are {} tiles and {} layer(s) apart".format(dist, dl), None
         later = max(ends_, key=lambda x: index.get(x, -1))
         pl = placed_by_id[later]["placement"]
         mc = pl.get("main_connection") or {}
         slope = True if 2 <= dist <= dl * tol else None
         if pl.get("shift_from_ideal") != [0, 0]:
-            return "group-shifted", slope
+            return "group-shifted", "{} was shifted {} from its ideal spot".format(later, pl.get("shift_from_ideal")), \
+                slope
         if mc.get("source_map") == e["source_map"] and mc.get("source_tile") == e["source_tile"]:
-            return "main-entrance-offset", slope
-        return "other-entrance-aligned", slope
+            return "main-entrance-offset", "the main connection itself lands {} tiles away".format(dist), slope
+        return "other-entrance-aligned", "{} is aligned to its main connection; this exit's ends are {} tiles and {} " \
+            "layer(s) apart".format(later, dist, dl), slope
 
     placed_by_id = {g["id"]: g for g in placed}
     exits_checked = 0
@@ -755,9 +866,10 @@ def verify(plan: dict) -> dict:
                 errors.append("exit {}:{} records {} tiles / {} layers, its ends are {} / {} apart".format(
                     src_map, line, e["xy_distance"], e["layer_delta"], dist, d[2] - s[2]))
             b = e.get("becomes")
-            want_reason, want_slope = portal_reason(e, (src_map, line), dist, dl) if b == "portal" else (None, None)
+            want_reason, want_text, want_slope = portal_reason(e, (src_map, line), s, dist, dl) if b == "portal" \
+                else (None, None, None)
             if ("stairwell" in e) != (b == "stairwell") or e.get("portal_reason") != want_reason or \
-                    ("portal_reason_text" in e) != (want_reason is not None) or e.get("slope_reachable") != want_slope:
+                    e.get("portal_reason_text") != want_text or e.get("slope_reachable") != want_slope:
                 errors.append("exit {}:{} labelled {} records stairwell {}, portal reason {} (slope reachable {}); "
                               "expected portal reason {} (slope reachable {})".format(
                                   src_map, line, b, e.get("stairwell"), e.get("portal_reason"),
@@ -840,10 +952,23 @@ def verify(plan: dict) -> dict:
         if mine != g["placement"].get("crossing_exits_after_placement"):
             errors.append("crossing exits of {} {} differ from its exit records {}".format(
                 g["id"], g["placement"].get("crossing_exits_after_placement"), mine))
+        # the offsets are the ideal spot plus the recorded shift and extra layers (deeper when the group
+        # is oriented below, higher when above)
+        pl = g["placement"]
+        ideal, orient = pl.get("ideal") or {}, pl.get("orientation")
+        step = {"below": -1, "above": 1}.get(orient)
+        sh, extra = pl.get("shift_from_ideal") or [None, None], pl.get("extra_layers_from_ideal")
+        if step is None or not isinstance(extra, int) or extra < 0 or None in (ideal.get("dx"), ideal.get("dy"),
+                                                                                 ideal.get("L"), *sh) or \
+                [pl["x_offset"], pl["y_offset"], pl["layer_offset"]] != [
+                    ideal["dx"] + sh[0], ideal["dy"] + sh[1], ideal["L"] + step * extra]:
+            errors.append("offsets of {} are not its ideal spot {} shifted by {} and {} layer(s) {}".format(
+                g["id"], ideal, sh, extra, orient))
+            continue
         # the main connection is one of the group's exit records, to something placed before it;
         # only a placement forced by an alignment hint has none
-        mc = g["placement"].get("main_connection")
-        hinted = bool(g["placement"].get("tentative_reason"))
+        mc = pl.get("main_connection")
+        hinted = bool(pl.get("tentative_reason"))
         if mc is None or hinted:
             if (mc is None) != hinted:
                 errors.append("placement of {} has {}".format(
@@ -865,6 +990,28 @@ def verify(plan: dict) -> dict:
         oi, gi = index.get(other), index.get(g["id"])
         if other != ow_id and not (isinstance(oi, int) and isinstance(gi, int) and oi < gi):
             errors.append("main connection of {} leads to {}, which is not placed before it".format(g["id"], other))
+            continue
+        # the ideal spot puts the connection's end in this group under (or over) its other end: one
+        # layer away in the exit's direction (or the orientation's), within the vertical bounds
+        e = match[0]
+        if "plane_source" not in e or "plane_target" not in e:
+            continue  # reported with the exit records
+        far, (near_map, near_tile) = (e["plane_source"], (e["target_map"], e["target_tile"])) if mc["kind"] == "in" \
+            else (e["plane_target"], (e["source_map"], e["source_tile"]))
+        lo_ = next((m["local_offset"] for m in g["maps"] if m["path"] == near_map), None)
+        if lo_ is None:
+            continue  # reported with the exit records
+        lx, ly, lz = lo_[0] + near_tile[0], lo_[1] + near_tile[1], lo_[2]
+        d_ = mc["vdir"] if mc["vdir"] != "none" else (
+            ("down" if orient == "below" else "up") if mc["kind"] == "in" else ("up" if orient == "below" else "down"))
+        below = d_ == ("down" if mc["kind"] == "in" else "up")
+        L_ = far[2] - 1 - lz if below else far[2] + 1 - lz
+        lo_b, hi_b = (pl.get("vertical_bounds_from_exit_semantics") or [None, None])
+        L_ = max(L_, lo_b) if lo_b is not None else L_
+        L_ = min(L_, hi_b) if hi_b is not None else L_
+        if ideal != {"dx": far[0] - lx, "dy": far[1] - ly, "L": L_}:
+            errors.append("ideal spot {} of {} does not follow from its main connection ({})".format(
+                ideal, g["id"], {"dx": far[0] - lx, "dy": far[1] - ly, "L": L_}))
 
     # ------------------------------------------------- required stairwells
     # Every exit whose ends are 2+ layers apart and at most one tile apart per

@@ -190,6 +190,25 @@ class ExitInventory(VerifierTest):
         group(p, MINE + "mine_entrance_a")["placement"]["main_connection"]["source_tile"] = [0, 0]
         self.assertCaught(p, "main connection of {} is not one of its exit records".format(MINE + "mine_entrance_a"))
 
+    def test_a_main_connection_that_did_not_fix_the_placement(self):
+        # the deck's other up-stairs, one tile east, would put the deck one tile further west
+        deck = "/shattered_islands/deserted_tutorial_island/ship_lower_deck"
+        p = self.plan()
+        mc = group(p, deck)["placement"]["main_connection"]
+        mc.update(source_tile=[2, 6], arch="stairs_wood_up")
+        self.assertCaught(p, "ideal spot {'dx': -161, 'dy': 1832, 'L': -1} of " + deck + " does not follow from its "
+                             "main connection ({'dx': -162, 'dy': 1832, 'L': -1})")
+
+    def test_offsets_that_are_not_the_ideal_spot(self):
+        # ellamin sits 4 layers below its ideal spot: flipping its orientation moves the ideal layer the other way
+        ellamin = "/shattered_islands/incuna/ellamin"
+        for field, value in (("shift_from_ideal", [1, 0]), ("extra_layers_from_ideal", 1), ("orientation", "above"),
+                             ("orientation", "sideways")):
+            with self.subTest(field=field, value=value):
+                p = self.plan()
+                group(p, ellamin)["placement"][field] = value
+                self.assertCaught(p, "offsets of {} are not its ideal spot".format(ellamin))
+
     def test_main_connections(self):
         deck = "/shattered_islands/deserted_tutorial_island/ship_lower_deck"
         p = self.plan()
@@ -283,6 +302,24 @@ class ExitInventory(VerifierTest):
                     e[field] = value
                 self.assertCaught(p, needle)
 
+    def test_a_wrong_portal_reason_text(self):
+        p = self.plan()
+        e = next(e for g in p["groups"] for e in g.get("entrances_from_other_groups", []) if e.get("portal_reason"))
+        for _g, _lst, c in copies(p, (e["source_map"], e["line"])):
+            c["portal_reason_text"] = "no reason"
+        self.assertCaught(p, "exit {}:{} labelled portal".format(e["source_map"], e["line"]))
+
+    def test_classifications(self):
+        p = self.plan()
+        group(p, "/emergency")["classification"] = "seperate"
+        self.assertCaught(p, "group /emergency has classification seperate with reason system")
+        p = self.plan()
+        group(p, "/emergency")["reason"] = "place"
+        self.assertCaught(p, "group /emergency has classification separate with reason place")
+        p = self.plan()
+        p["summary"]["by_classification"]["separate:system"] += 1
+        self.assertCaught(p, "summary group and map counts differ from the groups")
+
     def test_a_wrong_portal_reason(self):
         p = self.plan()
         e = next(e for g in p["groups"] for e in g.get("entrances_from_other_groups", [])
@@ -313,6 +350,56 @@ class StairwellReplaces(VerifierTest):
             r.update(source_tile=[0, 0], target_map="/shattered_islands/world_0_0", target_tile=[0, 0],
                      plane_source=[0, 0, 0], plane_target=[0, 0, 0])
         self.assertCaught(p, "SW1 replaces entry")
+
+    def test_shape(self):
+        p = self.plan()
+        sr1 = next(sw for sw in p["stairwells"] if sw["id"] == "SR1")
+        sr1["shape"] = "banana"
+        self.assertCaught(p, "SR1 shape banana does not fit")
+        p = self.plan()
+        sr1 = next(sw for sw in p["stairwells"] if sw["id"] == "SR1")
+        sr1["shape"] = "sloped" if sr1["shape"] == "column" else "column"
+        self.assertCaught(p, "SR1 shape {} does not fit".format(sr1["shape"]))
+
+    def test_owners(self):
+        p = self.plan()
+        sw = p["stairwells"][0]
+        sw["other"], sw["connects"] = "/nowhere", sorted([sw["group"], "/nowhere"])
+        self.assertCaught(p, "SW1 owners")
+        p = self.plan()
+        sr1 = next(sw for sw in p["stairwells"] if sw["id"] == "SR1")
+        sr1["owner"] = "stairwell@0,0,0"
+        self.assertCaught(p, "SR1 owners")
+
+    def test_intermediate_appearance(self):
+        p = self.plan()
+        sw = p["stairwells"][0]
+        sw["intermediate_appearance"] = "stairs_red_down"
+        self.assertCaught(p, "SW1 intermediate tiles do not show")
+        p = self.plan()
+        p["stairwells"][0]["tiles"][1]["objects"][0]["walkable"] = True
+        self.assertCaught(p, "SW1 intermediate tiles do not show")
+
+    def test_series_bend_and_counts(self):
+        p = self.plan()
+        p["stairwells"][0]["id"], p["stairwells"][1]["id"] = p["stairwells"][1]["id"], p["stairwells"][0]["id"]
+        self.assertCaught(p, "is out of its series")
+        p = self.plan()
+        p["stairwells"][0]["max_bend"] += 1
+        self.assertCaught(p, "SW1 max_bend")
+        p = self.plan()
+        p["summary"]["stairwells_by_kind"]["placement"] += 1
+        self.assertCaught(p, "summary stairwell and blocked-site counts differ from the lists")
+
+    def test_an_empty_blocked_site(self):
+        for key in ("stairwell_sites_blocked", "sloped_stairwell_sites_blocked"):
+            with self.subTest(key=key):
+                p = self.plan()
+                p[key].append(dict(p[key][0], exits=[]))
+                self.assertCaught(p, "lists 0 exits")
+        p = self.plan()
+        p["stairwell_sites_blocked"][0]["shape"] = "sloped"
+        self.assertCaught(p, "with shape sloped (column by its ends)")
 
     def test_direction(self):
         p = self.plan()
