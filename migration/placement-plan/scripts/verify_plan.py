@@ -30,7 +30,10 @@ Stairwells (SW placement, SL sloped, SR relayering):
 Exits:
   * every exit record's plane_source / plane_target equals origin + tile on
     the tile's final layer, and its "becomes" label matches its geometry;
-    wired exits are plain stairs and carry their evidence
+    wired exits are plain stairs and their verdict follows from their evidence
+  * every exit 2+ layers and at most one tile per layer apart is a stairwell
+    (crossing exits always, overworld exits when the relayering changed their
+    span), unless a blocked site lists it; a blocked site has no void chain
 Relayering (re-derived from the overworld rows and tile heights):
   * regions: 8-connected tiles of one layer with the same q = H // layer
     height >= 1; relayered when large enough or touching a relayered region
@@ -436,8 +439,76 @@ def verify(plan: dict) -> dict:
                 errors.append("exit {}:{} labelled {} but is {} tiles / {} layers apart".format(src_map, line, b, dist, dl))
         if e.get("form") == "wired":
             w = e.get("wired") or {}
-            if e.get("becomes") != "stairs" or w.get("verdict") not in ("confirmed", "plausible", "doubtful"):
-                errors.append("wired exit {}:{} is not plain stairs with a verdict".format(src_map, line))
+            if e.get("becomes") != "stairs" or w.get("plane_target") != e.get("plane_target"):
+                errors.append("wired exit {}:{} is not plain stairs to its recorded target".format(src_map, line))
+            # the verdict follows from the recorded evidence
+            if not w.get("landing_floor_terrain") or w.get("landing_blocked") or w["landing_floor_terrain"] != ["land"]:
+                want = "doubtful"
+            elif w.get("return_exits_near_landing") or w.get("target_from", "").startswith("the destination"):
+                want = "confirmed"
+            else:
+                want = "plausible"
+            if w.get("verdict") != want:
+                errors.append("wired exit {}:{} verdict {} does not follow from its evidence ({})".format(
+                    src_map, line, w.get("verdict"), want))
+
+    # ------------------------------------------------- required stairwells
+    # Every exit whose ends are 2+ layers apart and at most one tile apart per
+    # layer must be a stairwell, unless a blocked site lists it: crossing exits
+    # (placed groups) always, overworld exits only when the relayering changed
+    # their layer distance. Blocked sites must really have no void chain.
+    blocked_keys = {}
+    for key_, sites in (("column", plan["stairwell_sites_blocked"]), ("sloped", plan["sloped_stairwell_sites_blocked"]),
+                        ("relayering", rl["stairwells_blocked"])):
+        for b in sites:
+            for x in b["exits"]:
+                blocked_keys[(x["source_map"], x["line"])] = (key_, b)
+    required = 0
+    for (src_map, line), e in sorted(records.items()):
+        if "plane_source" not in e or "plane_target" not in e:
+            continue
+        s_, d_ = e["plane_source"], e["plane_target"]
+        dl, dist = abs(d_[2] - s_[2]), cheb(s_, d_)
+        if dl < 2 or dist > dl * tol:
+            continue
+        if e["source_group"] == ow_id and e["target_group"] == ow_id:
+            legacy = abs(world_cell(e["target_map"])[2] - world_cell(e["source_map"])[2])
+            if legacy == dl:
+                continue  # a legacy overworld shaft the relayering leaves alone
+        required += 1
+        if (src_map, line) in blocked_keys:
+            if e.get("becomes") != "portal":
+                errors.append("exit {}:{} is listed as blocked but becomes {}".format(src_map, line, e.get("becomes")))
+        elif e.get("becomes") != "stairwell":
+            errors.append("exit {}:{} needs a stairwell ({} layers, {} tiles apart) but becomes {}".format(
+                src_map, line, dl, dist, e.get("becomes")))
+
+    def void_at(z, x, y):
+        return (x, y) not in claim.get(z, {}) and (z, x, y) not in sw_tiles
+
+    def chain_exists(top, bottom, shape):
+        n = top[2] - bottom[2]
+        reach = {(top[0], top[1])}
+        for i in range(1, n):
+            z = top[2] - i
+            nxt = set()
+            for (x, y) in reach:
+                for dx in (-1, 0, 1):
+                    for dy in (-1, 0, 1):
+                        p_ = (x + dx, y + dy)
+                        if shape == "column":
+                            ok = cheb(p_, top) <= 2  # STAIRWELL_MAX_BEND
+                        else:
+                            ok = cheb(p_, top) <= i and cheb(p_, bottom) <= n - i
+                        if ok and void_at(z, *p_):
+                            nxt.add(p_)
+            reach = nxt
+        return any(cheb(p_, bottom) <= tol for p_ in reach)
+
+    for key_, b in sorted({id(b): (k_, b) for k_, b in blocked_keys.values()}.values(), key=lambda kb: kb[1]["top"]):
+        shape = "sloped" if key_ == "sloped" or b.get("shape") == "sloped" else "column"
+        if chain_exists(tuple(b["top"]), tuple(b["bottom"]), shape):
+            errors.append("blocked {} stairwell site at {} has a void chain after all".format(shape, b["top"]))
 
     # ----------------------------------------------------------- relayering
     heights, blocked = {}, set()
@@ -632,6 +703,16 @@ def verify(plan: dict) -> dict:
                 errors.append("seam piece {} of {} has no continuity".format(pc["cell"], s_["id"]))
             for sid in pc["stairs"]:
                 n = ns_by_id.get(sid)
+                objs = {o.get("tile"): o for o in (n or {}).get("objects", [])}
+                lo_o, hi_o = objs.get("low", {}), objs.get("high", {})
+                if n is None or len(n["objects"]) != 2 or not (
+                        lo_o.get("exit") is True and lo_o.get("exit_to") == "high"
+                        and re.match(r"^(stairs|ladder)_.*up\d*$", lo_o.get("archetype", ""))
+                        and hi_o.get("exit") is True and hi_o.get("exit_to") == "low"
+                        and re.match(r"^(stairs|ladder)_.*down\d*$", hi_o.get("archetype", ""))):
+                    errors.append("new stairs {} are not an up stair on the low tile and a down stair on the high "
+                                  "tile targeting each other".format(sid))
+                    continue
                 lo, hi = (tuple(n["low_tile_legacy"]), tuple(n["high_tile_legacy"])) if n else (None, None)
                 if n is None or piece_by_edge.get((lo, hi)) != key or n["low"] != [lo[1], lo[2], main[lo]] \
                         or n["high"] != [hi[1], hi[2], main[hi]] or n["high"][2] - n["low"][2] != 1 \
@@ -733,6 +814,7 @@ def verify(plan: dict) -> dict:
     return {"ok": not errors, "errors": errors, "member_maps": len(origin), "owner_pairs_checked": pairs,
             "closest_pairs": closest,
             "stairwells_checked": len(plan["stairwells"]), "stairwells_by_kind": dict(sorted(kinds.items())),
+            "stairwell_exits_required": required,
             "stairwell_intermediate_tiles": intermediate, "exit_endpoints_checked": exits_checked,
             "relayering": {"overworld_tiles": len(leg), "tile_heights": len(heights), "regions": len(got_r),
                            "kept_regions": len(got_k), "units": len(units), "moved_units": len(got_u),

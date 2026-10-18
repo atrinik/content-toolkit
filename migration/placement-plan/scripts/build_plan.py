@@ -1599,8 +1599,8 @@ def build(content: Path, allow_dirty: bool = False):
                        "low": st_["low"], "high": st_["high"],
                        "low_map": R.tiles[tuple(st_["low_tile"])][0], "high_map": R.tiles[tuple(st_["high_tile"])][0],
                        "low_tile_legacy": st_["low_tile"], "high_tile_legacy": st_["high_tile"], "why": st_["why"],
-                       "objects": [{"tile": "low", "archetype": "stairs_stone_up", "exit_to": "high"},
-                                   {"tile": "high", "archetype": "stairs_stone_down", "exit_to": "low"}]}
+                       "objects": [{"tile": "low", "archetype": "stairs_stone_up", "exit": True, "exit_to": "high"},
+                                   {"tile": "high", "archetype": "stairs_stone_down", "exit": True, "exit_to": "low"}]}
                 new_stairs.append(rec)
                 d["stairs"].append(rec["id"])
             if "exit" in pc:

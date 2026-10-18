@@ -106174,11 +106174,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -106213,11 +106215,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -106252,11 +106256,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -106291,11 +106297,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -106330,11 +106338,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -106369,11 +106379,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -106408,11 +106420,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -106447,11 +106461,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -106486,11 +106502,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -106525,11 +106543,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -106564,11 +106584,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -106603,11 +106625,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -106642,11 +106666,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -106681,11 +106707,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -106720,11 +106748,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -106759,11 +106789,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -106798,11 +106830,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -106837,11 +106871,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -106876,11 +106912,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -106915,11 +106953,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -106954,11 +106994,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -106993,11 +107035,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -107032,11 +107076,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -107071,11 +107117,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -107110,11 +107158,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -107149,11 +107199,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -107188,11 +107240,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -107227,11 +107281,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -107266,11 +107322,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -107305,11 +107363,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -107344,11 +107404,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -107383,11 +107445,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -107422,11 +107486,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -107461,11 +107527,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -107500,11 +107568,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -107539,11 +107609,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -107578,11 +107650,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -107617,11 +107691,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -107656,11 +107732,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -107695,11 +107773,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -107734,11 +107814,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -107773,11 +107855,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -107812,11 +107896,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -107851,11 +107937,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -107890,11 +107978,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -107929,11 +108019,13 @@
      {
       "tile": "low",
       "archetype": "stairs_stone_up",
+      "exit": true,
       "exit_to": "high"
      },
      {
       "tile": "high",
       "archetype": "stairs_stone_down",
+      "exit": true,
       "exit_to": "low"
      }
     ]
@@ -118279,6 +118371,7 @@
    "relayering": 22,
    "sloped": 4
   },
+  "stairwell_exits_required": 89,
   "stairwell_intermediate_tiles": 76,
   "exit_endpoints_checked": 1468,
   "relayering": {
