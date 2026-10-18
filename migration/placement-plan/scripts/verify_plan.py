@@ -21,8 +21,12 @@ Stairwells (SW placement, SL sloped, SR relayering):
     at most that far per layer; the ends match every replaced exit
   * every intermediate tile is void, used by no other stairwell and holds no
     exit object; the recorded view conflicts equal the unrelated owners within
-    the view radius, mode "clear" means there are none, and every stairwell
-    carries the engine rule segments_drawn_only_on_player_layer
+    the view radius and the recorded contacts the related areas within the
+    contact margin; mode "clear" means there are none of either; every
+    stairwell carries the engine rule segments_drawn_only_on_player_layer
+  * a stairwell's direction matches the exits it replaces, and only the ends
+    those exits start from hold exit objects (a one-way stairwell's far end is
+    a landing)
 Exits:
   * every exit record's plane_source / plane_target equals origin + tile on
     the tile's final layer, and its "becomes" label matches its geometry;
@@ -359,7 +363,16 @@ def verify(plan: dict) -> dict:
             up, low = (s, d) if s[2] > d[2] else (d, s)
             if up[2] != top[2] or low[2] != bot[2] or cheb(up, top) > tol or cheb(low, bot) > tol:
                 errors.append("{} ends do not match exit {}:{}".format(sw["id"], r["source_map"], r["line"]))
+        goes = {r["goes"] for r in sw["replaces"]}
+        want = "both" if goes == {"down", "up"} else ("down" if goes == {"down"} else "up")
+        if sw.get("direction") != want or sw.get("landing_only_end") != {"both": None, "down": "bottom",
+                                                                         "up": "top"}[want]:
+            errors.append("{} direction {} does not match its exits ({})".format(sw["id"], sw.get("direction"),
+                                                                             sorted(goes)))
+        if bool(t[0]["objects"]) != ("down" in goes) or bool(t[-1]["objects"]) != ("up" in goes):
+            errors.append("{} end objects do not match its direction".format(sw["id"]))
         recorded = {(c["layer"], c["x"], c["y"]): sorted(c["visible_from"]) for c in sw["view_conflicts"]}
+        touched = {(c["layer"], c["x"], c["y"]): sorted(c["touches"]) for c in sw["contacts"]}
         for x in t[1:-1]:
             intermediate += 1
             key = (x["layer"], x["x"], x["y"])
@@ -383,8 +396,13 @@ def verify(plan: dict) -> dict:
             if vis != recorded.get(key, []):
                 errors.append("{} tile {} view conflicts {} != recorded {}".format(sw["id"], key, vis,
                                                                                   recorded.get(key, [])))
-        if (sw["mode"] == "clear") != (not sw["view_conflicts"]):
-            errors.append("{} mode {} disagrees with its view conflicts".format(sw["id"], sw["mode"]))
+            touch = [] if sw["kind"] == "relayering" else sorted(
+                {o for o, rr in cand if o != sw["group"] and related(sw["group"], o, z)
+                 and rr.any_within(x["x"], x["y"], M)})
+            if touch != touched.get(key, []):
+                errors.append("{} tile {} contacts {} != recorded {}".format(sw["id"], key, touch, touched.get(key, [])))
+        if (sw["mode"] == "clear") != (not sw["view_conflicts"] and not sw["contacts"]):
+            errors.append("{} mode {} disagrees with its view conflicts and contacts".format(sw["id"], sw["mode"]))
 
     # ---------------------------------------------------------------- exits
     exits_checked = 0

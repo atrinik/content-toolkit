@@ -148,6 +148,17 @@ class Occupancy:
                     return o, ("contact" if o in related else "gap")
         return None
 
+    def related_within(self, layer: int, xy, related, own=None) -> list:
+        """Related owners whose occupied tiles lie within the contact margin of xy."""
+        out = []
+        b = (xy[0], xy[1], xy[0], xy[1])
+        for o in self.owners_near(layer, b, self.margin):
+            if o == own or o not in related:
+                continue
+            if xy in self.dilated(layer, o, self.margin):
+                out.append(o)
+        return out
+
     def unrelated_within(self, layer: int, xy, related, own=None) -> list:
         """Unrelated owners whose occupied tiles lie within the view radius of xy."""
         out = []

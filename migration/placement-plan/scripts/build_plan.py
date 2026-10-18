@@ -755,7 +755,9 @@ def build(content: Path, allow_dirty: bool = False):
             return not own(p) and S.occ.occupant(p[2], (p[0], p[1])) is None
 
         def strict(p):
-            return void(p) and not S.occ.unrelated_within(p[2], (p[0], p[1]), rel_on(gid, p[2]) | {gid}, own=gid)
+            rel = rel_on(gid, p[2])
+            return void(p) and not S.occ.unrelated_within(p[2], (p[0], p[1]), rel | {gid}, own=gid) and \
+                not S.occ.related_within(p[2], (p[0], p[1]), rel - {gid}, own=gid)
 
         if slope:
             return fp.find_slope_chain(upper, lower, void, strict)
@@ -947,7 +949,11 @@ def build(content: Path, allow_dirty: bool = False):
                       "objects": [{"archetype": a, "exit": True} for a in bot_objs]})
         for (x, y, z) in chain:
             S.occ.add(owner, z, [(x, y)])
+        goes = {o["src_is_upper"] for o in site}
+        direction = "both" if len(goes) == 2 else ("down" if True in goes else "up")
         sw = {"kind": kind, "group": owner, "owner": owner, "connects": sorted({owner, other}), "other": other,
+              "direction": direction,
+              "landing_only_end": {"both": None, "down": "bottom", "up": "top"}[direction],
               "x": top[0], "y": top[1], "top_layer": top[2], "bottom_layer": bottom[2],
               "shape": "sloped" if cheb(top, bottom) > STAIR_TOLERANCE else "column",
               "horizontal_offset": cheb(top, bottom),
@@ -1172,13 +1178,18 @@ def build(content: Path, allow_dirty: bool = False):
         # every stairwell is drawn only on the player's layer (owner decision 2026-10-18), so
         # the conflicts are listed but hidden in the engine.
         for sw in S.stairwells:
-            sw["view_conflicts"] = []
+            sw["view_conflicts"], sw["contacts"] = [], []
             for t in sw["tiles"][1:-1]:
                 vis = S.occ.unrelated_within(t["layer"], (t["x"], t["y"]), sw_related(sw, t["layer"]),
                                              own=sw["owner"])
                 if vis:
                     sw["view_conflicts"].append({"layer": t["layer"], "x": t["x"], "y": t["y"], "visible_from": vis})
-            sw["mode"] = "void-only" if sw["view_conflicts"] else "clear"
+                if sw["kind"] != "relayering":
+                    touch = S.occ.related_within(t["layer"], (t["x"], t["y"]),
+                                                 rel_on(sw["group"], t["layer"]) - {sw["group"]}, own=sw["owner"])
+                    if touch:
+                        sw["contacts"].append({"layer": t["layer"], "x": t["x"], "y": t["y"], "touches": touch})
+            sw["mode"] = "void-only" if sw["view_conflicts"] or sw["contacts"] else "clear"
         # stable stairwell ids: one series per kind
         lab_ids = sorted(S.placed)
         prefix = {"placement": "SW", "sloped": "SL", "relayering": "SR"}
@@ -1310,8 +1321,14 @@ def build(content: Path, allow_dirty: bool = False):
     # A working exit on the same tile whose destination lies within one tile of
     # that landing is the same staircase, so its destination is used instead.
     def tile_objects(m, x, y):
-        return [(o.name, md.effective_attrs(o, archs)) for o in maps[m].objects
-                if md.to_int(o.fields.get("x"), 0) == x and md.to_int(o.fields.get("y"), 0) == y]
+        """Objects on tile (x, y) of map m, multipart objects included through their tails."""
+        out = []
+        for o in maps[m].objects:
+            ox, oy = md.to_int(o.fields.get("x"), 0), md.to_int(o.fields.get("y"), 0)
+            tails = archs.get(o.name.casefold(), {}).get("__tails__", ())
+            if (ox, oy) == (x, y) or any((ox + tx, oy + ty) == (x, y) for tx, ty in tails):
+                out.append((o.name, md.effective_attrs(o, archs)))
+        return out
 
     terrain_names = {"0": "nothing", "1": "land", "2": "water", "4": "deep water", "8": "fire", "16": "fire",
                      "32": "cloud", "64": "shallow water"}
@@ -1356,7 +1373,7 @@ def build(content: Path, allow_dirty: bool = False):
         dst = tile_objects(tm, tx, ty)
         floors_ = [a for _n, a in dst if a.get("layer") == "1"]
         terr = sorted({terrain_names.get(a.get("terrain_type", "0"), a.get("terrain_type")) for a in floors_})
-        blocked_ = any(a.get("no_pass") == "1" for _n, a in dst)
+        blocked_ = (tx, ty) in maps[tm].blocked or any(a.get("no_pass") == "1" for _n, a in dst)
         back = []
         for o in exits:
             if o["source_map"] == tm and o.get("resolved_map") == e["source_map"] and \
@@ -1670,6 +1687,12 @@ def build(content: Path, allow_dirty: bool = False):
         judgement.append({"kind": "cave resolution", "unit": c["unit"],
                           "text": "{} ({} tiles, regions {}): {}; {}".format(
                               c["unit"], c["tiles"], ", ".join(c["regions"]), c["choice"].replace("-", " "), c["why"])})
+    one_way = [sw["id"] for sw in S.stairwells if sw["kind"] == "relayering" and sw["direction"] != "both"]
+    if one_way:
+        judgement.append({"kind": "one-way stairwells",
+                          "text": "{} ({}) replace legacy exits that only go one way, so each has exits at one end and "
+                                  "a landing at the other; making them two-way would add a way in that legacy does "
+                                  "not have".format(len(one_way), ", ".join(one_way))})
     if steep_out:
         judgement.append({"kind": "steep steps", "text": "{} walkable edge(s) become a fall on the same layer".format(
             len(steep_out))})
@@ -1890,6 +1913,11 @@ def build(content: Path, allow_dirty: bool = False):
             "stairwell_rendering": "segments_drawn_only_on_player_layer: clients draw a stairwell's segments only on "
                                    "the layer the player is on (owner decision 2026-10-18), so view_conflicts are "
                                    "listed but not seen",
+            "stairwell_direction": "direction 'both': exits at both ends, each targeting the other end; 'down' or "
+                                   "'up': the stairwell replaces a legacy one-way exit and can be used only that "
+                                   "way; its landing_only_end holds no exit",
+            "stairwell_contacts": "contacts: intermediate tiles within contact_margin_tiles of a related area "
+                                  "(other than the stairwell's own group); the chain search avoids them where it can",
             "stairwell_ids": "SWn = stairwell built for a placed group's aligned exits, SLn = sloped stairwell, SRn = "
                              "stairwell for an overworld exit whose ends the relayering put 2+ layers apart",
             "relayering": "overworld tiles are on their final layer everywhere in this plan (see relayering); "

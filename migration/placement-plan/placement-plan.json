@@ -42,6 +42,8 @@
   "stairwell": "an exit whose ends are >= 2 layers apart and <= 1 tile(s) apart horizontally becomes a stairwell: one stair tile on every intermediate layer, each consecutive pair one layer and <= 1 tile apart; the whole stairwell is ONE exit (one use moves the player end to end, pathfinding sees one edge)",
   "sloped_stairwell": "an exit whose ends are >= 2 layers apart and more than 1 but at most 1 tile(s) per layer apart horizontally becomes a sloped stairwell (shape 'sloped'): the same chain, shifting at most 1 tile sideways per layer; still ONE exit",
   "stairwell_rendering": "segments_drawn_only_on_player_layer: clients draw a stairwell's segments only on the layer the player is on (owner decision 2026-10-18), so view_conflicts are listed but not seen",
+  "stairwell_direction": "direction 'both': exits at both ends, each targeting the other end; 'down' or 'up': the stairwell replaces a legacy one-way exit and can be used only that way; its landing_only_end holds no exit",
+  "stairwell_contacts": "contacts: intermediate tiles within contact_margin_tiles of a related area (other than the stairwell's own group); the chain search avoids them where it can",
   "stairwell_ids": "SWn = stairwell built for a placed group's aligned exits, SLn = sloped stairwell, SRn = stairwell for an overworld exit whose ends the relayering put 2+ layers apart",
   "relayering": "overworld tiles are on their final layer everywhere in this plan (see relayering); occupied_rows_by_layer gives each map's tiles per final layer",
   "wired_exits": "an exit with form 'wired' led nowhere in legacy; it now targets the content on the layer above or below (see its 'wired' evidence)"
@@ -162,6 +164,8 @@
     "/shattered_islands/eld_woods_island/clearhaven/mine/mine_unique_a"
    ],
    "other": "/shattered_islands/eld_woods_island/clearhaven/mine/mine_unique",
+   "direction": "both",
+   "landing_only_end": null,
    "x": 174,
    "y": 1892,
    "top_layer": -3,
@@ -269,6 +273,7 @@
      ]
     }
    ],
+   "contacts": [],
    "id": "SW1"
   },
   {
@@ -280,6 +285,8 @@
     "/shattered_islands/eld_woods_island/clearhaven/mine/mine_unique_tipper"
    ],
    "other": "/shattered_islands/eld_woods_island/clearhaven/mine/mine_entrance_a",
+   "direction": "both",
+   "landing_only_end": null,
    "x": 209,
    "y": 1898,
    "top_layer": -2,
@@ -396,6 +403,7 @@
      ]
     }
    ],
+   "contacts": [],
    "id": "SW2"
   },
   {
@@ -407,6 +415,8 @@
     "/shattered_islands/world_19_72"
    ],
    "other": "/shattered_islands/world_19_72",
+   "direction": "both",
+   "landing_only_end": null,
    "x": 456,
    "y": 1732,
    "top_layer": 0,
@@ -514,6 +524,7 @@
      ]
     }
    ],
+   "contacts": [],
    "id": "SW3"
   },
   {
@@ -525,6 +536,8 @@
     "/shattered_islands/world_19_72"
    ],
    "other": "/shattered_islands/world_19_72",
+   "direction": "both",
+   "landing_only_end": null,
    "x": 457,
    "y": 1732,
    "top_layer": 0,
@@ -632,6 +645,7 @@
      ]
     }
    ],
+   "contacts": [],
    "id": "SW4"
   },
   {
@@ -643,6 +657,8 @@
     "/shattered_islands/world_4_83"
    ],
    "other": "/shattered_islands/world_4_83",
+   "direction": "both",
+   "landing_only_end": null,
    "x": 109,
    "y": 2004,
    "top_layer": 0,
@@ -819,6 +835,7 @@
      ]
     }
    ],
+   "contacts": [],
    "id": "SW5"
   },
   {
@@ -830,6 +847,8 @@
     "/shattered_islands/world_3_70"
    ],
    "other": "/shattered_islands/world_3_70",
+   "direction": "both",
+   "landing_only_end": null,
    "x": 78,
    "y": 1681,
    "top_layer": 0,
@@ -938,6 +957,7 @@
      ]
     }
    ],
+   "contacts": [],
    "id": "SW6"
   },
   {
@@ -949,6 +969,8 @@
     "/shattered_islands/world_5_57"
    ],
    "other": "/shattered_islands/world_5_57",
+   "direction": "both",
+   "landing_only_end": null,
    "x": 127,
    "y": 1371,
    "top_layer": 2,
@@ -1128,6 +1150,7 @@
      ]
     }
    ],
+   "contacts": [],
    "id": "SW7"
   },
   {
@@ -1139,6 +1162,8 @@
     "/shattered_islands/world_5_57"
    ],
    "other": "/shattered_islands/world_5_57",
+   "direction": "both",
+   "landing_only_end": null,
    "x": 128,
    "y": 1371,
    "top_layer": 2,
@@ -1329,6 +1354,7 @@
      ]
     }
    ],
+   "contacts": [],
    "id": "SW8"
   },
   {
@@ -1340,6 +1366,8 @@
     "/shattered_islands/world_5_57"
    ],
    "other": "/shattered_islands/world_5_57",
+   "direction": "both",
+   "landing_only_end": null,
    "x": 129,
    "y": 1371,
    "top_layer": 2,
@@ -1530,6 +1558,7 @@
      ]
     }
    ],
+   "contacts": [],
    "id": "SW9"
   },
   {
@@ -1541,6 +1570,8 @@
     "/shattered_islands/strakewood_island/rockforge/rockforge_a"
    ],
    "other": "/shattered_islands/strakewood_island/rockforge/rockforge",
+   "direction": "both",
+   "landing_only_end": null,
    "x": -7,
    "y": 1355,
    "top_layer": -1,
@@ -1736,6 +1767,7 @@
      ]
     }
    ],
+   "contacts": [],
    "id": "SW10"
   },
   {
@@ -1747,6 +1779,8 @@
     "/shattered_islands/strakewood_island/rockforge/rockforge_a"
    ],
    "other": "/shattered_islands/strakewood_island/rockforge/rockforge",
+   "direction": "both",
+   "landing_only_end": null,
    "x": -6,
    "y": 1355,
    "top_layer": -1,
@@ -1942,6 +1976,7 @@
      ]
     }
    ],
+   "contacts": [],
    "id": "SW11"
   },
   {
@@ -1953,6 +1988,8 @@
     "/shattered_islands/strakewood_island/rockforge/rockforge_a"
    ],
    "other": "/shattered_islands/strakewood_island/rockforge/rockforge",
+   "direction": "both",
+   "landing_only_end": null,
    "x": 3,
    "y": 1355,
    "top_layer": -1,
@@ -2148,6 +2185,7 @@
      ]
     }
    ],
+   "contacts": [],
    "id": "SW12"
   },
   {
@@ -2159,6 +2197,8 @@
     "/shattered_islands/strakewood_island/rockforge/rockforge_a"
    ],
    "other": "/shattered_islands/strakewood_island/rockforge/rockforge",
+   "direction": "both",
+   "landing_only_end": null,
    "x": 4,
    "y": 1355,
    "top_layer": -1,
@@ -2354,6 +2394,7 @@
      ]
     }
    ],
+   "contacts": [],
    "id": "SW13"
   },
   {
@@ -2365,6 +2406,8 @@
     "/shattered_islands/world_4_67_-1"
    ],
    "other": "/shattered_islands/world_4_67_-1",
+   "direction": "both",
+   "landing_only_end": null,
    "x": 103,
    "y": 1625,
    "top_layer": -1,
@@ -2514,6 +2557,7 @@
      ]
     }
    ],
+   "contacts": [],
    "id": "SW14"
   },
   {
@@ -2525,6 +2569,8 @@
     "/shattered_islands/world_-1_57"
    ],
    "other": "/shattered_islands/world_-1_57",
+   "direction": "both",
+   "landing_only_end": null,
    "x": -6,
    "y": 1370,
    "top_layer": 0,
@@ -2735,6 +2781,7 @@
      ]
     }
    ],
+   "contacts": [],
    "id": "SL1"
   },
   {
@@ -2746,6 +2793,8 @@
     "/shattered_islands/world_-1_57"
    ],
    "other": "/shattered_islands/world_-1_57",
+   "direction": "both",
+   "landing_only_end": null,
    "x": -5,
    "y": 1370,
    "top_layer": 0,
@@ -2777,8 +2826,8 @@
     },
     {
      "layer": -1,
-     "x": -5,
-     "y": 1369,
+     "x": -6,
+     "y": 1370,
      "role": "intermediate",
      "existing": false,
      "objects": [
@@ -2956,6 +3005,7 @@
      ]
     }
    ],
+   "contacts": [],
    "id": "SL2"
   },
   {
@@ -2967,6 +3017,8 @@
     "/shattered_islands/world_0_57"
    ],
    "other": "/shattered_islands/world_0_57",
+   "direction": "both",
+   "landing_only_end": null,
    "x": 2,
    "y": 1370,
    "top_layer": 0,
@@ -2998,7 +3050,7 @@
     },
     {
      "layer": -1,
-     "x": 2,
+     "x": 3,
      "y": 1369,
      "role": "intermediate",
      "existing": false,
@@ -3177,6 +3229,7 @@
      ]
     }
    ],
+   "contacts": [],
    "id": "SL3"
   },
   {
@@ -3188,6 +3241,8 @@
     "/shattered_islands/world_0_57"
    ],
    "other": "/shattered_islands/world_0_57",
+   "direction": "both",
+   "landing_only_end": null,
    "x": 3,
    "y": 1370,
    "top_layer": 0,
@@ -3220,7 +3275,7 @@
     {
      "layer": -1,
      "x": 3,
-     "y": 1369,
+     "y": 1370,
      "role": "intermediate",
      "existing": false,
      "objects": [
@@ -3398,6 +3453,7 @@
      ]
     }
    ],
+   "contacts": [],
    "id": "SL4"
   },
   {
@@ -3409,6 +3465,8 @@
     "/shattered_islands/world_6_44_-1"
    ],
    "other": "/shattered_islands/world_6_44_-1",
+   "direction": "both",
+   "landing_only_end": null,
    "x": 165,
    "y": 1058,
    "top_layer": 1,
@@ -3516,6 +3574,7 @@
      ]
     }
    ],
+   "contacts": [],
    "id": "SR1"
   },
   {
@@ -3527,6 +3586,8 @@
     "/shattered_islands/world_6_44_-1"
    ],
    "other": "/shattered_islands/world_6_44_-1",
+   "direction": "both",
+   "landing_only_end": null,
    "x": 162,
    "y": 1069,
    "top_layer": 1,
@@ -3634,6 +3695,7 @@
      ]
     }
    ],
+   "contacts": [],
    "id": "SR2"
   },
   {
@@ -3645,6 +3707,8 @@
     "/shattered_islands/world_3_44_-1"
    ],
    "other": "/shattered_islands/world_3_44_-1",
+   "direction": "down",
+   "landing_only_end": "bottom",
    "x": 81,
    "y": 1074,
    "top_layer": 1,
@@ -3734,6 +3798,7 @@
      ]
     }
    ],
+   "contacts": [],
    "id": "SR3"
   },
   {
@@ -3745,6 +3810,8 @@
     "/shattered_islands/world_3_44_-1"
    ],
    "other": "/shattered_islands/world_3_44_-1",
+   "direction": "both",
+   "landing_only_end": null,
    "x": 81,
    "y": 1075,
    "top_layer": 1,
@@ -3893,6 +3960,7 @@
      ]
     }
    ],
+   "contacts": [],
    "id": "SR4"
   },
   {
@@ -3904,6 +3972,8 @@
     "/shattered_islands/world_8_45_-1"
    ],
    "other": "/shattered_islands/world_8_45_-1",
+   "direction": "up",
+   "landing_only_end": "top",
    "x": 202,
    "y": 1100,
    "top_layer": 1,
@@ -3991,6 +4061,7 @@
      ]
     }
    ],
+   "contacts": [],
    "id": "SR5"
   },
   {
@@ -4002,6 +4073,8 @@
     "/shattered_islands/world_8_45_-1"
    ],
    "other": "/shattered_islands/world_8_45_-1",
+   "direction": "up",
+   "landing_only_end": "top",
    "x": 200,
    "y": 1103,
    "top_layer": 1,
@@ -4089,6 +4162,7 @@
      ]
     }
    ],
+   "contacts": [],
    "id": "SR6"
   },
   {
@@ -4100,6 +4174,8 @@
     "/shattered_islands/world_8_45_-1"
    ],
    "other": "/shattered_islands/world_8_45_-1",
+   "direction": "up",
+   "landing_only_end": "top",
    "x": 202,
    "y": 1103,
    "top_layer": 1,
@@ -4187,6 +4263,7 @@
      ]
     }
    ],
+   "contacts": [],
    "id": "SR7"
   },
   {
@@ -4198,6 +4275,8 @@
     "/shattered_islands/world_6_46_-1"
    ],
    "other": "/shattered_islands/world_6_46_-1",
+   "direction": "both",
+   "landing_only_end": null,
    "x": 145,
    "y": 1105,
    "top_layer": 1,
@@ -4305,6 +4384,7 @@
      ]
     }
    ],
+   "contacts": [],
    "id": "SR8"
   },
   {
@@ -4316,6 +4396,8 @@
     "/shattered_islands/world_8_46_-1"
    ],
    "other": "/shattered_islands/world_8_46_-1",
+   "direction": "up",
+   "landing_only_end": "top",
    "x": 198,
    "y": 1106,
    "top_layer": 1,
@@ -4402,6 +4484,7 @@
      ]
     }
    ],
+   "contacts": [],
    "id": "SR9"
   },
   {
@@ -4413,6 +4496,8 @@
     "/shattered_islands/world_8_46_-1"
    ],
    "other": "/shattered_islands/world_8_46_-1",
+   "direction": "up",
+   "landing_only_end": "top",
    "x": 200,
    "y": 1106,
    "top_layer": 1,
@@ -4500,6 +4585,7 @@
      ]
     }
    ],
+   "contacts": [],
    "id": "SR10"
   },
   {
@@ -4511,6 +4597,8 @@
     "/shattered_islands/world_8_46_-1"
    ],
    "other": "/shattered_islands/world_8_46_-1",
+   "direction": "up",
+   "landing_only_end": "top",
    "x": 202,
    "y": 1106,
    "top_layer": 1,
@@ -4598,6 +4686,7 @@
      ]
     }
    ],
+   "contacts": [],
    "id": "SR11"
   },
   {
@@ -4609,6 +4698,8 @@
     "/shattered_islands/world_7_46_-1"
    ],
    "other": "/shattered_islands/world_7_46_-1",
+   "direction": "both",
+   "landing_only_end": null,
    "x": 174,
    "y": 1117,
    "top_layer": 1,
@@ -4716,6 +4807,7 @@
      ]
     }
    ],
+   "contacts": [],
    "id": "SR12"
   },
   {
@@ -4727,6 +4819,8 @@
     "/shattered_islands/world_7_47_-1"
    ],
    "other": "/shattered_islands/world_7_47_-1",
+   "direction": "up",
+   "landing_only_end": "top",
    "x": 177,
    "y": 1131,
    "top_layer": 1,
@@ -4815,6 +4909,7 @@
      ]
     }
    ],
+   "contacts": [],
    "id": "SR13"
   },
   {
@@ -4826,6 +4921,8 @@
     "/shattered_islands/world_7_47_-1"
    ],
    "other": "/shattered_islands/world_7_47_-1",
+   "direction": "up",
+   "landing_only_end": "top",
    "x": 177,
    "y": 1133,
    "top_layer": 1,
@@ -4914,6 +5011,7 @@
      ]
     }
    ],
+   "contacts": [],
    "id": "SR14"
   },
   {
@@ -4925,6 +5023,8 @@
     "/shattered_islands/world_7_47_-1"
    ],
    "other": "/shattered_islands/world_7_47_-1",
+   "direction": "both",
+   "landing_only_end": null,
    "x": 177,
    "y": 1137,
    "top_layer": 1,
@@ -5046,6 +5146,7 @@
      ]
     }
    ],
+   "contacts": [],
    "id": "SR15"
   },
   {
@@ -5057,6 +5158,8 @@
     "/shattered_islands/world_7_47_-1"
    ],
    "other": "/shattered_islands/world_7_47_-1",
+   "direction": "both",
+   "landing_only_end": null,
    "x": 169,
    "y": 1147,
    "top_layer": 1,
@@ -5176,6 +5279,7 @@
      ]
     }
    ],
+   "contacts": [],
    "id": "SR16"
   },
   {
@@ -5187,6 +5291,8 @@
     "/shattered_islands/world_3_56_-2"
    ],
    "other": "/shattered_islands/world_3_56_-2",
+   "direction": "both",
+   "landing_only_end": null,
    "x": 85,
    "y": 1366,
    "top_layer": 1,
@@ -5295,6 +5401,7 @@
      ]
     }
    ],
+   "contacts": [],
    "id": "SR17"
   },
   {
@@ -5306,6 +5413,8 @@
     "/shattered_islands/world_6_57_-1"
    ],
    "other": "/shattered_islands/world_6_57_-1",
+   "direction": "up",
+   "landing_only_end": "top",
    "x": 153,
    "y": 1382,
    "top_layer": 1,
@@ -5390,6 +5499,7 @@
      ]
     }
    ],
+   "contacts": [],
    "id": "SR18"
   },
   {
@@ -5401,6 +5511,8 @@
     "/shattered_islands/world_7_64_-1"
    ],
    "other": "/shattered_islands/world_7_64_-1",
+   "direction": "down",
+   "landing_only_end": "bottom",
    "x": 189,
    "y": 1549,
    "top_layer": 1,
@@ -5478,6 +5590,7 @@
      ]
     }
    ],
+   "contacts": [],
    "id": "SR19"
   },
   {
@@ -5489,6 +5602,8 @@
     "/shattered_islands/world_7_64_-1"
    ],
    "other": "/shattered_islands/world_7_64_-1",
+   "direction": "down",
+   "landing_only_end": "bottom",
    "x": 190,
    "y": 1549,
    "top_layer": 1,
@@ -5575,6 +5690,7 @@
      ]
     }
    ],
+   "contacts": [],
    "id": "SR20"
   },
   {
@@ -5586,6 +5702,8 @@
     "/shattered_islands/world_7_64_-1"
    ],
    "other": "/shattered_islands/world_7_64_-1",
+   "direction": "both",
+   "landing_only_end": null,
    "x": 189,
    "y": 1550,
    "top_layer": 1,
@@ -5731,6 +5849,7 @@
      ]
     }
    ],
+   "contacts": [],
    "id": "SR21"
   },
   {
@@ -5742,6 +5861,8 @@
     "/shattered_islands/world_7_64_-1"
    ],
    "other": "/shattered_islands/world_7_64_-1",
+   "direction": "both",
+   "landing_only_end": null,
    "x": 190,
    "y": 1550,
    "top_layer": 1,
@@ -5887,6 +6008,7 @@
      ]
     }
    ],
+   "contacts": [],
    "id": "SR22"
   }
  ],
@@ -110776,6 +110898,10 @@
     "kind": "cave resolution",
     "unit": "R3's cave",
     "text": "R3's cave (3047 tiles, regions R3): lower regions in place; lowering the whole cave would push 1 unit(s) below it down; lowering the whole cave breaks 22 stair(s) and makes 0 steep step(s); lowering only the raised regions breaks 18 and makes 4"
+   },
+   {
+    "kind": "one-way stairwells",
+    "text": "12 (SR3, SR5, SR6, SR7, SR9, SR10, SR11, SR13, SR14, SR18, SR19, SR20) replace legacy exits that only go one way, so each has exits at one end and a landing at the other; making them two-way would add a way in that legacy does not have"
    },
    {
     "kind": "steep steps",

@@ -713,12 +713,15 @@ def write_stairwells(plan, w, lab, sw_kind):
       "borrow the appearance of the family's `*_down` archetype, are not exits and not walkable, so the stairwell "
       "stays one exit. **Every stairwell is drawn only on the player's layer** "
       "(`segments_drawn_only_on_player_layer`), so its **view conflicts** (intermediate tiles within {} tiles "
-      "of an unrelated area on that layer) are listed but not seen. Ids: SW = built for a placed group, SL = "
-      "sloped, SR = for an overworld exit the relayering put 2 or more layers apart.".format(R))
+      "of an unrelated area on that layer) are listed but not seen. The chain search also avoids tiles within {} "
+      "tile of a related area (the contact margin); **contacts** it cannot avoid are listed. A stairwell that "
+      "replaces a legacy one-way exit is used only that way (**use**: down or up); its far end is a landing "
+      "without an exit. Ids: SW = built for a placed group, SL = sloped, SR = for an overworld exit the "
+      "relayering put 2 or more layers apart.".format(R, st["contact_margin_tiles"]))
     w("")
-    w("| id | owner | connects to | top (x, y) | layers | span | shape | top / intermediate / bottom objects | "
-      "replaces | view conflicts |")
-    w("|---|---|---|---|---|---:|---|---|---|---|")
+    w("| id | owner | connects to | top (x, y) | layers | span | shape | use | top / intermediate / bottom objects | "
+      "replaces | view conflicts | contacts |")
+    w("|---|---|---|---|---|---:|---|---|---|---|---|---|")
     for sw in plan["stairwells"]:
         top, bot = sw["tiles"][0], sw["tiles"][-1]
         own = "#{} `{}`".format(lab[sw["group"]], base(sw["group"])) if sw["group"] in lab else \
@@ -730,13 +733,17 @@ def write_stairwells(plan, w, lab, sw_kind):
         conf = "; ".join("L{}: {}".format(c["layer"], ", ".join("`{}`".format(base(o)) for o in c["visible_from"]))
                          for c in sw["view_conflicts"]) or "none"
         reps = collections.Counter("{} {}".format(base(r["source_map"]), r["arch"]) for r in sw["replaces"])
-        w("| {} | {} | {} | {} | {}..{} | {} | {} | {} / {} / {} | {} | {} |".format(
+        touch = "; ".join("L{}: {}".format(c["layer"], ", ".join(owner_name(o, lab) for o in c["touches"]))
+                          for c in sw["contacts"]) or "none"
+        use = {"both": "both ways", "down": "down only", "up": "up only"}[sw["direction"]]
+        w("| {} | {} | {} | {} | {}..{} | {} | {} | {} | {} / {} / {} | {} | {} | {} |".format(
             sw["id"], own, other, col, sw["top_layer"], sw["bottom_layer"], sw["top_layer"] - sw["bottom_layer"],
-            shape, ", ".join(o["archetype"] for o in top["objects"]) or "-",
+            shape, use, ", ".join(o["archetype"] for o in top["objects"]) or "landing",
             "{} (look only)".format(sw["intermediate_appearance"]) if sw["intermediate_appearance"]
             else "**none (owner to choose)**",
-            ", ".join(o["archetype"] for o in bot["objects"]) or "-",
-            ", ".join("{}{}".format(k, "" if v == 1 else " x{}".format(v)) for k, v in sorted(reps.items())), conf))
+            ", ".join(o["archetype"] for o in bot["objects"]) or "landing",
+            ", ".join("{}{}".format(k, "" if v == 1 else " x{}".format(v)) for k, v in sorted(reps.items())), conf,
+            touch))
     w("")
     if plan["stairwell_sites_blocked"]:
         w("Stairwells that could not be built (the exit stays a portal):")
@@ -828,7 +835,8 @@ def write_followup(plan, w):
       "server must skip a stairwell's intermediate objects on every depth except the player's own (depth 0), so "
       "a client never receives a segment on another layer.")
     w("  - The plane loader must create the stairwell from the plan's record and validate it (continuity of at "
-      "most one tile per layer, void intermediate tiles, both ends are exits that target each other's end).")
+      "most one tile per layer, void intermediate tiles, and each end's exits target the other end; a one-way "
+      "stairwell, `direction` down or up, has exits only at the end it starts from and a landing at the other).")
     w("- **Classic client** (`{}`):".format(CLASSIC))
     w("  - Linked levels are projected {} px apart (`client/src/gui/widgets/map.c:1307`, applied at "
       "`:4712-4713`) and up to 6 levels each way are streamed (`libatrinik/socket.h:87-89`).".format(
@@ -844,10 +852,11 @@ def write_followup(plan, w):
     w("  - Today an exit is an object with a `portal` to `(plane, layer, at)` (`docs/spec/FORMAT.md:210`, "
       "example at `:176`). There is no way to say that objects on several layers form one exit.")
     w("  - Needed: a stairwell record per plane (id, ordered tiles `(layer, x, y, proto)` from top to bottom, "
-      "the two end objects, a `drawn_only_on_player_layer` flag that defaults to true), validation rules "
-      "(consecutive tiles one layer and at most one tile apart, so sloped stairwells are valid; the ends are "
-      "portals that target each other's end; the intermediate objects are not portals), a pack table for it, "
-      "and editor support to show and edit the stairwell as one object.")
+      "the two end objects, a direction (both, down, up), a `drawn_only_on_player_layer` flag that defaults to "
+      "true), validation rules (consecutive tiles one layer and at most one tile apart, so sloped stairwells are "
+      "valid; every end portal targets the other end, and a one-way stairwell has portals only at its start; the "
+      "intermediate objects are not portals), a pack table for it, and editor support to show and edit the "
+      "stairwell as one object.")
     w("  - Relayering output fits the format as it is: per-tile `height` grids (`docs/spec/FORMAT.md:194-195`) "
       "take the remaining heights, split bridge tiles keep their raised floor as an object with its `sub_layer` "
       "(`:196-197`), and the new seam stairs are ordinary objects with a `portal`.")
