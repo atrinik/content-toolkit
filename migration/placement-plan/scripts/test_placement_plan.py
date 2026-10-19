@@ -146,6 +146,15 @@ class CommittedPlan(VerifierTest):
             verify_plan.relayering_rules = rules
             verify_plan._RELAYER_CACHE.clear()
 
+    def test_the_plan_identifies_its_input(self):
+        for change in (lambda p: p.pop("content_root"), lambda p: p.update(content_root=None),
+                       lambda p: p.update(content_root=""), lambda p: p.update(content_git_head="3ad2015"),
+                       lambda p: p.update(content_worktree_clean="yes"),
+                       lambda p: p["content_inputs_digest"].update(sha256="x")):
+            p = self.plan()
+            change(p)
+            self.assertCaught(p, "the plan does not identify its input")
+
     def test_another_schema(self):
         p = self.plan()
         p["schema"] = "atrinik-overworld-placement-plan/3"
@@ -865,6 +874,26 @@ class ContentFidelity(VerifierTest):
         p["summary"]["wired_exits"] = 5.0
         self.assertFalse(verify_plan.verify(p)["ok"])
         self.assertFalse(verify_plan.verify_content(p, self.content, self.fresh)["ok"])
+
+
+class Report(VerifierTest):
+    """The report counts wired exits from the records."""
+
+    def test_an_overworld_wired_exit_is_no_crossing_stairs(self):
+        import tempfile
+
+        import report
+
+        p = self.plan()
+        ow = next(g for g in p["groups"] if g["classification"] == "overworld")
+        wired = next(e for g in p["groups"] for key in INDEX for e in g.get(key, []) if e.get("form") == "wired")
+        ow["internal_exits"].append(dict(ow["internal_exits"][0], form="wired", wired=wired["wired"]))
+        p["summary"]["wired_exits"] += 1  # as the generator counts it: every wired exit
+        with tempfile.TemporaryDirectory() as tmp:
+            report.write_report(p, Path(tmp))
+            text = (Path(tmp) / "REPORT.md").read_text(encoding="utf-8")
+        self.assertIn("**66 become plain stairs** (5 of them wired dangling exits)", text)
+        self.assertIn("**Wired exits**: 6 legacy exits", text)
 
 
 class PlacePool(unittest.TestCase):

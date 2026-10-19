@@ -22,6 +22,8 @@ fidelity guarantee; that is --content.
 verify(plan) checks:
 
 Values:
+  * the plan identifies its input: a content_root path, a 40-hex
+    content_git_head, content_worktree_clean, and the inputs digest
   * the plan's numbers are integers: no floats, and booleans only under
     the flag keys (BOOL_KEYS); the plan file is at most MAX_PLAN_BYTES
 Groups:
@@ -627,6 +629,17 @@ def _verify(plan: dict) -> dict:
         return {"ok": False, "errors": ["schema {} is not {}, the shape this verifier checks".format(
             plan.get("schema"), SCHEMA)]}
     errors = []
+    # what the plan was built from: the checkout path (shown in the report; --content ignores its value), the
+    # commit, whether the inputs were clean, and the digest of the input trees
+    dig = plan.get("content_inputs_digest")
+    if not (isinstance(plan.get("content_root"), str) and plan["content_root"]
+            and isinstance(plan.get("content_git_head"), str) and re.fullmatch(r"[0-9a-f]{40}", plan["content_git_head"])
+            and type(plan.get("content_worktree_clean")) is bool
+            and isinstance(dig, dict) and isinstance(dig.get("trees"), list) and dig["trees"]
+            and all(isinstance(t, str) and t for t in dig["trees"]) and type(dig.get("files")) is int
+            and isinstance(dig.get("sha256"), str) and re.fullmatch(r"[0-9a-f]{64}", dig["sha256"])):
+        errors.append("the plan does not identify its input (content_root, content_git_head, content_worktree_clean, "
+                      "content_inputs_digest)")
     bad_numbers = number_type_errors(plan)
     if bad_numbers:
         errors.append("the plan has booleans or floats where integers belong, e.g. {}".format(", ".join(bad_numbers)))

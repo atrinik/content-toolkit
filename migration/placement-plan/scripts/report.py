@@ -160,10 +160,12 @@ def write_report(plan, out: Path):
           sum(1 for c in rl["caves"] if c["choice"] == "lower-regions-in-place"), rs["maps_moved"],
           plain_kept, plain_well, rs["new_stairs"], rs["seams"]))
     c = s["crossing_exit_objects_after_placement"]
+    wired_crossing = sum(1 for e in wired_exits(plan)
+                         if e["source_group"] != e["target_group"] and e.get("becomes") == "stairs")
     w("- Exit objects crossing group boundaries after placement (both directions, every exit object counted): "
       "**{} become plain stairs** ({} of them wired dangling exits), **{} are replaced by stairwells**, **{} stay "
       "portals**. Another {} exit objects lead into separate planes and stay portals by definition.".format(
-          c.get("stairs", 0), s["wired_exits"], c.get("stairwell", 0), c.get("portal", 0),
+          c.get("stairs", 0), wired_crossing, c.get("stairwell", 0), c.get("portal", 0),
           s["crossing_exit_objects_into_separate_planes"]))
     w("- **Stairwells: {}**: {} for placed groups (SW), {} sloped (SL), {} for overworld exits the relayering "
       "put 2 or more layers apart (SR). Every one is drawn only on the layer the player is on.".format(
@@ -492,9 +494,10 @@ def write_report(plan, out: Path):
 
 
 def wired_exits(plan):
+    """Every wired exit: crossing ones and those wired between two overworld maps (internal_exits)."""
     out, seen = [], set()
     for g in plan["groups"]:
-        for _key, e in crossing(g):
+        for e in [e for _key, e in crossing(g)] + g.get("internal_exits", []):
             k = (e["source_map"], e["line"])
             if e.get("form") == "wired" and k not in seen:
                 seen.add(k)
