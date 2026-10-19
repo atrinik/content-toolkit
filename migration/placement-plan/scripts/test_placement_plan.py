@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Negative tests for the placement-plan verifier and generator (standard library only).
 
-    python3 -I scripts/test_placement_plan.py
+    python3 -I scripts/test_placement_plan.py [--jobs N]
     PLACEMENT_PLAN_CONTENT=DIR python3 -I scripts/test_placement_plan.py
 
 Each verifier test tampers with a copy of the committed placement-plan.json
@@ -10,7 +10,8 @@ generator tests drive build_plan.place_pool() with stand-in callbacks. Neither
 needs a content checkout. With PLACEMENT_PLAN_CONTENT naming a checkout at the
 plan's content_git_head, ContentFidelity also checks that verify_content()
 rejects edits that keep the JSON consistent with itself; without it, those
-tests are skipped.
+tests are skipped. Each test runs the full verifier, so the tests run in up
+to 8 worker processes (--jobs 1 runs them in this process).
 """
 
 from __future__ import annotations
@@ -101,12 +102,17 @@ class CommittedPlan(VerifierTest):
             self.assertFalse(verify_plan.same_json(a, b), (a, b))
 
     def test_an_oversized_plan_file(self):
-        limit = verify_plan.MAX_PLAN_BYTES
+        import contextlib
+        import io
+
+        limit, out = verify_plan.MAX_PLAN_BYTES, io.StringIO()
         try:
             verify_plan.MAX_PLAN_BYTES = 1000
-            self.assertEqual(verify_plan.main([str(PLAN)]), 1)
+            with contextlib.redirect_stdout(out):
+                self.assertEqual(verify_plan.main([str(PLAN)]), 1)
         finally:
             verify_plan.MAX_PLAN_BYTES = limit
+        self.assertIn("is larger than 1000 bytes", out.getvalue())
 
     def test_another_schema(self):
         p = self.plan()
@@ -866,5 +872,54 @@ class PlacePool(unittest.TestCase):
         self.assertEqual((order, failed, left), (["d"], ["a"], ["b", "c"]))
 
 
+def _run_one(test_id):
+    """Run one test in a worker process; return (id, outcome, report)."""
+    import io
+
+    out = io.StringIO()
+    result = unittest.TextTestRunner(stream=out, verbosity=0).run(
+        unittest.defaultTestLoader.loadTestsFromName(test_id, sys.modules[__name__]))
+    outcome = "ok" if result.wasSuccessful() else "fail"
+    if result.wasSuccessful() and result.skipped:
+        outcome = "skip"
+    return test_id, outcome, "" if result.wasSuccessful() else out.getvalue()
+
+
+def main(argv=None):
+    """Run the suite, by default in parallel worker processes (one test per task; results are the same)."""
+    import argparse
+    import multiprocessing
+    import time
+    from concurrent.futures import ProcessPoolExecutor
+
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--jobs", type=int, default=min(os.cpu_count() or 1, 8),
+                    help="worker processes (1 runs the tests in this process)")
+    args = ap.parse_args(argv)
+    if args.jobs <= 1 or "fork" not in multiprocessing.get_all_start_methods():
+        return 0 if unittest.main(argv=[sys.argv[0]], exit=False).result.wasSuccessful() else 1
+
+    def ids(suite):
+        for t in suite:
+            if isinstance(t, unittest.TestSuite):
+                yield from ids(t)
+            else:
+                yield t.id().split(".", 1)[1]  # Class.method, looked up in this module by the worker
+
+    tests = sorted(ids(unittest.defaultTestLoader.loadTestsFromModule(sys.modules[__name__])))
+    start = time.monotonic()
+    with ProcessPoolExecutor(args.jobs, mp_context=multiprocessing.get_context("fork")) as pool:
+        results = list(pool.map(_run_one, tests))
+    failed = [(t, report) for t, outcome, report in results if outcome == "fail"]
+    for t, report in failed:
+        sys.stderr.write("{}\nFAIL: {}\n{}\n".format("=" * 70, t, report))
+    skipped = sum(1 for _t, outcome, _r in results if outcome == "skip")
+    sys.stderr.write("{}\nRan {} tests in {:.3f}s ({} workers)\n\n{}\n".format(
+        "-" * 70, len(results), time.monotonic() - start, args.jobs,
+        "FAILED (failures={})".format(len(failed)) if failed else
+        "OK" + (" (skipped={})".format(skipped) if skipped else "")))
+    return 1 if failed else 0
+
+
 if __name__ == "__main__":
-    unittest.main()
+    raise SystemExit(main())
