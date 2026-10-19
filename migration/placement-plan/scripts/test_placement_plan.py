@@ -114,6 +114,38 @@ class CommittedPlan(VerifierTest):
             verify_plan.MAX_PLAN_BYTES = limit
         self.assertIn("is larger than 1000 bytes", out.getvalue())
 
+    def test_the_relayering_cache_follows_its_inputs(self):
+        # a changed relayering input is recomputed, never served from the cache
+        p = self.plan()
+        c = p["relayering"]["new_contacts"][0]
+        verify_plan.verify(self.plan())
+        c["walkable"] = not c["walkable"]
+        self.assertCaught(p, "new contact {} / {} records walkable".format(tuple(c["tiles"][0]), tuple(c["tiles"][1])))
+        # every input is in the key: each change below computes the relayering again
+        calls, rules = [], verify_plan.relayering_rules
+        ow_rows = next(g for g in self.plan()["groups"] if g["classification"] == "overworld")["occupied_rows_by_layer"]
+        args = [ow_rows, {}, self.plan()["relayering"], [], {("m", 1)}, [50, 50, 10, 1]]
+
+        def counting(*a):
+            calls.append(a)
+            return [], {}, {}
+
+        try:
+            verify_plan.relayering_rules = counting
+            verify_plan._RELAYER_CACHE.clear()
+            verify_plan._relayering(*args)
+            verify_plan._relayering(*args)
+            self.assertEqual(len(calls), 1)
+            for i, changed in ((0, dict(ow_rows, extra={})), (2, dict(args[2], seam_cell=25)),
+                               (3, [{"source_map": "m"}]), (4, {("m", 2)}), (5, [50, 50, 10, 2])):
+                a = list(args)
+                a[i] = changed
+                verify_plan._relayering(*a)
+                self.assertEqual(len(calls), 2 + [0, 2, 3, 4, 5].index(i), "input {} is not in the key".format(i))
+        finally:
+            verify_plan.relayering_rules = rules
+            verify_plan._RELAYER_CACHE.clear()
+
     def test_another_schema(self):
         p = self.plan()
         p["schema"] = "atrinik-overworld-placement-plan/3"
@@ -908,6 +940,7 @@ def main(argv=None):
 
     tests = sorted(ids(unittest.defaultTestLoader.loadTestsFromModule(sys.modules[__name__])))
     start = time.monotonic()
+    verify_plan.verify(json.loads(PLAN.read_text(encoding="utf-8")))  # warm the relayering cache the workers fork
     with ProcessPoolExecutor(args.jobs, mp_context=multiprocessing.get_context("fork")) as pool:
         results = list(pool.map(_run_one, tests))
     failed = [(t, report) for t, outcome, report in results if outcome == "fail"]

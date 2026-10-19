@@ -147,6 +147,7 @@ from __future__ import annotations
 
 import bisect
 import collections
+import hashlib
 import json
 import re
 import sys
@@ -165,9 +166,26 @@ BOOL_KEYS = {"content_worktree_clean", "segments_drawn_only_on_player_layer", "e
              "relayered", "ok"}
 
 
+def _has_bad_number(plan) -> bool:
+    """Whether the plan holds a float, or a boolean outside the flag keys (fast pass, no paths)."""
+    stack = [(plan, None)]
+    while stack:
+        x, key = stack.pop()
+        t = type(x)
+        if t is dict:
+            stack.extend((v, k) for k, v in x.items() if type(v) is not str)
+        elif t is list:
+            stack.extend((v, key) for v in x if type(v) is not str)
+        elif t is float or t is bool and key not in BOOL_KEYS:
+            return True
+    return False
+
+
 def number_type_errors(plan, limit=5) -> list:
     """Paths of booleans outside the flag keys and of floats: a boolean is not a count or a coordinate,
     however Python compares it."""
+    if not _has_bad_number(plan):
+        return []
     bad, stack = [], [(plan, None, "")]
     while stack and len(bad) < limit:
         x, key, path = stack.pop()
@@ -226,12 +244,14 @@ class Rows:
     def add(self, x, y):
         self.rows[y].append(x)
         self.count += 1
-        b = self.box
-        self.box = (x, y, x, y) if b is None else (min(b[0], x), min(b[1], y), max(b[2], x), max(b[3], y))
 
     def done(self):
+        """Sort each row and compute the bounding box; called once every tile is added."""
         for xs in self.rows.values():
             xs.sort()
+        if self.rows:
+            self.box = (min(xs[0] for xs in self.rows.values()), min(self.rows),
+                        max(xs[-1] for xs in self.rows.values()), max(self.rows))
 
     def any_within(self, x, y, r) -> bool:
         b = self.box
@@ -271,6 +291,328 @@ def flood(keys, same):
     return out
 
 
+_RELAYER_CACHE = {}  # one entry: the last relayering re-derived in this process, by the hash of its inputs
+
+
+def _relayering(ow_rows, leg, rl, internal_exits, record_keys, settings):
+    """relayering_rules() for these inputs, memoized: tests and the generator verify plans whose relayering
+    inputs are identical, and the result is a pure function of them (the key covers every input)."""
+    key = hashlib.sha256(json.dumps([ow_rows, rl, internal_exits, sorted(record_keys), settings], sort_keys=True,
+                                    separators=(",", ":")).encode()).hexdigest()
+    if key not in _RELAYER_CACHE:
+        _RELAYER_CACHE.clear()
+        _RELAYER_CACHE[key] = relayering_rules(leg, rl, internal_exits, record_keys, *settings)
+    return _RELAYER_CACHE[key]
+
+
+def relayering_rules(leg, rl, internal_exits, record_keys, HZ, MINR, WDZ, tol):
+    """The relayering, re-derived from the overworld rows (leg) and the tile heights.
+
+    Returns (errors, final layer of every legacy overworld tile, counts). A pure
+    function of its arguments; record_keys holds the seam pieces' exits that have an exit record."""
+    errors = []
+    heights, blocked, ground = {}, set(), {}
+    for path, rows in sorted(rl["tile_heights"].items()):
+        X, Y, Z = world_cell(path)
+        for y, row in enumerate(rows):
+            for x, tok in enumerate(row.split(" ")):
+                if tok == ".":
+                    continue
+                k = (Z, 24 * X + x, 24 * Y + y)
+                if tok.endswith("b"):
+                    blocked.add(k)
+                    tok = tok[:-1]
+                if "/" in tok:
+                    tok, g = tok.split("/")
+                    ground[k] = int(g)
+                heights[k] = int(tok)
+    split = {}
+    for sp in rl["split_tiles"]:
+        X, Y, Z = world_cell(sp["map"])
+        split[(Z, 24 * X + sp["tile"][0], 24 * Y + sp["tile"][1])] = sp
+    # a split tile's raised part is its upper layer; which tiles split is derived below
+    main = {k: max(v[1]) for k, v in leg.items()}
+    # regions
+    q = {k: h // HZ for k, h in heights.items() if h >= HZ}
+    comps = flood(q, lambda a, b: q[a] == q[b])
+    comps.sort(key=lambda c: (-len(c), c[0]))
+    relay_comp = [len(c) >= MINR for c in comps]
+    comp_of = {k: i for i, c in enumerate(comps) for k in c}
+    changed = True
+    while changed:
+        changed = False
+        for i, c in enumerate(comps):
+            if relay_comp[i]:
+                continue
+            if any((k[0], k[1] + dx, k[2] + dy) in comp_of and relay_comp[comp_of[(k[0], k[1] + dx, k[2] + dy)]]
+                   for k in c for dx, dy in N8):
+                relay_comp[i] = True
+                changed = True
+    relayered = {k for i, c in enumerate(comps) if relay_comp[i] for k in c}
+    got_r = sorted((c[0][0], q[c[0]], len(c)) for i, c in enumerate(comps) if relay_comp[i])
+    got_k = sorted((c[0][0], q[c[0]], len(c)) for i, c in enumerate(comps) if not relay_comp[i])
+    if got_r != sorted((r["layer_before"], r["q"], r["tiles"]) for r in rl["regions"]):
+        errors.append("relayered regions differ from the tile heights")
+    if got_k != sorted((r["layer_before"], r["q"], r["tiles"]) for r in rl["kept_regions"]):
+        errors.append("kept regions differ from the tile heights")
+    # units and shifts
+    units = []
+    unit_of = {}
+    bylayer = collections.defaultdict(list)
+    for k in leg:
+        if k[0] != 0:
+            bylayer[k[0]].append(k)
+    for L in sorted(bylayer):
+        for c in flood(bylayer[L], lambda a, b: True):
+            for k in c:
+                unit_of[k] = len(units)
+            units.append(c)
+    du = {}
+    for i, c in enumerate(units):
+        offs = {main[k] - k[0] for k in c if k not in relayered}
+        if len(offs) > 1:
+            errors.append("unit with {} tiles on layer {} does not move as one: shifts {}".format(
+                len(c), c[0][0], sorted(offs)))
+        du[i] = min(offs) if offs else 0
+        if du[i] > 0 and c[0][0] < 1 or du[i] < 0 and c[0][0] >= 0:
+            errors.append("unit on layer {} moves {} (storeys move only up, caves only down)".format(c[0][0], du[i]))
+    dr = {}
+    for k in sorted(relayered):
+        d = main[k] - k[0] - q[k] - (du[unit_of[k]] if k in unit_of else 0)
+        ci = comp_of[k]
+        if dr.setdefault(ci, d) != d:
+            errors.append("region tile {} adjustment {} differs from its region's {}".format(k, d, dr[ci]))
+        if d > 0:
+            errors.append("region tile {} is adjusted up by {}".format(k, d))
+    for k in leg:
+        if k in relayered:
+            continue
+        if k[0] == 0 and main[k] != 0:
+            errors.append("surface tile {} of {} moved to layer {} without a region".format(k, leg[k][0], main[k]))
+    # split tiles: a relayered tile whose sub-layer 0 floor stays below its raised floor keeps
+    # that ground part on its unit's layer; derived from the tile heights, not the records
+    derived_split = {}
+    for k in relayered:
+        g = ground.get(k)
+        base_layer = k[0] + (du[unit_of[k]] if k in unit_of else 0)
+        if g is not None and g // HZ < q[k] and base_layer != main[k]:
+            derived_split[k] = base_layer
+    if set(derived_split) != set(split):
+        errors.append("split tiles differ: {} derived from the tile heights, {} recorded".format(
+            len(derived_split), len(split)))
+    for k, v in leg.items():
+        want = sorted({derived_split[k], main[k]}) if k in derived_split else [main[k]]
+        if sorted(v[1]) != want:
+            errors.append("legacy tile {} of {} appears on layers {}, expected {}".format(k, v[0], sorted(v[1]), want))
+    for k, sp in split.items():
+        if k not in derived_split or sp["ground_layer"] != derived_split[k] or sp["upper_layer"] != main[k] or \
+                sp["floors"].get("0") != ground.get(k):
+            errors.append("split tile {} is inconsistent".format(k))
+    if sorted((r["layer_before"], r["q"], r["tiles"], r["in_place_adjustment"]) for r in rl["regions"]) != \
+            sorted((comps[i][0][0], q[comps[i][0]], len(comps[i]), dr.get(i, 0)) for i in range(len(comps))
+                   if relay_comp[i]):
+        errors.append("region in-place adjustments differ from the final layers")
+    got_u = sorted((units[i][0][0], d, len(units[i])) for i, d in du.items() if d)
+    if got_u != sorted((u["layer_before"], u["shift"], u["tiles"]) for u in rl["units_moved"]):
+        errors.append("moved units differ from the final layers")
+    # column order, caves underground, nothing lands on the surface
+    cols = collections.defaultdict(list)
+    for k, v in leg.items():
+        cols[(k[1], k[2])].append((k[0], min(v[1]), max(v[1])))
+    for (x, y), lst in cols.items():
+        lst.sort()
+        for (la, _mna, mxa), (lb, mnb, _mxb) in zip(lst, lst[1:]):
+            if not mxa < mnb:
+                errors.append("column ({}, {}): layer {} ends at or above layer {}".format(x, y, la, lb))
+    for k, v in leg.items():
+        if k[0] < 0 and max(v[1]) >= 0:
+            errors.append("cave tile {} of {} reaches layer {}".format(k, v[0], max(v[1])))
+        if main[k] != k[0] and main[k] == 0:
+            errors.append("moved tile {} of {} ends on the surface layer".format(k, v[0]))
+    # maps moved
+    mm = collections.defaultdict(collections.Counter)
+    moved_maps = set()
+    for k, v in leg.items():
+        mm[v[0]][main[k]] += 1
+        if main[k] != k[0]:
+            moved_maps.add(v[0])
+    exp_maps = sorted(moved_maps)
+    if exp_maps != sorted(m["path"] for m in rl["maps_moved"]):
+        errors.append("moved maps differ from the final layers")
+    for m in rl["maps_moved"]:
+        if {str(L): n for L, n in sorted(mm[m["path"]].items())} != m["final_layers"]:
+            errors.append("final layers of {} differ".format(m["path"]))
+
+    def walkable(a, b):
+        return a in heights and b in heights and a not in blocked and b not in blocked and \
+            abs(heights[a] - heights[b]) < WDZ
+
+    def rest(k):
+        return heights[k] - HZ * q[k] if k in relayered else heights[k]
+
+    moved = sorted(k for k in leg if main[k] != k[0])
+    moved_set = set(moved)
+    cut = set()
+    for k in moved:
+        for dx, dy in N8:
+            n = (k[0], k[1] + dx, k[2] + dy)
+            if n in leg and walkable(k, n) and main[k] != main[n]:
+                a, b = min(k, n), max(k, n)
+                cut.add((a, b) if main[a] < main[b] else (b, a))
+    edges = sorted(cut)
+    parent = list(range(len(edges)))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    lay = [(main[lo], main[hi]) for lo, hi in edges]
+    for side in (0, 1):
+        at = collections.defaultdict(list)
+        for i, e in enumerate(edges):
+            at[(lay[i], e[side][1], e[side][2])].append(i)
+        for i, e in enumerate(edges):
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    for j in at.get((lay[i], e[side][1] + dx, e[side][2] + dy), ()):
+                        a, b = find(i), find(j)
+                        if a != b:
+                            parent[max(a, b)] = min(a, b)
+    seams = collections.defaultdict(list)
+    for i in range(len(edges)):
+        seams[find(i)].append(i)
+    cell = rl.get("seam_cell", 24)
+    pieces = {}
+    for idx in seams.values():
+        sid = min(edges[i] for i in idx)
+        for i in idx:
+            lo = edges[i][0]
+            pieces.setdefault((sid, lo[1] // cell, lo[2] // cell), set()).add(edges[i])
+    if len(seams) != len(rl["seams"]) or sum(s["cut_edges"] for s in rl["seams"]) != len(edges):
+        errors.append("seams differ: {} seams with {} cut edges recomputed, {} with {} recorded".format(
+            len(seams), len(edges), len(rl["seams"]), sum(s["cut_edges"] for s in rl["seams"])))
+    piece_by_edge = {}
+    for key, es in pieces.items():
+        for e in es:
+            piece_by_edge[e] = key
+    seen_pieces = set()
+    ns_by_id = {n["id"]: n for n in rl["new_stairs"]}
+    for s_ in rl["seams"]:
+        for pc in s_["pieces"]:
+            e = (tuple(pc["low_tile"]), tuple(pc["high_tile"]))
+            key = piece_by_edge.get(e)
+            if key is None:
+                errors.append("seam piece edge {} of {} is not a cut walkable edge".format(e, s_["id"]))
+                continue
+            if key in seen_pieces or len(pieces[key]) != pc["edges"] or [key[1], key[2]] != pc["cell"]:
+                errors.append("seam piece {} of {} does not match the recomputed piece".format(pc["cell"], s_["id"]))
+            seen_pieces.add(key)
+            if pc["continuity"] == "new stairs" and pc["stairs"] and pc["stairs"][0] in ns_by_id:
+                first = ns_by_id[pc["stairs"][0]]
+                if "exit" not in pc and (first["low_tile_legacy"], first["high_tile_legacy"]) != \
+                        (pc["low_tile"], pc["high_tile"]):
+                    errors.append("seam piece {} of {} does not put its first stairs on its representative edge".format(
+                        pc["cell"], s_["id"]))
+            elif pc["continuity"] != "existing exit" or tuple(pc.get("exit", ())) not in record_keys:
+                errors.append("seam piece {} of {} has no continuity".format(pc["cell"], s_["id"]))
+            for sid in pc["stairs"]:
+                n = ns_by_id.get(sid)
+                objs = {o.get("tile"): o for o in (n or {}).get("objects", [])}
+                lo_o, hi_o = objs.get("low", {}), objs.get("high", {})
+                if n is None or len(n["objects"]) != 2 or not (
+                        lo_o.get("exit") is True and lo_o.get("exit_to") == "high"
+                        and re.match(r"^(stairs|ladder)_.*up\d*$", lo_o.get("archetype", ""))
+                        and hi_o.get("exit") is True and hi_o.get("exit_to") == "low"
+                        and re.match(r"^(stairs|ladder)_.*down\d*$", hi_o.get("archetype", ""))):
+                    errors.append("new stairs {} are not an up stair on the low tile and a down stair on the high "
+                                  "tile targeting each other".format(sid))
+                    continue
+                lo, hi = (tuple(n["low_tile_legacy"]), tuple(n["high_tile_legacy"])) if n else (None, None)
+                if n is None or piece_by_edge.get((lo, hi)) != key or n["low"] != [lo[1], lo[2], main[lo]] \
+                        or n["high"] != [hi[1], hi[2], main[hi]] or n["high"][2] - n["low"][2] != 1 \
+                        or cheb(n["low"], n["high"]) > tol:
+                    errors.append("new stairs {} of seam piece {} of {} are not plain stairs across one of its "
+                                  "cut edges".format(sid, pc["cell"], s_["id"]))
+    if len(seen_pieces) != len(pieces):
+        errors.append("{} seam pieces recomputed, {} recorded".format(len(pieces), len(seen_pieces)))
+    if sorted(n["id"] for n in rl["new_stairs"]) != sorted(i for s_ in rl["seams"] for pc in s_["pieces"]
+                                                           for i in pc["stairs"]):
+        errors.append("new stairs and seam pieces do not list the same stairs")
+    # continuity: the two tiles of every cut edge stay connected on the final layers
+    # (walking, legacy overworld exits, new stairs) within the maps with tile heights
+    hmaps = set(rl["tile_heights"])
+    parent = {}
+
+    def uf_find(a):
+        parent.setdefault(a, a)
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+
+    def uf_union(a, b):
+        ra, rb = uf_find(a), uf_find(b)
+        if ra != rb:
+            parent[rb] = ra
+
+    gpos = collections.defaultdict(list)
+    for k, v in leg.items():
+        if v[0] in hmaps and k in heights and k not in blocked:
+            gpos[(main[k], k[1], k[2])].append((k, rest(k)))
+            if k in derived_split:
+                gpos[(derived_split[k], k[1], k[2])].append((("ground",) + k, ground[k]))
+    for (L, x, y), here in gpos.items():
+        for dx, dy in ((1, 0), (-1, 1), (0, 1), (1, 1)):
+            for a, ra in here:
+                for b, rb in gpos.get((L, x + dx, y + dy), ()):
+                    if abs(ra - rb) < WDZ:
+                        uf_union(a, b)
+    for r in internal_exits:
+        X, Y, Z = world_cell(r["source_map"])
+        X2, Y2, Z2 = world_cell(r["target_map"])
+        uf_union((Z, 24 * X + r["source_tile"][0], 24 * Y + r["source_tile"][1]),
+                 (Z2, 24 * X2 + r["target_tile"][0], 24 * Y2 + r["target_tile"][1]))
+    for n in rl["new_stairs"]:
+        uf_union(tuple(n["low_tile_legacy"]), tuple(n["high_tile_legacy"]))
+    apart = [e for e in edges if uf_find(e[0]) != uf_find(e[1])]
+    if apart:
+        errors.append("{} cut walkable edges are left without continuity, e.g. {}".format(len(apart), apart[0]))
+    steep = set()
+    for k in sorted(set(moved) | relayered):
+        for dx, dy in N8:
+            n = (k[0], k[1] + dx, k[2] + dy)
+            if n in leg and walkable(k, n) and main[k] == main[n] and abs(rest(k) - rest(n)) >= WDZ:
+                steep.add((min(k, n), max(k, n)))
+    rec_steep = {tuple(sorted(((s_["layer"], *s_["tiles"][0]), (s_["layer"], *s_["tiles"][1])))) for s_ in rl["steep_steps"]}
+    if steep != rec_steep:
+        errors.append("steep steps differ: {} recomputed, {} recorded".format(len(steep), len(rec_steep)))
+    finals = collections.defaultdict(list)
+    for k, v in leg.items():
+        for L in v[1]:
+            finals[(L, k[1], k[2])].append(k)
+    contacts = set()
+    for k in moved:
+        for dx, dy in N8:
+            for t in finals.get((main[k], k[1] + dx, k[2] + dy), ()):
+                if t[0] != k[0]:
+                    contacts.add((min(k, t), max(k, t)))
+    if contacts != {(tuple(c["tiles"][0]), tuple(c["tiles"][1])) for c in rl["new_contacts"]}:
+        errors.append("new contacts differ: {} recomputed, {} recorded".format(len(contacts), len(rl["new_contacts"])))
+    for c in rl["new_contacts"]:
+        a, b = tuple(c["tiles"][0]), tuple(c["tiles"][1])
+        walk = a in heights and b in heights and a not in blocked and b not in blocked and \
+            abs(rest(a) - rest(b)) < WDZ
+        if c["walkable"] != walk or c["final_layer"] != main.get(a if a in moved_set else b):
+            errors.append("new contact {} / {} records walkable {} on layer {}; recomputed {}".format(
+                a, b, c["walkable"], c["final_layer"], walk))
+    return errors, main, {"tile_heights": len(heights), "regions": len(got_r), "kept_regions": len(got_k),
+                          "units": len(units), "moved_units": len(got_u), "moved_tiles": len(moved),
+                          "cut_edges": len(edges), "seam_pieces": len(pieces), "steep_steps": len(steep),
+                          "new_contacts": len(contacts)}
+
+
 def verify(plan: dict) -> dict:
     """The JSON-only check. A malformed plan (a missing key, a value of the wrong shape) fails it with an
     error rather than an exception."""
@@ -303,16 +645,20 @@ def _verify(plan: dict) -> dict:
     leg = {}                                # (legacy layer, x, y) -> [map, final layers]
 
     def put(owner, mapname, layer, x0, y0, rows):
-        rr = owners[layer].setdefault(owner, Rows())
+        """Claim the '#' tiles of `rows` (at x0, y0) on `layer` for owner; return them in plane coordinates."""
+        rr, here, me, out = owners[layer].setdefault(owner, Rows()), claim[layer], (owner, mapname), []
         for y, row in enumerate(rows):
-            for x, ch in enumerate(row):
-                if ch == "#":
-                    t = (x0 + x, y0 + y)
-                    prev = claim[layer].get(t)
-                    if prev is not None and prev != (owner, mapname):
-                        errors.append("tile {} layer {} claimed by {} and {}".format(t, layer, prev[1], mapname))
-                    claim[layer][t] = (owner, mapname)
-                    rr.add(*t)
+            x = row.find("#")
+            while x >= 0:
+                t = (x0 + x, y0 + y)
+                prev = here.get(t)
+                if prev is not None and prev != me:
+                    errors.append("tile {} layer {} claimed by {} and {}".format(t, layer, prev[1], mapname))
+                here[t] = me
+                rr.add(t[0], t[1])
+                out.append(t)
+                x = row.find("#", x + 1)
+        return out
 
     ow_rows = ow["occupied_rows_by_layer"]
     if st.get("overworld_map_size") != OW_SIZE:
@@ -323,11 +669,9 @@ def _verify(plan: dict) -> dict:
         for Ls, rows in sorted(by_layer.items(), key=lambda kv: int(kv[0])):
             if len(rows) != OW_SIZE or any(len(r) != OW_SIZE for r in rows):
                 errors.append("rows of {} on layer {} are not {} x {}".format(path, Ls, OW_SIZE, OW_SIZE))
-            put(path, path, int(Ls), 24 * X, 24 * Y, rows)
-            for y, row in enumerate(rows):
-                for x, ch in enumerate(row):
-                    if ch == "#":
-                        leg.setdefault((Z, 24 * X + x, 24 * Y + y), [path, []])[1].append(int(Ls))
+            L = int(Ls)
+            for t in put(path, path, L, 24 * X, 24 * Y, rows):
+                leg.setdefault((Z,) + t, [path, []])[1].append(L)
     placed = []
     for g in plan["groups"]:
         p = g.get("placement")
@@ -1264,302 +1608,11 @@ def _verify(plan: dict) -> dict:
             errors.append("blocked {} stairwell site at {} has a void chain after all".format(shape, b["top"]))
 
     # ----------------------------------------------------------- relayering
-    heights, blocked, ground = {}, set(), {}
-    for path, rows in sorted(rl["tile_heights"].items()):
-        X, Y, Z = world_cell(path)
-        for y, row in enumerate(rows):
-            for x, tok in enumerate(row.split(" ")):
-                if tok == ".":
-                    continue
-                k = (Z, 24 * X + x, 24 * Y + y)
-                if tok.endswith("b"):
-                    blocked.add(k)
-                    tok = tok[:-1]
-                if "/" in tok:
-                    tok, g = tok.split("/")
-                    ground[k] = int(g)
-                heights[k] = int(tok)
-    split = {}
-    for sp in rl["split_tiles"]:
-        X, Y, Z = world_cell(sp["map"])
-        split[(Z, 24 * X + sp["tile"][0], 24 * Y + sp["tile"][1])] = sp
-    # a split tile's raised part is its upper layer; which tiles split is derived below
-    main = {k: max(v[1]) for k, v in leg.items()}
-    # regions
-    q = {k: h // HZ for k, h in heights.items() if h >= HZ}
-    comps = flood(q, lambda a, b: q[a] == q[b])
-    comps.sort(key=lambda c: (-len(c), c[0]))
-    relay_comp = [len(c) >= MINR for c in comps]
-    comp_of = {k: i for i, c in enumerate(comps) for k in c}
-    changed = True
-    while changed:
-        changed = False
-        for i, c in enumerate(comps):
-            if relay_comp[i]:
-                continue
-            if any((k[0], k[1] + dx, k[2] + dy) in comp_of and relay_comp[comp_of[(k[0], k[1] + dx, k[2] + dy)]]
-                   for k in c for dx, dy in N8):
-                relay_comp[i] = True
-                changed = True
-    relayered = {k for i, c in enumerate(comps) if relay_comp[i] for k in c}
-    got_r = sorted((c[0][0], q[c[0]], len(c)) for i, c in enumerate(comps) if relay_comp[i])
-    got_k = sorted((c[0][0], q[c[0]], len(c)) for i, c in enumerate(comps) if not relay_comp[i])
-    if got_r != sorted((r["layer_before"], r["q"], r["tiles"]) for r in rl["regions"]):
-        errors.append("relayered regions differ from the tile heights")
-    if got_k != sorted((r["layer_before"], r["q"], r["tiles"]) for r in rl["kept_regions"]):
-        errors.append("kept regions differ from the tile heights")
-    # units and shifts
-    units = []
-    unit_of = {}
-    bylayer = collections.defaultdict(list)
-    for k in leg:
-        if k[0] != 0:
-            bylayer[k[0]].append(k)
-    for L in sorted(bylayer):
-        for c in flood(bylayer[L], lambda a, b: True):
-            for k in c:
-                unit_of[k] = len(units)
-            units.append(c)
-    du = {}
-    for i, c in enumerate(units):
-        offs = {main[k] - k[0] for k in c if k not in relayered}
-        if len(offs) > 1:
-            errors.append("unit with {} tiles on layer {} does not move as one: shifts {}".format(
-                len(c), c[0][0], sorted(offs)))
-        du[i] = min(offs) if offs else 0
-        if du[i] > 0 and c[0][0] < 1 or du[i] < 0 and c[0][0] >= 0:
-            errors.append("unit on layer {} moves {} (storeys move only up, caves only down)".format(c[0][0], du[i]))
-    dr = {}
-    for k in sorted(relayered):
-        d = main[k] - k[0] - q[k] - (du[unit_of[k]] if k in unit_of else 0)
-        ci = comp_of[k]
-        if dr.setdefault(ci, d) != d:
-            errors.append("region tile {} adjustment {} differs from its region's {}".format(k, d, dr[ci]))
-        if d > 0:
-            errors.append("region tile {} is adjusted up by {}".format(k, d))
-    for k in leg:
-        if k in relayered:
-            continue
-        if k[0] == 0 and main[k] != 0:
-            errors.append("surface tile {} of {} moved to layer {} without a region".format(k, leg[k][0], main[k]))
-    # split tiles: a relayered tile whose sub-layer 0 floor stays below its raised floor keeps
-    # that ground part on its unit's layer; derived from the tile heights, not the records
-    derived_split = {}
-    for k in relayered:
-        g = ground.get(k)
-        base_layer = k[0] + (du[unit_of[k]] if k in unit_of else 0)
-        if g is not None and g // HZ < q[k] and base_layer != main[k]:
-            derived_split[k] = base_layer
-    if set(derived_split) != set(split):
-        errors.append("split tiles differ: {} derived from the tile heights, {} recorded".format(
-            len(derived_split), len(split)))
-    for k, v in leg.items():
-        want = sorted({derived_split[k], main[k]}) if k in derived_split else [main[k]]
-        if sorted(v[1]) != want:
-            errors.append("legacy tile {} of {} appears on layers {}, expected {}".format(k, v[0], sorted(v[1]), want))
-    for k, sp in split.items():
-        if k not in derived_split or sp["ground_layer"] != derived_split[k] or sp["upper_layer"] != main[k] or \
-                sp["floors"].get("0") != ground.get(k):
-            errors.append("split tile {} is inconsistent".format(k))
-    if sorted((r["layer_before"], r["q"], r["tiles"], r["in_place_adjustment"]) for r in rl["regions"]) != \
-            sorted((comps[i][0][0], q[comps[i][0]], len(comps[i]), dr.get(i, 0)) for i in range(len(comps))
-                   if relay_comp[i]):
-        errors.append("region in-place adjustments differ from the final layers")
-    got_u = sorted((units[i][0][0], d, len(units[i])) for i, d in du.items() if d)
-    if got_u != sorted((u["layer_before"], u["shift"], u["tiles"]) for u in rl["units_moved"]):
-        errors.append("moved units differ from the final layers")
-    # column order, caves underground, nothing lands on the surface
-    cols = collections.defaultdict(list)
-    for k, v in leg.items():
-        cols[(k[1], k[2])].append((k[0], min(v[1]), max(v[1])))
-    for (x, y), lst in cols.items():
-        lst.sort()
-        for (la, _mna, mxa), (lb, mnb, _mxb) in zip(lst, lst[1:]):
-            if not mxa < mnb:
-                errors.append("column ({}, {}): layer {} ends at or above layer {}".format(x, y, la, lb))
-    for k, v in leg.items():
-        if k[0] < 0 and max(v[1]) >= 0:
-            errors.append("cave tile {} of {} reaches layer {}".format(k, v[0], max(v[1])))
-        if main[k] != k[0] and main[k] == 0:
-            errors.append("moved tile {} of {} ends on the surface layer".format(k, v[0]))
-    # maps moved
-    mm = collections.defaultdict(collections.Counter)
-    moved_maps = set()
-    for k, v in leg.items():
-        mm[v[0]][main[k]] += 1
-        if main[k] != k[0]:
-            moved_maps.add(v[0])
-    exp_maps = sorted(moved_maps)
-    if exp_maps != sorted(m["path"] for m in rl["maps_moved"]):
-        errors.append("moved maps differ from the final layers")
-    for m in rl["maps_moved"]:
-        if {str(L): n for L, n in sorted(mm[m["path"]].items())} != m["final_layers"]:
-            errors.append("final layers of {} differ".format(m["path"]))
-
-    def walkable(a, b):
-        return a in heights and b in heights and a not in blocked and b not in blocked and \
-            abs(heights[a] - heights[b]) < WDZ
-
-    def rest(k):
-        return heights[k] - HZ * q[k] if k in relayered else heights[k]
-
-    moved = sorted(k for k in leg if main[k] != k[0])
-    moved_set = set(moved)
-    cut = set()
-    for k in moved:
-        for dx, dy in N8:
-            n = (k[0], k[1] + dx, k[2] + dy)
-            if n in leg and walkable(k, n) and main[k] != main[n]:
-                a, b = min(k, n), max(k, n)
-                cut.add((a, b) if main[a] < main[b] else (b, a))
-    edges = sorted(cut)
-    parent = list(range(len(edges)))
-
-    def find(i):
-        while parent[i] != i:
-            parent[i] = parent[parent[i]]
-            i = parent[i]
-        return i
-
-    lay = [(main[lo], main[hi]) for lo, hi in edges]
-    for side in (0, 1):
-        at = collections.defaultdict(list)
-        for i, e in enumerate(edges):
-            at[(lay[i], e[side][1], e[side][2])].append(i)
-        for i, e in enumerate(edges):
-            for dx in (-1, 0, 1):
-                for dy in (-1, 0, 1):
-                    for j in at.get((lay[i], e[side][1] + dx, e[side][2] + dy), ()):
-                        a, b = find(i), find(j)
-                        if a != b:
-                            parent[max(a, b)] = min(a, b)
-    seams = collections.defaultdict(list)
-    for i in range(len(edges)):
-        seams[find(i)].append(i)
-    cell = rl.get("seam_cell", 24)
-    pieces = {}
-    for idx in seams.values():
-        sid = min(edges[i] for i in idx)
-        for i in idx:
-            lo = edges[i][0]
-            pieces.setdefault((sid, lo[1] // cell, lo[2] // cell), set()).add(edges[i])
-    if len(seams) != len(rl["seams"]) or sum(s["cut_edges"] for s in rl["seams"]) != len(edges):
-        errors.append("seams differ: {} seams with {} cut edges recomputed, {} with {} recorded".format(
-            len(seams), len(edges), len(rl["seams"]), sum(s["cut_edges"] for s in rl["seams"])))
-    piece_by_edge = {}
-    for key, es in pieces.items():
-        for e in es:
-            piece_by_edge[e] = key
-    seen_pieces = set()
-    ns_by_id = {n["id"]: n for n in rl["new_stairs"]}
-    for s_ in rl["seams"]:
-        for pc in s_["pieces"]:
-            e = (tuple(pc["low_tile"]), tuple(pc["high_tile"]))
-            key = piece_by_edge.get(e)
-            if key is None:
-                errors.append("seam piece edge {} of {} is not a cut walkable edge".format(e, s_["id"]))
-                continue
-            if key in seen_pieces or len(pieces[key]) != pc["edges"] or [key[1], key[2]] != pc["cell"]:
-                errors.append("seam piece {} of {} does not match the recomputed piece".format(pc["cell"], s_["id"]))
-            seen_pieces.add(key)
-            if pc["continuity"] == "new stairs" and pc["stairs"] and pc["stairs"][0] in ns_by_id:
-                first = ns_by_id[pc["stairs"][0]]
-                if "exit" not in pc and (first["low_tile_legacy"], first["high_tile_legacy"]) != \
-                        (pc["low_tile"], pc["high_tile"]):
-                    errors.append("seam piece {} of {} does not put its first stairs on its representative edge".format(
-                        pc["cell"], s_["id"]))
-            elif pc["continuity"] != "existing exit" or tuple(pc.get("exit", ())) not in records:
-                errors.append("seam piece {} of {} has no continuity".format(pc["cell"], s_["id"]))
-            for sid in pc["stairs"]:
-                n = ns_by_id.get(sid)
-                objs = {o.get("tile"): o for o in (n or {}).get("objects", [])}
-                lo_o, hi_o = objs.get("low", {}), objs.get("high", {})
-                if n is None or len(n["objects"]) != 2 or not (
-                        lo_o.get("exit") is True and lo_o.get("exit_to") == "high"
-                        and re.match(r"^(stairs|ladder)_.*up\d*$", lo_o.get("archetype", ""))
-                        and hi_o.get("exit") is True and hi_o.get("exit_to") == "low"
-                        and re.match(r"^(stairs|ladder)_.*down\d*$", hi_o.get("archetype", ""))):
-                    errors.append("new stairs {} are not an up stair on the low tile and a down stair on the high "
-                                  "tile targeting each other".format(sid))
-                    continue
-                lo, hi = (tuple(n["low_tile_legacy"]), tuple(n["high_tile_legacy"])) if n else (None, None)
-                if n is None or piece_by_edge.get((lo, hi)) != key or n["low"] != [lo[1], lo[2], main[lo]] \
-                        or n["high"] != [hi[1], hi[2], main[hi]] or n["high"][2] - n["low"][2] != 1 \
-                        or cheb(n["low"], n["high"]) > tol:
-                    errors.append("new stairs {} of seam piece {} of {} are not plain stairs across one of its "
-                                  "cut edges".format(sid, pc["cell"], s_["id"]))
-    if len(seen_pieces) != len(pieces):
-        errors.append("{} seam pieces recomputed, {} recorded".format(len(pieces), len(seen_pieces)))
-    if sorted(n["id"] for n in rl["new_stairs"]) != sorted(i for s_ in rl["seams"] for pc in s_["pieces"]
-                                                           for i in pc["stairs"]):
-        errors.append("new stairs and seam pieces do not list the same stairs")
-    # continuity: the two tiles of every cut edge stay connected on the final layers
-    # (walking, legacy overworld exits, new stairs) within the maps with tile heights
-    hmaps = set(rl["tile_heights"])
-    parent = {}
-
-    def uf_find(a):
-        parent.setdefault(a, a)
-        while parent[a] != a:
-            parent[a] = parent[parent[a]]
-            a = parent[a]
-        return a
-
-    def uf_union(a, b):
-        ra, rb = uf_find(a), uf_find(b)
-        if ra != rb:
-            parent[rb] = ra
-
-    gpos = collections.defaultdict(list)
-    for k, v in leg.items():
-        if v[0] in hmaps and k in heights and k not in blocked:
-            gpos[(main[k], k[1], k[2])].append((k, rest(k)))
-            if k in derived_split:
-                gpos[(derived_split[k], k[1], k[2])].append((("ground",) + k, ground[k]))
-    for (L, x, y), here in gpos.items():
-        for dx, dy in ((1, 0), (-1, 1), (0, 1), (1, 1)):
-            for a, ra in here:
-                for b, rb in gpos.get((L, x + dx, y + dy), ()):
-                    if abs(ra - rb) < WDZ:
-                        uf_union(a, b)
-    for r in ow.get("internal_exits", []):
-        X, Y, Z = world_cell(r["source_map"])
-        X2, Y2, Z2 = world_cell(r["target_map"])
-        uf_union((Z, 24 * X + r["source_tile"][0], 24 * Y + r["source_tile"][1]),
-                 (Z2, 24 * X2 + r["target_tile"][0], 24 * Y2 + r["target_tile"][1]))
-    for n in rl["new_stairs"]:
-        uf_union(tuple(n["low_tile_legacy"]), tuple(n["high_tile_legacy"]))
-    apart = [e for e in edges if uf_find(e[0]) != uf_find(e[1])]
-    if apart:
-        errors.append("{} cut walkable edges are left without continuity, e.g. {}".format(len(apart), apart[0]))
-    steep = set()
-    for k in sorted(set(moved) | relayered):
-        for dx, dy in N8:
-            n = (k[0], k[1] + dx, k[2] + dy)
-            if n in leg and walkable(k, n) and main[k] == main[n] and abs(rest(k) - rest(n)) >= WDZ:
-                steep.add((min(k, n), max(k, n)))
-    rec_steep = {tuple(sorted(((s_["layer"], *s_["tiles"][0]), (s_["layer"], *s_["tiles"][1])))) for s_ in rl["steep_steps"]}
-    if steep != rec_steep:
-        errors.append("steep steps differ: {} recomputed, {} recorded".format(len(steep), len(rec_steep)))
-    finals = collections.defaultdict(list)
-    for k, v in leg.items():
-        for L in v[1]:
-            finals[(L, k[1], k[2])].append(k)
-    contacts = set()
-    for k in moved:
-        for dx, dy in N8:
-            for t in finals.get((main[k], k[1] + dx, k[2] + dy), ()):
-                if t[0] != k[0]:
-                    contacts.add((min(k, t), max(k, t)))
-    if contacts != {(tuple(c["tiles"][0]), tuple(c["tiles"][1])) for c in rl["new_contacts"]}:
-        errors.append("new contacts differ: {} recomputed, {} recorded".format(len(contacts), len(rl["new_contacts"])))
-    for c in rl["new_contacts"]:
-        a, b = tuple(c["tiles"][0]), tuple(c["tiles"][1])
-        walk = a in heights and b in heights and a not in blocked and b not in blocked and \
-            abs(rest(a) - rest(b)) < WDZ
-        if c["walkable"] != walk or c["final_layer"] != main.get(a if a in moved_set else b):
-            errors.append("new contact {} / {} records walkable {} on layer {}; recomputed {}".format(
-                a, b, c["walkable"], c["final_layer"], walk))
+    # the relayering looks up only the seam pieces' exits among the records: pass just their membership
+    seam_exits = {tuple(pc.get("exit", ())) for s_ in rl["seams"] for pc in s_["pieces"]}
+    rl_errors, main, rl_counts = _relayering(ow_rows, leg, rl, ow.get("internal_exits", []),
+                                             {k for k in seam_exits if k in records}, [HZ, MINR, WDZ, tol])
+    errors.extend(rl_errors)
     # every exit with an overworld end on a moved tile must be listed, and nothing else
     def moved_end(g, mp, t):
         if g != ow_id:
@@ -1606,10 +1659,7 @@ def _verify(plan: dict) -> dict:
             "stairwell_exits_required": required,
             "stairwell_intermediate_tiles": intermediate, "exit_endpoints_checked": exits_checked,
             "exit_inventory_objects": len(inv), "exit_record_copies_checked": sum(copies.values()),
-            "relayering": {"overworld_tiles": len(leg), "tile_heights": len(heights), "regions": len(got_r),
-                           "kept_regions": len(got_k), "units": len(units), "moved_units": len(got_u),
-                           "moved_tiles": len(moved), "cut_edges": len(edges), "seam_pieces": len(pieces),
-                           "steep_steps": len(steep), "new_contacts": len(contacts)}}
+            "relayering": dict({"overworld_tiles": len(leg)}, **rl_counts)}
 
 
 def same_json(a, b) -> bool:
