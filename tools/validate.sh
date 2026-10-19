@@ -16,6 +16,7 @@ cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo test --locked --workspace --all-targets
 cargo test --locked --workspace --doc
 python3 tools/test_writable_source.py
+python3 -I migration/placement-plan/scripts/test_placement_plan.py
 cargo build --locked --release --package atrinik-content
 cargo run --locked --quiet --package atrinik-content -- --version
 cargo run --locked --quiet --package atrinik-content -- \

@@ -9,7 +9,10 @@ placement-plan.json, REPORT.md, layer_<n>[_zoom].png and relayer_<n>.png in a
 staging directory, verifies the staged plan, and only then replaces the
 artifacts in the output directory. Standard library only.
 
-    python3 -I scripts/build_plan.py [--content DIR] [--out DIR] [--allow-dirty]
+    python3 -I scripts/build_plan.py [--content DIR] [--out DIR] [--allow-dirty] [--check]
+
+--check regenerates in a temporary directory and fails unless every artifact
+in --out is byte-identical; it writes nothing.
 
 Everything is deterministic: inputs are iterated in sorted order and every
 tie is broken lexicographically.
@@ -19,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import filecmp
 import functools
 import hashlib
 import json
@@ -296,6 +300,76 @@ def stair_family_down(arch: str):
 
 def occupied_rows(rec) -> list:
     return ["".join("#" if (x, y) in rec.occupied else "." for x in range(rec.width)) for y in range(rec.height)]
+
+
+def placement_failed(res) -> bool:
+    return res is None or bool(res.get("failed"))
+
+
+def place_pool(pool, connected, blockers, depth, place):
+    """Place the groups of `pool` one at a time, in reach order; return (order, failed, unplaced).
+
+    connected(gid): gid has an exit to something already placed. blockers(gid,
+    remaining): unplaced groups that must be placed before gid. depth(gid): reach
+    depth, the first sort key. place(gid): the placement record, or None or
+    {"failed": True} when gid cannot be placed. A failed group stays unplaced: it
+    is not in `order`, it is never tried again, and nothing is placed through it,
+    so groups reachable only through it end up in `unplaced`.
+    """
+    remaining = sorted(pool)
+    order, failed = [], []
+    while remaining:
+        ready = [gid for gid in remaining if connected(gid)]
+        if not ready:
+            break
+        ok = [gid for gid in ready if not blockers(gid, set(remaining))]
+        pick = min(ok or ready, key=lambda gid: (depth(gid), gid))
+        remaining.remove(pick)
+        (failed if placement_failed(place(pick)) else order).append(pick)
+    return order, failed, remaining
+
+
+def exit_source_fields(e: dict) -> dict:
+    """The fields of an exit that come from the content alone, in record order.
+
+    The exit records and the exit inventory both use them, so the verifier can
+    compare every record with the exit object it was made from."""
+    r = {"source_map": e["source_map"], "source_tile": [e["source_x"], e["source_y"]]}
+    if e.get("resolved_map"):
+        r["target_map"] = e["resolved_map"]
+        r["target_tile"] = [e["resolved_x"], e["resolved_y"]]
+    r.update(arch=e["arch"], line=e["line"], form=e["form"], vertical=e["vdir"])
+    if e.get("target_map") is not None and e["target_map"] != e.get("resolved_map"):
+        r["authored_target"] = [e["target_map"], e.get("target_x"), e.get("target_y")]
+    if e.get("target_default_entry"):
+        r["target_is_map_default_entry"] = True
+    if e["per_player"]:
+        r["per_player_last_eat_1"] = True
+    if e["event_scripts"]:
+        r["event_scripts"] = e["event_scripts"]
+    if e.get("dir_inferred_from"):
+        r["vertical_inferred_from"] = e["dir_inferred_from"]
+    return r
+
+
+def inventory_entry(e: dict) -> dict:
+    """One exit object as read from the content, before placement or wiring.
+
+    Besides the record fields it carries the reader's facts the data problems
+    are derived from: the tile-link slot of a tiled exit without a link, the
+    authored path of a dynamic exit, a target problem with its authored target,
+    and an explicit last_heal 0."""
+    rec = exit_source_fields(e)
+    if e["form"] == "tiled-unresolved":
+        rec["tiled_slot"] = e["tiled_slot"]
+    if e["form"] == "dynamic":
+        rec["dynamic_target"] = e.get("raw_target")
+    if e.get("problem"):
+        rec["problem"] = e["problem"]
+        rec["problem_target"] = [e.get("target_map"), e.get("target_x"), e.get("target_y")]
+    if e.get("explicit_last_heal_0"):
+        rec["explicit_last_heal_0"] = True
+    return rec
 
 
 # --------------------------------------------------------------------- main
@@ -1085,20 +1159,13 @@ def build(content: Path, allow_dirty: bool = False):
         return blockers
 
     def run_pool(pool, tentative):
-        remaining = sorted(pool)
-        order = []
-        while remaining:
-            ready = [gid for gid in remaining if connections_to_placed(gid)]
-            if not ready:
-                break
-            ok = [gid for gid in ready if not above_below_blockers(gid, set(remaining))]
-            pick_from = ok or ready
-            pick = min(pick_from, key=lambda gid: (G[gid]["reach_depth"] if G[gid]["reach_depth"] is not None else 99, gid))
-            res = place_group(pick, tentative=tentative)
-            S.placements[pick] = res
-            order.append(pick)
-            remaining.remove(pick)
-        return order, remaining
+        def place(gid):
+            res = place_group(gid, tentative=tentative)
+            S.placements[gid] = {"failed": True, "ideal": None} if res is None else res
+            return res
+
+        return place_pool(pool, lambda gid: bool(connections_to_placed(gid)), above_below_blockers,
+                          lambda gid: G[gid]["reach_depth"] if G[gid]["reach_depth"] is not None else 99, place)
 
     ow_relay = relay[ow_id]
     ow_pieces = ow_relay.pieces  # map -> final layer -> plane tiles
@@ -1172,17 +1239,23 @@ def build(content: Path, allow_dirty: bool = False):
                 if ts:
                     S.occ.add(m, L, functools.partial(_piece, m, L), bbox=fp.bbox_of(ts))
         build_relayer_stairwells()
-        o1, l1 = run_pool(to_place, False)
-        o2, l2 = run_pool(tentative_ids, True)
-        o3 = []
+        o1, f1, l1 = run_pool(to_place, False)
+        o2, f2, l2 = run_pool(tentative_ids, True)
+        o3, f3, s3 = [], [], []
         for gid, (anchor, dl, why) in sorted(TENTATIVE_ALIGN.items()):
-            if gid in G and gid not in S.placed and anchor in S.placed:
+            if gid in G and gid not in S.placements and anchor not in S.placed:
+                s3.append(gid)  # its anchor is not placed: the group stays unplaced
+            # only for groups no pool tried: a group whose own placement failed stays failed
+            if gid in G and gid not in S.placements and anchor in S.placed:
                 a = S.placed[anchor]
                 res = place_group(gid, tentative=True, forced={"dx": a["dx"], "dy": a["dy"], "L": a["L"] + dl})
-                if res:
-                    res["tentative_reason"] = why
-                    S.placements[gid] = res
-                    o3.append(gid)
+                if placement_failed(res):
+                    S.placements[gid] = {"failed": True, "ideal": (res or {}).get("ideal")}
+                    f3.append(gid)
+                    continue
+                res["tentative_reason"] = why
+                S.placements[gid] = res
+                o3.append(gid)
         # view conflicts against the final state (stairwell tiles count as their owner's tiles);
         # every stairwell is drawn only on the player's layer (owner decision 2026-10-18), so
         # the conflicts are listed but hidden in the engine.
@@ -1209,7 +1282,9 @@ def build(content: Path, allow_dirty: bool = False):
         for sw in S.stairwells:
             n[sw["kind"]] += 1
             sw["id"] = "{}{}".format(prefix[sw["kind"]], n[sw["kind"]])
-        return o1, l1, o2 + o3, l2
+        # A failed group stays unplaced (and fails verification, so the plan is not published).
+        # an uncertain group no pool reached may still get its tentative spot from an alignment hint
+        return o1, sorted(l1 + f1), o2 + o3, sorted((set(l2) - set(o3)) | set(f2)), sorted(f1 + f2 + f3), s3
 
     def becomes_counts():
         c = collections.Counter()
@@ -1274,22 +1349,11 @@ def build(content: Path, allow_dirty: bool = False):
         return out
 
     def exit_record(e, with_eval=True):
-        r = {
-            "source_map": e["source_map"], "source_tile": [e["source_x"], e["source_y"]],
-            "target_map": e["resolved_map"], "target_tile": [e["resolved_x"], e["resolved_y"]],
-            "arch": e["arch"], "line": e["line"], "form": e["form"], "vertical": e["vdir"],
-            "source_group": e["source_group"], "target_group": e["target_group"],
-        }
-        if e["resolved_map"] != e.get("target_map"):
-            r["authored_target"] = [e.get("target_map"), e.get("target_x"), e.get("target_y")]
-        if e.get("target_default_entry"):
-            r["target_is_map_default_entry"] = True
-        if e["per_player"]:
-            r["per_player_last_eat_1"] = True
-        if e["event_scripts"]:
-            r["event_scripts"] = e["event_scripts"]
-        if e.get("dir_inferred_from"):
-            r["vertical_inferred_from"] = e["dir_inferred_from"]
+        src = exit_source_fields(e)
+        r = {k: src.pop(k) for k in ("source_map", "source_tile", "target_map", "target_tile", "arch", "line",
+                                     "form", "vertical")}
+        r.update(source_group=e["source_group"], target_group=e["target_group"])
+        r.update(src)
         if e.get("wired"):
             r["wired"] = e["wired"]
         if with_eval:
@@ -1305,7 +1369,7 @@ def build(content: Path, allow_dirty: bool = False):
         return r
 
     # Sensitivity: the same placement with the shipped client's view radius.
-    run_placement(CLIENT_VIEW_RADIUS)
+    _o, sens_left1, _t, sens_left2, sens_failed, sens_skipped = run_placement(CLIENT_VIEW_RADIUS)
     sens_placed = {gid: dict(p) for gid, p in S.placed.items()}
     sensitivity = {
         "view_radius_tiles": CLIENT_VIEW_RADIUS,
@@ -1314,8 +1378,10 @@ def build(content: Path, allow_dirty: bool = False):
         "crossing_exit_objects_after_placement": dict(sorted(becomes_counts().items())),
         "stairwells": len(S.stairwells),
         "stairwell_sites_blocked": len(S.blocked_sites),
+        "groups_unplaced": sorted(set(sens_left1) | set(sens_left2) | set(sens_failed) | set(sens_skipped)),
     }
-    order1, left1, order_t, left2 = run_placement(VIEW_RADIUS)
+    # an alignment group skipped for want of its anchor fails verification (its hint is not applied)
+    order1, left1, order_t, left2, failed_placements, _skipped = run_placement(VIEW_RADIUS)
     place_index = {gid: i for i, gid in enumerate(S.order)}
     placements = S.placements
     sensitivity["groups_placed_differently"] = sorted(
@@ -1427,6 +1493,9 @@ def build(content: Path, allow_dirty: bool = False):
         e2 = dict(e, form="wired", resolved_map=tm, resolved_x=tx, resolved_y=ty, target_group=gof[tm])
         e2["wired"] = evidence
         wired.append(e2)
+        if sg == gof[tm] == ow_id:
+            ow_internal.append(e2)  # wired to another overworld map: an overworld exit, not a crossing
+            continue
         cross.append(e2)
         G[sg]["exits_out"].append(e2)
         G[gof[tm]]["entrances"].append(e2)
@@ -1907,7 +1976,7 @@ def build(content: Path, allow_dirty: bool = False):
         counts["{}:{}".format(g["classification"], g["reason"])] += 1
     sw_spans = collections.Counter(sw["top_layer"] - sw["bottom_layer"] for sw in S.stairwells)
     plan = {
-        "schema": "atrinik-overworld-placement-plan/3",
+        "schema": "atrinik-overworld-placement-plan/4",
         "generated_by": "scripts/build_plan.py",
         "content_root": str(content),
         "content_git_head": revision["head"],
@@ -1919,6 +1988,8 @@ def build(content: Path, allow_dirty: bool = False):
                      "stairwell_max_bend_tiles": STAIRWELL_MAX_BEND, "layer_height_z": LAYER_HEIGHT_Z,
                      "relayer_min_region_tiles": relayer.MIN_REGION_TILES, "walkable_dz": relayer.WALKABLE_DZ,
                      "owner_keep_as_decoration": [[m, list(t), a] for (m, t, a) in sorted(OWNER_KEEP_AS_DECORATION)],
+                     "tentative_alignments": [{"group": gid, "anchor": anchor, "layer_delta": dl, "why": why}
+                                              for gid, (anchor, dl, why) in sorted(TENTATIVE_ALIGN.items())],
                      "overworld_map_size": 24, "excluded_trees": list(md.EXCLUDED_TOP)},
         "conventions": {
             "plane": "overworld plane; layer 0 surface, negative below, positive above",
@@ -1959,6 +2030,10 @@ def build(content: Path, allow_dirty: bool = False):
                            "layer above or below (see its 'wired' evidence)",
             "exits_kept_as_decoration": "dangling exits the owner keeps as decoration (no exit): not wired, with the "
                                         "landing they would have had",
+            "exit_inventory": "every exit object read from the content (inventory exits excluded), keyed by "
+                              "source_map and line: the content fields of its exit record with its legacy form "
+                              "and resolved target (none for an exit that leads nowhere), plus the facts its data "
+                              "problems come from; the exit records and data problems are checked against it",
         },
         "summary": {"maps_total": len(maps), "groups_total": len(groups), "non_overworld_groups": len(groups) - 1,
                     "by_classification": dict(sorted(counts.items())),
@@ -1980,7 +2055,8 @@ def build(content: Path, allow_dirty: bool = False):
                                    "seams": len(seams_out), "new_stairs": len(new_stairs),
                                    "steep_steps": len(steep_out), "new_contacts": len(contacts_out)},
                     "placement_order": order1, "tentative_placement_order": order_t,
-                    "unplaced_place_groups": left1, "unplaced_uncertain_groups": left2},
+                    "unplaced_place_groups": left1, "unplaced_uncertain_groups": left2,
+                    "failed_placements": failed_placements},
         "start_map": start_map,
         "view_radius_sensitivity": sensitivity,
         "stairwells": S.stairwells,
@@ -1988,6 +2064,7 @@ def build(content: Path, allow_dirty: bool = False):
         "sloped_stairwell_sites_blocked": S.slope_failed,
         "placement_changes_from_v1": changes_v1,
         "exits_kept_as_decoration": kept_decoration,
+        "exit_inventory": sorted((inventory_entry(e) for e in exits), key=lambda r: (r["source_map"], r["line"])),
         "groups": groups_out,
         "relayering": relayering,
         "data_problems": problems,
@@ -2018,15 +2095,44 @@ def publish(stage: Path, out: Path) -> list:
     return new
 
 
+MAX_CHECK_ENTRIES = 4096  # the output directory holds a few dozen artifacts and the scripts' folder
+
+
+def compare_artifacts(stage: Path, out: Path):
+    """Artifacts that differ between a fresh run in `stage` and the published set in `out`, or None if
+    `out` has more than MAX_CHECK_ENTRIES entries (it is then not a plan's output directory).
+
+    Sizes are compared first and contents in fixed-size chunks (filecmp), so an
+    oversized file in `out` is a difference, not a whole-file read."""
+    names = set()
+    for d in (stage, out):
+        with os.scandir(d) as it:
+            for n_, entry in enumerate(it):
+                if n_ >= MAX_CHECK_ENTRIES:
+                    return None
+                if ARTIFACT_RE.match(entry.name):
+                    names.add(entry.name)
+    return [n for n in sorted(names) if not ((stage / n).is_file() and (out / n).is_file()
+                                             and filecmp.cmp(stage / n, out / n, shallow=False))]
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--content", type=Path, default=DEFAULT_CONTENT)
     ap.add_argument("--out", type=Path, default=DEFAULT_OUT)
     ap.add_argument("--allow-dirty", action="store_true",
                     help="allow uncommitted changes in the content checkout (experiments only; recorded in the JSON)")
+    ap.add_argument("--check", action="store_true",
+                    help="regenerate in a temporary directory and fail unless every artifact in --out is "
+                         "byte-identical (binds the published plan, its exit inventory included, to the content; "
+                         "use the --content path the plan records); writes nothing")
     args = ap.parse_args(argv)
     out = args.out.resolve()
-    out.mkdir(parents=True, exist_ok=True)
+    if not args.check:
+        out.mkdir(parents=True, exist_ok=True)
+    elif not out.is_dir():
+        print("nothing to check: {} is not a directory".format(out))
+        return 1
     plan, maps, G, ow_id, ow_relay = build(args.content.resolve(), allow_dirty=args.allow_dirty)
     print(json.dumps(plan["summary"], indent=1))
     if not plan["verification"]["ok"]:
@@ -2035,7 +2141,7 @@ def main(argv=None):
     import render  # noqa: E402
     import report  # noqa: E402
     import verify_plan  # noqa: E402
-    with tempfile.TemporaryDirectory(prefix=".placement-plan-stage-", dir=out) as tmp:
+    with tempfile.TemporaryDirectory(prefix=".placement-plan-stage-", dir=None if args.check else out) as tmp:
         stage = Path(tmp)
         (stage / "placement-plan.json").write_text(json.dumps(plan, indent=1, sort_keys=False) + "\n",
                                                    encoding="utf-8")
@@ -2045,6 +2151,18 @@ def main(argv=None):
         if not staged["ok"] or staged != plan["verification"]:
             print("staged plan failed verification; nothing written:", staged["errors"][:10])
             return 1
+        if args.check:
+            differ = compare_artifacts(stage, out)
+            if differ is None:
+                print("check FAILED: {} has more than {} entries".format(out, MAX_CHECK_ENTRIES))
+                return 1
+            if differ:
+                print("check FAILED: {} artifact(s) in {} differ from a fresh run: {}{}".format(
+                    len(differ), out, ", ".join(differ[:10]), ", ..." if len(differ) > 10 else ""))
+                return 1
+            print("check: all {} artifacts in {} are byte-identical to a fresh run".format(
+                sum(1 for p in out.iterdir() if ARTIFACT_RE.match(p.name)), out))
+            return 0
         written = publish(stage, out)
     print("wrote {} artifacts to {}".format(len(written), out))
     print("verification: OK")
