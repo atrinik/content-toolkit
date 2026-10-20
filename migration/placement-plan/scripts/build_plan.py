@@ -531,6 +531,18 @@ def seam_stairs_text() -> str:
     return "{}/{}".format(low, high[len(common):])
 
 
+def check_decision_groups(group_ids: set):
+    """Every group an owner decision names (aligned groups, their anchors and evidence groups, groups kept placed
+    without a footprint, confirmed orientations and classifications) must still exist: SystemExit otherwise."""
+    named = set(OWNER_ALIGN) | set(OWNER_NO_FOOTPRINT) | set(OWNER_ORIENTATIONS) | set(OWNER_CLASSIFICATIONS)
+    for d in OWNER_ALIGN.values():
+        named |= {d["anchor"], *d["evidence_groups"]}
+    missing = sorted(named - set(group_ids))
+    if missing:
+        raise SystemExit("owner decisions of {} name groups the content no longer has: {}; ask the owner "
+                         "again".format(DECIDED_2026_10_19, missing))
+
+
 def portal_key(x: dict) -> tuple:
     """The identity an owner portal decision names: one exit object (source map, line, tile, archetype)."""
     return x["source_map"], x["line"], tuple(x["source_tile"]), x["arch"]
@@ -678,6 +690,7 @@ def build(content: Path, allow_dirty: bool = False):
             gof[m] = gid
     ow_id = gof[an.OVERWORLD_ROOT]
     G = {g["id"]: g for g in groups}
+    check_decision_groups(set(G))
 
     link_problems = an.link_reciprocity(maps)
     for g in groups:

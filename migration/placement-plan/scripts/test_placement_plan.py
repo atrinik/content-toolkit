@@ -760,10 +760,14 @@ class FailedPlacement(VerifierTest):
         for o in pl["member_origins"].values():
             o[2] -= 1
         self.assertCaught(p, "owner alignment of {} is not its configured spot".format(MINES))
-        # an alignment with no decision date
+        # an alignment with no decision date, or another date than the owner's
+        for date in ("soon", "2099-12-31", "9999-99-99"):
+            p = self.plan()
+            p["settings"]["owner_alignments"][0]["decided"] = date
+            self.assertCaught(p, "owner alignment of {} to {} is not applied".format(MINES, ROCKFORGE + "rockforge_b"))
         p = self.plan()
-        p["settings"]["owner_alignments"][0]["decided"] = "soon"
-        self.assertCaught(p, "owner alignment of {} to {} is not applied".format(MINES, ROCKFORGE + "rockforge_b"))
+        p["settings"]["owner_relayering_judgement_calls"]["decided"] = "9999-99-99"
+        self.assertCaught(p, "the relayering judgement calls differ from the ones the owner confirmed")
 
     def test_a_layer_outside_the_vertical_bounds(self):
         p = self.plan()
@@ -804,6 +808,12 @@ class FailedPlacement(VerifierTest):
         p = self.plan()
         p["settings"]["owner_no_footprint"] = []
         self.assertCaught(p, "placed group {} has no footprint and no owner decision to keep it placed".format(MINES))
+        # ... or a footprint claimed that its rows do not hold
+        p = self.plan()
+        p["settings"]["owner_no_footprint"] = []
+        group(p, MINES)["placement"]["occupied_tiles_by_layer"] = {"-7": 1}
+        self.assertCaught(p, "occupied_tiles_by_layer of {} is not what its occupied rows claim ({{}})".format(MINES),
+                          "placed group {} has no footprint and no owner decision to keep it placed".format(MINES))
         p = self.plan()
         p["settings"]["owner_no_footprint"][0]["group"] = self.GID
         self.assertCaught(p, "placed group {} has no footprint and no owner decision to keep it placed".format(MINES))
@@ -1106,6 +1116,25 @@ class ContentFidelity(VerifierTest):
         group(p, "/emergency")["evidence"][0] = "made up"
         self.assertUnfaithful(p)
 
+    def test_an_owner_decision_dropped_with_its_effect(self):
+        # which decisions apply is an input of the generator: a decision removed from settings together with its
+        # effect keeps the JSON consistent with itself, and the rebuild from the generator's constants differs
+        p = self.plan()
+        st = p["settings"]
+        st["stairwell_appearance_fallbacks"] = [f for f in st["stairwell_appearance_fallbacks"]
+                                                if f["exit_arch"] != "invis_exit"]
+        sw6 = next(sw for sw in p["stairwells"] if sw["id"] == "SW6")
+        sw6.update(intermediate_appearance=None,
+                   intermediate_appearance_source="no stair archetype among ['invis_exit']; owner to choose")
+        for t in sw6["tiles"][1:-1]:
+            t["objects"] = []
+        self.assertUnfaithful(p)
+        p = self.plan()
+        cave = "/shattered_islands/eld_woods_island/cave_morlarg"
+        p["settings"]["owner_orientations"] = [d for d in p["settings"]["owner_orientations"] if d["group"] != cave]
+        group(p, cave)["placement"]["orientation_evidence"].pop()
+        self.assertUnfaithful(p)
+
     def test_type_strict_comparison(self):
         p = self.plan()  # caught by both checks, and by the rebuild comparison type for type
         p["summary"]["wired_exits"] = 5.0
@@ -1192,6 +1221,14 @@ class OwnerDecisionRules(unittest.TestCase):
         self.assertIsNone(app(["invis_exit", "stairs_stone_up"])[2])
         self.assertEqual(app(["hole", "teleporter"]),
                          (None, "no stair archetype among ['hole', 'teleporter']; owner to choose", None))
+
+    def test_decisions_name_existing_groups(self):
+        names = set(build_plan.OWNER_CLASSIFICATIONS) | set(build_plan.OWNER_ORIENTATIONS) | \
+            set(build_plan.OWNER_NO_FOOTPRINT) | {x for d in build_plan.OWNER_ALIGN.values()
+                                                  for x in (*d["evidence_groups"], d["anchor"])}
+        build_plan.check_decision_groups(names | set(build_plan.OWNER_ALIGN))
+        with self.assertRaisesRegex(SystemExit, "name groups the content no longer has: \\['{}'\\]".format(MINES)):
+            build_plan.check_decision_groups(names - {MINES})
 
     def test_portal_decisions_mark_their_sites(self):
         sites = [self.site(self.HOLE), self.site(("/m", 9, (5, 5), "ladder_down"))]

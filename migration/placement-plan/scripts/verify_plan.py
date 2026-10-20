@@ -141,8 +141,9 @@ Relayering (re-derived from the overworld rows and tile heights):
   * cut walkable edges, seams, seam pieces and their new stairs (with the
     archetypes of settings.seam_stair_archetypes); steep steps; new contacts;
     moved maps and the before/after layer deltas of exits
-Owner confirmations (settings.owner_*): every decision is dated, and the plan
-is still what the owner confirmed, on the same evidence: the confirmed
+Owner confirmations (settings.owner_*): every decision is dated with the date
+schema /5 records (OWNER_DECISION_DATES), and the plan is still what the owner
+confirmed, on the same evidence: the confirmed
 groups' orientations with their evidence and the premise of the group's
 content (maps, exit records, script references), their classifications with
 the premise of their evidence and content, the relayering judgement calls with
@@ -165,7 +166,8 @@ view_radius_sensitivity and conventions; and the tile-link, layout and
 connectivity data problems.
 This check uses only the JSON, so it cannot see an edit that keeps the JSON
 consistent with itself (an exit dropped from exit_inventory together with
-summary.exit_objects, say). `build_plan.py --check` covers that: it
+summary.exit_objects, say, or an owner decision dropped from settings together
+with its effect: which decisions apply is an input of the generator). `build_plan.py --check` covers that: it
 regenerates from the content and fails unless every artifact is
 byte-identical.
 Exit status 0 when every check passes.
@@ -326,10 +328,14 @@ def alignment_evidence(recs: dict, gids) -> dict:
             "exits": [exits[k] for k in sorted(exits)]}
 
 
+# The dates of the owner decisions schema /5 records (REPORT.md presents them as the owner's answers of these days).
+OWNER_DECISION_DATES = {"2026-10-19"}
+
+
 def dated(d, text="decision") -> bool:
-    """Whether a settings entry records an owner decision: a YYYY-MM-DD date and a non-empty text."""
-    return isinstance(d, dict) and isinstance(d.get("decided"), str) and \
-        re.fullmatch(r"\d{4}-\d{2}-\d{2}", d["decided"]) is not None and isinstance(d.get(text), str) and bool(d[text])
+    """Whether a settings entry records an owner decision: one of OWNER_DECISION_DATES and a non-empty text."""
+    return isinstance(d, dict) and d.get("decided") in OWNER_DECISION_DATES and isinstance(d.get(text), str) and \
+        bool(d[text])
 
 
 class Rows:
@@ -1887,9 +1893,15 @@ def _verify(plan: dict) -> dict:
                           "plan".format(d))
         else:
             kept_placed.add(d["group"])
-    # ... and every placed group without a footprint has that decision (a decided group may gain one later)
+    # ... and every placed group without a footprint has that decision (a decided group may gain one later); the
+    # footprint is the one its member rows claim, which occupied_tiles_by_layer must repeat
     for g in placed:
-        if not g["placement"].get("occupied_tiles_by_layer") and g["id"] not in kept_placed:
+        rows_count = {str(z): len(set(by[g["id"]].tiles())) for z, by in sorted(owners.items())
+                      if g["id"] in by and by[g["id"]].count}
+        if g["placement"].get("occupied_tiles_by_layer") != rows_count:
+            errors.append("occupied_tiles_by_layer of {} is not what its occupied rows claim ({})".format(
+                g["id"], rows_count))
+        if not rows_count and g["id"] not in kept_placed:
             errors.append("placed group {} has no footprint and no owner decision to keep it placed".format(g["id"]))
     rj = st["owner_relayering_judgement_calls"]
     if not dated(rj) or rj.get("calls") != rl["judgement_calls"] or \
