@@ -798,7 +798,15 @@ class FailedPlacement(VerifierTest):
                        lambda d: d.update(decided="later")):
             p = self.plan()
             change(p["settings"]["owner_no_footprint"][0])
-            self.assertCaught(p, "to keep a group placed without a footprint does not hold in the plan")
+            self.assertCaught(p, "to keep a group placed without a footprint does not hold in the plan",
+                              "placed group {} has no footprint and no owner decision to keep it placed".format(MINES))
+        # the decision dropped or moved to another placed group
+        p = self.plan()
+        p["settings"]["owner_no_footprint"] = []
+        self.assertCaught(p, "placed group {} has no footprint and no owner decision to keep it placed".format(MINES))
+        p = self.plan()
+        p["settings"]["owner_no_footprint"][0]["group"] = self.GID
+        self.assertCaught(p, "placed group {} has no footprint and no owner decision to keep it placed".format(MINES))
         p = self.plan()
         p["settings"]["owner_no_footprint"].append(dict(p["settings"]["owner_no_footprint"][0]))
         self.assertCaught(p, "to keep a group placed without a footprint does not hold in the plan")
@@ -808,10 +816,20 @@ class FailedPlacement(VerifierTest):
         deck = "/shattered_islands/deserted_tutorial_island/ship_lower_deck"
         group(p, MINES)["entrances_from_other_groups"] = [group(p, deck)["entrances_from_overworld"][0]]
         self.assertCaught(p, "owner alignment of {} applies to a group with exits of its own".format(MINES))
-        # the decision was made on the sheets as they were laid out
+        # the decision was made on the sheets of rockforge_a/_b/_c as they were laid out and the a<->b stairs
+        for change in (lambda p: group(p, MINES)["maps"][0]["tile_links"].pop("N"),
+                       lambda p: group(p, ROCKFORGE + "rockforge_b")["maps"][0]["local_offset"].__setitem__(0, 1),
+                       lambda p: p["settings"]["owner_alignments"][0]["evidence_groups"].remove(
+                           ROCKFORGE + "rockforge_a")):
+            p = self.plan()
+            change(p)
+            self.assertCaught(p, "owner alignment of {} was decided on other evidence".format(MINES))
         p = self.plan()
-        group(p, MINES)["maps"][0]["tile_links"].pop("N")
-        self.assertCaught(p, "owner alignment of {} was decided on another layout of its maps".format(MINES))
+        k = next((e["source_map"], e["line"]) for e in group(p, ROCKFORGE + "rockforge_a")["exits_to_other_groups"]
+                 if e["target_group"] == ROCKFORGE + "rockforge_b")
+        for _g, _lst, e in copies(p, k):
+            e["target_tile"] = [e["target_tile"][0] + 1, e["target_tile"][1]]
+        self.assertCaught(p, "owner alignment of {} was decided on other evidence".format(MINES))
 
     def test_a_dangling_alignment(self):
         p = self.plan()
@@ -1112,17 +1130,22 @@ class Report(VerifierTest):
         self.assertIn("7. **#26 `rockforge_c` stays placed without a footprint**", text)
         self.assertIn("Open owner decisions: none.", text)
         self.assertIn("## Open owner decisions\n\nNone.", text)
-        # without the owner's answers, the empty mines, an undecided blocked site and a stairwell without stair art
-        # are open decisions again
-        p["settings"]["owner_no_footprint"] = []
+        # without the owner's answers, an undecided blocked site and a stairwell without stair art are open
+        # decisions again
         p["stairwell_sites_blocked"][0].pop("owner_decision")
         next(sw for sw in p["stairwells"] if sw["id"] == "SW6")["intermediate_appearance"] = None
         text = self.write(p)
         self.assertIn("1. **Blocked stairwell at #28 `zechna_temple`**", text)
         self.assertIn("2. **Stair archetype for stairwells without stairs**: SW6 (#17 `dark_cave`: invis_exit)", text)
-        self.assertIn("3. **New: placed group without a footprint, #26 `strakewood_island/rockforge/rockforge_c`**",
-                      text)
-        self.assertIn("3 owner decisions are open", text)
+        self.assertIn("2 owner decisions are open", text)
+        # once content gives the mines a footprint, the report says so instead of calling them empty
+        p = self.plan()
+        group(p, MINES)["placement"]["occupied_tiles_by_layer"] = {"-7": 5}
+        text = self.write(p)
+        self.assertIn("7. **#26 `rockforge_c` stays placed** (`settings.owner_no_footprint`", text)
+        self.assertIn("it now occupies 5 tiles, held to the gap rule like any placement", text)
+        self.assertNotIn("without a footprint while its maps are empty", text)
+        self.assertNotIn("holds an object yet", text)
 
 
 class OwnerDecisionRules(unittest.TestCase):
@@ -1185,8 +1208,13 @@ class OwnerDecisionRules(unittest.TestCase):
         self.assertEqual({f["exit_arch"]: (f["appearance"], tuple((x["id"], x["premise"]) for x in f["stairwells"]))
                           for f in st["stairwell_appearance_fallbacks"]}, build_plan.STAIRWELL_APPEARANCE_FALLBACKS)
         self.assertEqual(verify_plan.STAIRWELL_PREMISE_FIELDS, build_plan.STAIRWELL_PREMISE_FIELDS)
-        self.assertEqual({a["group"]: (a["anchor"], a["layer_delta"], a["why"], a["premise"])
-                          for a in st["owner_alignments"]}, build_plan.OWNER_ALIGN)
+        self.assertEqual({a["group"]: {"anchor": a["anchor"], "layer_delta": a["layer_delta"],
+                                       "evidence_groups": tuple(a["evidence_groups"]), "premise": a["premise"],
+                                       "why": a["why"]} for a in st["owner_alignments"]}, build_plan.OWNER_ALIGN)
+        plan = json.loads(PLAN.read_text(encoding="utf-8"))
+        recs = {g["id"]: g for g in plan["groups"]}
+        gids = st["owner_alignments"][0]["evidence_groups"]
+        self.assertEqual(verify_plan.alignment_evidence(recs, gids), build_plan.alignment_evidence(recs, gids))
         self.assertEqual({d["group"]: (d["orientation"], tuple(d["evidence"])) for d in st["owner_orientations"]},
                          build_plan.OWNER_ORIENTATIONS)
         self.assertEqual({d["group"]: (d["classification"], d["reason"], d["premise"])

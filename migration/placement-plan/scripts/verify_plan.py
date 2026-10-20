@@ -46,8 +46,12 @@ Placement (every placed group, proposed and tentative):
     (alignment_reason) and sits exactly at the anchor's offsets, the
     configured layers away, with no shift or extra layer; every configured
     alignment is applied (its group's proposed placement carries it) to a
-    group without exit records of its own, whose member maps are laid out as
-    when the owner decided (the alignment's premise)
+    group without exit records of its own, on the evidence the owner decided
+    on (the alignment's premise: the sheet layouts of its evidence groups,
+    the group and its anchor among them, and the exits between them); every
+    placed group without a footprint has an owner decision to keep it placed
+    (settings.owner_no_footprint), and every such decision names a proposed
+    placement
   * no placement goes further from its ideal spot than max_extra_layers and
     max_shift_tiles allow, or outside its vertical bounds
   * member plane origin == local_offset + (x_offset, y_offset, layer_offset);
@@ -267,6 +271,21 @@ STAIRWELL_PREMISE_FIELDS = ("kind", "group", "owner", "other", "connects", "dire
 # The evidence an owner confirmation appends: to a placement's orientation_evidence, to a group's evidence.
 ORIENTATION_MARK = re.compile(r"owner decision \d{4}-\d{2}-\d{2}: .*")
 CLASSIFICATION_MARK = re.compile(r"owner decision \d{4}-\d{2}-\d{2}: .* confirmed \(a version 1 judgement call\)")
+
+
+def alignment_evidence(recs: dict, gids) -> dict:
+    """What an owner alignment rests on (build_plan.alignment_evidence): each evidence group's sheet layout and the
+    content fields of every exit record between two of them."""
+    gids = list(gids)
+    exits = {}
+    for gid in gids:
+        for key in ("entrances_from_other_groups", "exits_to_other_groups"):
+            for e in recs[gid].get(key, []):
+                if e["source_group"] in gids and e["target_group"] in gids:
+                    exits[(e["source_map"], e["line"])] = [e["source_map"], e["source_tile"], e["target_map"],
+                                                           e["target_tile"], e["arch"]]
+    return {"layouts": {gid: [{k: m.get(k) for k in ALIGN_LAYOUT_FIELDS} for m in recs[gid]["maps"]] for gid in gids},
+            "exits": [exits[k] for k in sorted(exits)]}
 
 
 def dated(d, text="decision") -> bool:
@@ -1463,8 +1482,14 @@ def _verify(plan: dict) -> dict:
         elif any(g_.get(key) for key in ("entrances_from_overworld", "exits_to_overworld",
                                          "entrances_from_other_groups", "exits_to_other_groups")):
             errors.append("owner alignment of {} applies to a group with exits of its own".format(a.get("group")))
-        elif premise([{f: m.get(f) for f in ALIGN_LAYOUT_FIELDS} for m in g_["maps"]]) != a.get("premise"):
-            errors.append("owner alignment of {} was decided on another layout of its maps".format(a.get("group")))
+        # ... and on the evidence its reason rests on: the evidence groups' sheets and the exits between them
+        elif not isinstance(a.get("evidence_groups"), list) or a["group"] not in a["evidence_groups"] or \
+                a["anchor"] not in a["evidence_groups"] or \
+                any(x not in {g["id"] for g in plan["groups"]} for x in a["evidence_groups"]) or \
+                premise(alignment_evidence({g["id"]: g for g in plan["groups"]}, a["evidence_groups"])) != \
+                a.get("premise"):
+            errors.append("owner alignment of {} was decided on other evidence (the layout of {} and the exits "
+                          "between them)".format(a.get("group"), a.get("evidence_groups")))
     exits_checked = 0
     for (src_map, line), e in sorted(records.items()):
         live = all(x == ow_id or x in placed_ids for x in (e["source_group"], e["target_group"]))
@@ -1822,6 +1847,10 @@ def _verify(plan: dict) -> dict:
                           "plan".format(d))
         else:
             kept_placed.add(d["group"])
+    # ... and every placed group without a footprint has that decision (a decided group may gain one later)
+    for g in placed:
+        if not g["placement"].get("occupied_tiles_by_layer") and g["id"] not in kept_placed:
+            errors.append("placed group {} has no footprint and no owner decision to keep it placed".format(g["id"]))
     rj = st["owner_relayering_judgement_calls"]
     if not dated(rj) or rj.get("calls") != rl["judgement_calls"]:
         errors.append("the relayering judgement calls differ from the ones the owner confirmed")

@@ -988,12 +988,11 @@ def decided_summary(plan, lab):
     if fb:
         out.append("stair art for stairwells without stairs: {}".format("; ".join(
             "{} show{} `{}`".format(and_list(ids), "s" if len(ids) == 1 else "", a) for a, ids in sorted(fb.items()))))
-    no_fp = {d["group"] for d in st["owner_no_footprint"]}
     for a in st["owner_alignments"]:
         p = byid[a["group"]].get("placement") or {}
         out.append("#{} `{}` is placed on layer {} under `{}`{}".format(
             lab.get(a["group"], "?"), base(a["group"]), p.get("layer_offset"), base(a["anchor"]),
-            ", without a footprint while its maps are empty" if a["group"] in no_fp else ""))
+            "" if p.get("occupied_tiles_by_layer") else ", without a footprint while its maps are empty"))
     out.append("'below' confirmed for {} groups, version 1's classification of {} groups and the {} relayering "
                "judgement calls".format(len(st["owner_orientations"]), len(st["owner_classifications"]),
                                         len(st["owner_relayering_judgement_calls"]["calls"])))
@@ -1080,14 +1079,14 @@ def write_decided_2026_10_19(plan, w, lab):
     for d in st["owner_no_footprint"]:
         g = byid[d["group"]]
         p = g.get("placement") or {}
-        empty = sum(1 for m in g["maps"] if not m["occupied_tiles"])
-        items.append("**#{} `{}` stays placed without a footprint** (`settings.owner_no_footprint`, the answer to the "
-                     "question this version raised): {} of its {} maps hold no object, so its placement on layer {} "
-                     "occupies {}. The owner's reasons: {}.".format(
-                         lab.get(g["id"], "?"), base(g["id"]), empty, g["map_count"],
-                         layers_of(p.get("plane_bounding_boxes") or {}),
-                         "no tile" if not p.get("occupied_tiles_by_layer") else "{} tiles".format(
-                             sum(p["occupied_tiles_by_layer"].values())),
+        occupied = sum((p.get("occupied_tiles_by_layer") or {}).values())
+        now = ("none of its {} maps holds an object, so its placement on layer {} occupies no tile".format(
+            g["map_count"], layers_of(p.get("plane_bounding_boxes") or {})) if not occupied else
+               "it was kept placed while its maps were empty; it now occupies {} tiles, held to the gap rule like "
+               "any placement".format(occupied))
+        items.append("**#{} `{}` stays placed{}** (`settings.owner_no_footprint`, the answer to the question this "
+                     "version raised): {}. The owner's reasons: {}.".format(
+                         lab.get(g["id"], "?"), base(g["id"]), "" if occupied else " without a footprint", now,
                          d["decision"].split(": ", 1)[-1]))
     for i, d in enumerate(items, 1):
         w("{}. {}".format(i, d))
@@ -1119,16 +1118,6 @@ def open_decisions(plan, lab):
     for g in plan["groups"]:
         if (g.get("placement") or {}).get("status") == "tentative":
             dec.append("**Tentative `{}`** (#{}): {}".format(short(g["id"]), lab[g["id"]], g["evidence"][-1]))
-    no_fp = {d["group"] for d in st["owner_no_footprint"]}
-    for g in sorted(plan["groups"], key=lambda g: lab.get(g["id"], 0)):
-        p = g.get("placement") or {}
-        if p.get("status") in ("proposed", "tentative") and not p["occupied_tiles_by_layer"] and g["id"] not in no_fp:
-            dec.append("**New: placed group without a footprint, #{} `{}`**: none of its {} maps holds an object "
-                       "(each is a map header with tile links), so its placement on layer {} occupies no tile and "
-                       "reserves nothing there; the gap rule holds trivially. Keep it placed without a footprint "
-                       "(objects added later get one when the plan is regenerated), reserve its maps' full extent, "
-                       "or leave the empty maps out of the migration?".format(
-                           lab[g["id"]], short(g["id"]), g["map_count"], layers_of(p["plane_bounding_boxes"])))
     confirmed = {d["group"] for d in st["owner_orientations"]}
     orient = sorted(("#{} `{}`".format(lab[g["id"]], base(g["id"])) for g in plan["groups"]
                      if (g.get("placement") or {}).get("status") == "proposed" and g["placement"]["main_connection"]
@@ -1169,7 +1158,7 @@ def write_open_decisions(plan, w, lab):
       "and the Greyton jail ladders (kept as decoration). Resolved by the 2026-10-19 decisions: Zechna's first hole "
       "(kept a portal), the stair art of the stairwells without stairs (chosen), the Rockforge mines (placed{}), "
       "and the orientations and judgement calls of version 1 and of the relayering (confirmed).".format(
-          ", without a footprint while their maps are empty" if plan["settings"]["owner_no_footprint"] else ""))
+          ", also without a footprint" if plan["settings"]["owner_no_footprint"] else ""))
     w("")
 
 

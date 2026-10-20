@@ -138,16 +138,17 @@ STAIRWELL_APPEARANCE_DECISION = (
     "stairwells whose exits have no stair archetype: the wells (SR17, SR18) show ladder_down and the invisible "
     "exit of #17 dark_cave (SW6) shows stairs_stone_down on their intermediate tiles")
 # Decision 3: groups without an exit connection placed at a fixed layer from an
-# anchor group, at the anchor's x/y (no search: the spot is the decision).
-# (anchor, layer delta, why, premise of the group's sheet layout: each member
-# map's path, size, local offset and tile links).
+# anchor group, at the anchor's x/y (no search: the spot is the decision). The
+# premise covers alignment_evidence() of the evidence groups the reason rests
+# on: their sheet layouts and the exit records between them.
 OWNER_ALIGN = {
-    ROCKFORGE + "rockforge_c": (
-        ROCKFORGE + "rockforge_b", -1,
-        "owner decision 2026-10-19: the Rockforge mines ('Rockforge: Mines') are placed on the layer directly under "
-        "rockforge_b at the same x/y (rockforge_a/_b/_c share the same 5x5 sheet naming 0101..ab05, and the "
-        "rockforge_a<->rockforge_b stairs connect identical local coordinates)",
-        "fa277a5b5aeacdefda6d4c9ca8a3b5d6b7f1e1ff1c63d981c8e3684e1ad71e5b"),
+    ROCKFORGE + "rockforge_c": {
+        "anchor": ROCKFORGE + "rockforge_b", "layer_delta": -1,
+        "evidence_groups": (ROCKFORGE + "rockforge_a", ROCKFORGE + "rockforge_b", ROCKFORGE + "rockforge_c"),
+        "premise": "b5e862b1b9db3eaa0363e85151637719769b24f8f3f5aba55654db8474b86ccb",
+        "why": "owner decision 2026-10-19: the Rockforge mines ('Rockforge: Mines') are placed on the layer directly "
+               "under rockforge_b at the same x/y (rockforge_a/_b/_c share the same 5x5 sheet naming 0101..ab05, and "
+               "the rockforge_a<->rockforge_b stairs connect identical local coordinates)"},
 }
 ALIGN_LAYOUT_FIELDS = ("path", "width", "height", "local_offset", "tile_links")  # per member map, in group order
 # Decision 7 (2026-10-19, the owner's answer to the question this plan raised):
@@ -155,6 +156,7 @@ ALIGN_LAYOUT_FIELDS = ("path", "width", "height", "local_offset", "tile_links") 
 # they occupy no tile. By the owner's reasoning the decision stays valid when
 # content is added: the footprint then appears when the plan is regenerated,
 # and the spot is fixed (decision 3), so a collision makes the generator refuse.
+# Any other placed group without a footprint needs an owner decision first.
 OWNER_NO_FOOTPRINT = {
     ROCKFORGE + "rockforge_c":
         "keep the Rockforge mines placed with no footprint: their 25 maps are empty headers, a footprint appears "
@@ -428,6 +430,22 @@ def stair_family_down(arch: str):
 def premise(evidence) -> str:
     """Fingerprint of the evidence an owner decision was made on: SHA-256 of its canonical JSON."""
     return hashlib.sha256(json.dumps(evidence, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def alignment_evidence(recs: dict, gids) -> dict:
+    """What an owner alignment rests on, from the JSON group records `recs` (id -> record) of the groups `gids`:
+    each one's sheet layout (ALIGN_LAYOUT_FIELDS per member map) and the content fields of every exit record
+    between two of them."""
+    gids = list(gids)
+    exits = {}
+    for gid in gids:
+        for key in ("entrances_from_other_groups", "exits_to_other_groups"):
+            for e in recs[gid].get(key, []):
+                if e["source_group"] in gids and e["target_group"] in gids:
+                    exits[(e["source_map"], e["line"])] = [e["source_map"], e["source_tile"], e["target_map"],
+                                                           e["target_tile"], e["arch"]]
+    return {"layouts": {gid: [{k: m[k] for k in ALIGN_LAYOUT_FIELDS} for m in recs[gid]["maps"]] for gid in gids},
+            "exits": [exits[k] for k in sorted(exits)]}
 
 
 def stairwell_premise(sw: dict) -> str:
@@ -719,8 +737,8 @@ def build(content: Path, allow_dirty: bool = False):
         if gid in OWNER_ALIGN:
             if g["entrances"] or g["exits_out"]:
                 raise SystemExit("owner decision {} aligns {} under {}, but the group now has exits of its own; ask "
-                                 "the owner again".format(DECIDED_2026_10_19, gid, OWNER_ALIGN[gid][0]))
-            return "place", "place", ev + ["no exit object leads here or out; {}".format(OWNER_ALIGN[gid][2])]
+                                 "the owner again".format(DECIDED_2026_10_19, gid, OWNER_ALIGN[gid]["anchor"]))
+            return "place", "place", ev + ["no exit object leads here or out; {}".format(OWNER_ALIGN[gid]["why"])]
         base = posixpath.basename(gid)
         if base.startswith("ship_") or "/ship_" in gid:
             dialog = [r for r in g["script_refs"] if r["file"].startswith("maps/interfaces/")]
@@ -1487,7 +1505,8 @@ def build(content: Path, allow_dirty: bool = False):
         # Owner alignments (decision 3, 2026-10-19), right after the pool: the anchor's x/y, the decided layer
         # distance, nothing else tried. A group whose anchor or spot fails stays unplaced and fails verification.
         oa, fa = [], []
-        for gid, (anchor, dl, why, _layout) in sorted(OWNER_ALIGN.items()):
+        for gid, dec in sorted(OWNER_ALIGN.items()):
+            anchor, dl, why = dec["anchor"], dec["layer_delta"], dec["why"]
             a = S.placed.get(anchor)
             res = None if a is None else place_group(gid, forced={"dx": a["dx"], "dy": a["dy"], "L": a["L"] + dl})
             if placement_failed(res):
@@ -1768,7 +1787,7 @@ def build(content: Path, allow_dirty: bool = False):
     for gid in sorted(OWNER_ALIGN):
         if G[gid]["entrances"] or G[gid]["exits_out"]:
             raise SystemExit("owner decision {} aligns {} under {}, but wiring gave the group an exit; ask the owner "
-                             "again".format(DECIDED_2026_10_19, gid, OWNER_ALIGN[gid][0]))
+                             "again".format(DECIDED_2026_10_19, gid, OWNER_ALIGN[gid]["anchor"]))
 
     stats = collections.defaultdict(collections.Counter)
     portal_reasons = collections.Counter()
@@ -2179,13 +2198,6 @@ def build(content: Path, allow_dirty: bool = False):
             if placed_ok:
                 mr["occupied_rows"] = occupied_rows(maps[m])
             rec["maps"].append(mr)
-        if gid in OWNER_ALIGN:
-            # Owner decision 3 (2026-10-19) was made on this sheet layout of the group
-            layout = premise([{k: mr[k] for k in ALIGN_LAYOUT_FIELDS} for mr in rec["maps"]])
-            if layout != OWNER_ALIGN[gid][3]:
-                raise SystemExit("owner decision {} aligns {} under {} as its sheets were laid out; the layout "
-                                 "changed (its premise is now {}); ask the owner again".format(
-                                     DECIDED_2026_10_19, gid, OWNER_ALIGN[gid][0], layout))
         rec["local_bounding_boxes"] = bbox_layers(gid)
         rec["layout_problems"] = g["layout"]["problems"]
         rec["related_owners"] = sorted(related[gid])
@@ -2225,6 +2237,15 @@ def build(content: Path, allow_dirty: bool = False):
             rec["placement"] = {"status": "failed", "ideal": p["ideal"]}
         groups_out.append(rec)
 
+    # Owner decision 3 (2026-10-19) was made on the evidence groups' sheets and the stairs between them
+    recs_out = {r["id"]: r for r in groups_out}
+    for gid, dec in sorted(OWNER_ALIGN.items()):
+        now = premise(alignment_evidence(recs_out, dec["evidence_groups"]))
+        if gid not in dec["evidence_groups"] or dec["anchor"] not in dec["evidence_groups"] or now != dec["premise"]:
+            raise SystemExit("owner decision {} aligns {} under {} on the layout of {} and the exits between them; "
+                             "that evidence changed (its premise is now {}); ask the owner again".format(
+                                 DECIDED_2026_10_19, gid, dec["anchor"], list(dec["evidence_groups"]), now))
+
     changes_v1 = []
     for gid in sorted(S.placed):
         short_id = gid[len("/shattered_islands/"):] if gid.startswith("/shattered_islands/") else gid
@@ -2245,11 +2266,16 @@ def build(content: Path, allow_dirty: bool = False):
         raise SystemExit("owner decision {} confirmed the placement changes from version 1 {}, but this run makes "
                          "{}; ask the owner again".format(DECIDED_2026_10_19, list(OWNER_PLACEMENT_CHANGES_FROM_V1),
                                                           got_changes))
-    # Owner decision 7 (2026-10-19) keeps groups placed that may have no footprint: they must be placed
+    # Owner decision 7 (2026-10-19) keeps groups placed that may have no footprint: they must be placed, and every
+    # placed group without a footprint needs that decision
     for gid in sorted(OWNER_NO_FOOTPRINT):
         if gid not in S.placed:
             raise SystemExit("owner decision {} keeps {} placed without a footprint, but it is not placed; ask the "
                              "owner again".format(DECIDED_2026_10_19, gid))
+    for gid in sorted(S.placed):
+        if not local_tiles[gid] and gid not in OWNER_NO_FOOTPRINT:
+            raise SystemExit("placed group {} has no footprint (none of its maps holds an object); ask the owner "
+                             "whether to keep it placed (OWNER_NO_FOOTPRINT)".format(gid))
     for gid, (want, _evidence) in sorted(OWNER_ORIENTATIONS.items()):
         got = (placements.get(gid) or {}).get("orientation")
         if got != want:
@@ -2295,9 +2321,10 @@ def build(content: Path, allow_dirty: bool = False):
                           "stairwells": [{"id": i, "premise": pr} for i, pr in chosen], "decided": DECIDED_2026_10_19,
                           "decision": STAIRWELL_APPEARANCE_DECISION}
                          for a, (app, chosen) in sorted(STAIRWELL_APPEARANCE_FALLBACKS.items())],
-                     "owner_alignments": [{"group": gid, "anchor": anchor, "layer_delta": dl, "premise": layout,
-                                           "decided": DECIDED_2026_10_19, "why": why}
-                                          for gid, (anchor, dl, why, layout) in sorted(OWNER_ALIGN.items())],
+                     "owner_alignments": [{"group": gid, "anchor": d["anchor"], "layer_delta": d["layer_delta"],
+                                           "evidence_groups": list(d["evidence_groups"]), "premise": d["premise"],
+                                           "decided": DECIDED_2026_10_19, "why": d["why"]}
+                                          for gid, d in sorted(OWNER_ALIGN.items())],
                      "owner_no_footprint": [{"group": gid, "decided": DECIDED_2026_10_19, "decision": why}
                                             for gid, why in sorted(OWNER_NO_FOOTPRINT.items())],
                      "owner_orientations": [{"group": gid, "orientation": o, "evidence": list(ev),
