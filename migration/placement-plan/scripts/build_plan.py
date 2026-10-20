@@ -110,10 +110,13 @@ OWNER_KEEP_AS_DECORATION = {
 DECIDED_2026_10_19 = "2026-10-19"
 ROCKFORGE = "/shattered_islands/strakewood_island/rockforge/"
 # Decision 1: these exits stay portals where their stairwell is blocked; no
-# stairwell is forced through the content in its way.
+# stairwell is forced through the content in its way. Each is one exit object
+# (source map, line, tile, archetype) at a blocked site with these plane ends.
 OWNER_PORTALS = {
-    ("/shattered_islands/world_7_66_-1", (13, 15), "hole"):
-        "Zechna's first hole stays a portal: no stairwell is built through zechna_temple_1_1, the floor in its column",
+    ("/shattered_islands/world_7_66_-1", 938, (13, 15), "hole"): {
+        "site_top": (181, 1599, -1), "site_bottom": (181, 1599, -4),
+        "decision": "Zechna's first hole stays a portal: no stairwell is built through zechna_temple_1_1, the floor "
+                    "in its column"},
 }
 # Decision 2: a stairwell whose exits belong to no stair family (STAIR_FAMILIES)
 # shows, on its intermediate tiles, the archetype chosen for the first of its
@@ -397,19 +400,21 @@ def stairwell_appearance(exit_archs: list):
     `exit_archs` are the archetypes of the stairwell's exits, the down-going ones
     first, each set sorted. The first one that belongs to a stair family gives the
     family's down archetype. Failing that, the first one with an owner-chosen
-    fallback (decision 2026-10-19) gives that fallback."""
+    fallback (decision 2026-10-19) gives that fallback. The third value is the
+    exit archetype whose fallback was used, else None."""
     exit_archs = list(dict.fromkeys(exit_archs))  # an archetype at both ends is named once
     for a in exit_archs:
         fam = stair_family_down(a)
         if fam:
             return fam, ("appearance of the down archetype of the {} family used by this stairwell's exits; the "
-                         "intermediate objects are decorations, not exits".format(fam.rsplit("_", 1)[0]))
+                         "intermediate objects are decorations, not exits".format(fam.rsplit("_", 1)[0])), None
     for a in exit_archs:
         app = STAIRWELL_APPEARANCE_FALLBACKS.get(a.casefold())
         if app:
             return app, ("owner decision {}: no stair archetype among {}, so the {} exits show {}; the intermediate "
-                         "objects are decorations, not exits".format(DECIDED_2026_10_19, exit_archs, a, app))
-    return None, "no stair archetype among {}; owner to choose".format(exit_archs)
+                         "objects are decorations, not exits".format(DECIDED_2026_10_19, exit_archs, a, app)), \
+                a.casefold()
+    return None, "no stair archetype among {}; owner to choose".format(exit_archs), None
 
 
 def seam_stairs_text() -> str:
@@ -420,28 +425,39 @@ def seam_stairs_text() -> str:
     return "{}/{}".format(low, high[len(common):])
 
 
+def portal_key(x: dict) -> tuple:
+    """The identity an owner portal decision names: one exit object (source map, line, tile, archetype)."""
+    return x["source_map"], x["line"], tuple(x["source_tile"]), x["arch"]
+
+
 def apply_owner_portals(sites: list, decisions: dict):
     """Owner decision 1 (2026-10-19): mark the blocked stairwell sites whose exits the owner keeps portals.
 
-    `decisions` maps (source map, source tile, arch) to the decision text. A site
-    whose exits are all decided carries the decision (owner_decision); a site
-    decided for only some of its exits, or a decision for an exit at no blocked
-    site (its stairwell is no longer blocked), no longer applies: SystemExit."""
+    `decisions` maps portal_key() to the decision: its text and the plane ends of
+    the blocked site it was made for. A site whose exits are all decided, with
+    those ends, carries the decision (owner_decision). A site decided for only
+    some of its exits or with other ends, or a decision for an exit at no blocked
+    site (its stairwell is no longer blocked, or the object changed), no longer
+    applies: SystemExit."""
     decided_at = set()
     for site in sites:
-        keys = [(x["source_map"], tuple(x["source_tile"]), x["arch"]) for x in site["exits"]]
-        found = {decisions.get(k) for k in keys}
-        if found == {None}:
+        keys = [portal_key(x) for x in site["exits"]]
+        found = [decisions.get(k) for k in keys]
+        if not any(found):
             continue
-        if len(found) != 1:
-            raise SystemExit("owner decision {} keeps only some exits of the blocked stairwell site at {} a portal: "
-                             "{}; ask the owner again".format(DECIDED_2026_10_19, site["top"], keys))
-        site["owner_decision"] = {"decided": DECIDED_2026_10_19, "decision": found.pop()}
+        texts = {d["decision"] if d else None for d in found}
+        if len(texts) != 1 or any((tuple(d["site_top"]), tuple(d["site_bottom"])) !=
+                                  (tuple(site["top"]), tuple(site["bottom"])) for d in found):
+            raise SystemExit("owner decision {} keeps the blocked stairwell site {} -> {} a portal only for some of "
+                             "its exits {} or for other ends; ask the owner again".format(
+                                 DECIDED_2026_10_19, site["top"], site["bottom"], keys))
+        site["owner_decision"] = {"decided": DECIDED_2026_10_19, "decision": texts.pop()}
         decided_at.update(keys)
     stale = sorted(k for k in decisions if k not in decided_at)
     if stale:
-        raise SystemExit("owner decision {} keeps exits a portal whose stairwell is no longer blocked: {}; ask the "
-                         "owner again".format(DECIDED_2026_10_19, stale))
+        raise SystemExit("owner decision {} keeps exits a portal that are not at a blocked stairwell site (no longer "
+                         "blocked, or not the same exit object): {}; ask the owner again".format(
+                             DECIDED_2026_10_19, stale))
 
 
 def check_judgement_calls(judgement: list, confirmed: tuple) -> list:
@@ -868,6 +884,7 @@ def build(content: Path, allow_dirty: bool = False):
         slope_failed: list = []
         slope_failed_exit: dict = {}
         relayer_blocked: list = []
+        fallbacks_used: set = set()
 
     def local_tile(gid, m, x, y):
         ox, oy, _oz = G[gid]["layout"]["offsets"][m]
@@ -1200,7 +1217,9 @@ def build(content: Path, allow_dirty: bool = False):
                       "plane_source": list(o["src"]), "plane_target": list(o["dst"])} for o in site]
         top_objs = sorted({o["e"]["arch"] for o in site if o["src_is_upper"]})
         bot_objs = sorted({o["e"]["arch"] for o in site if not o["src_is_upper"]})
-        fam, fam_source = stairwell_appearance(top_objs + bot_objs)
+        fam, fam_source, fallback = stairwell_appearance(top_objs + bot_objs)
+        if fallback:
+            S.fallbacks_used.add(fallback)
         # Top and bottom keep their existing exit objects. Intermediate tiles get
         # a decoration that only borrows the chosen archetype's appearance: it is
         # not an exit (no exit type, destination or tiled link) and not walkable,
@@ -1412,7 +1431,7 @@ def build(content: Path, allow_dirty: bool = False):
     def run_placement(radius):
         S.placed, S.placements, S.order = {}, {}, []
         S.stairwells, S.blocked_sites, S.sw_of_exit = [], [], {}
-        S.slope_failed, S.slope_failed_exit, S.relayer_blocked = [], {}, []
+        S.slope_failed, S.slope_failed_exit, S.relayer_blocked, S.fallbacks_used = [], {}, [], set()
         S.occ = fp.Occupancy(radius, CONTACT_MARGIN)
         for m in G[ow_id]["maps"]:
             for L in sorted(ow_pieces.get(m, {})):
@@ -1561,6 +1580,11 @@ def build(content: Path, allow_dirty: bool = False):
     order1, left1, order_t, left2, failed_placements = run_placement(VIEW_RADIUS)
     # Owner decision 1 (2026-10-19): the blocked sites of the exits the owner keeps portals carry the decision
     apply_owner_portals(S.blocked_sites + S.slope_failed + S.relayer_blocked, OWNER_PORTALS)
+    # Owner decision 2 (2026-10-19): every fallback the owner chose still dresses a stairwell
+    unused = sorted(set(STAIRWELL_APPEARANCE_FALLBACKS) - S.fallbacks_used)
+    if unused:
+        raise SystemExit("owner decision {} chose stair art for stairwells whose exits are {}, but no stairwell uses "
+                         "it any more; ask the owner again".format(DECIDED_2026_10_19, unused))
     place_index = {gid: i for i, gid in enumerate(S.order)}
     placements = S.placements
     sensitivity["groups_placed_differently"] = sorted(
@@ -1690,6 +1714,11 @@ def build(content: Path, allow_dirty: bool = False):
     if stale:
         raise SystemExit("owner decision lists exits to keep as decoration that are no longer dangling exits "
                          "landing on content: {}".format(stale))
+    # Owner decision 3 (2026-10-19) aligns groups that have no exit of their own; a wired exit would give one
+    for gid in sorted(OWNER_ALIGN):
+        if G[gid]["entrances"] or G[gid]["exits_out"]:
+            raise SystemExit("owner decision {} aligns {} under {}, but wiring gave the group an exit; ask the owner "
+                             "again".format(DECIDED_2026_10_19, gid, OWNER_ALIGN[gid][0]))
 
     stats = collections.defaultdict(collections.Counter)
     portal_reasons = collections.Counter()
@@ -2195,9 +2224,10 @@ def build(content: Path, allow_dirty: bool = False):
                      "relayer_min_region_tiles": relayer.MIN_REGION_TILES, "walkable_dz": relayer.WALKABLE_DZ,
                      "owner_keep_as_decoration": [[m, list(t), a] for (m, t, a) in sorted(OWNER_KEEP_AS_DECORATION)],
                      # owner decisions of 2026-10-19 (see the constants in build_plan.py)
-                     "owner_portals": [{"source_map": m, "source_tile": list(t), "arch": a,
-                                        "decided": DECIDED_2026_10_19, "decision": why}
-                                       for (m, t, a), why in sorted(OWNER_PORTALS.items())],
+                     "owner_portals": [{"source_map": m, "line": ln, "source_tile": list(t), "arch": a,
+                                        "site_top": list(d["site_top"]), "site_bottom": list(d["site_bottom"]),
+                                        "decided": DECIDED_2026_10_19, "decision": d["decision"]}
+                                       for (m, ln, t, a), d in sorted(OWNER_PORTALS.items())],
                      "stairwell_appearance_fallbacks": [
                          {"exit_arch": a, "appearance": app, "appearance_defined_in": defined_in(app),
                           "decided": DECIDED_2026_10_19, "decision": STAIRWELL_APPEARANCE_DECISION}

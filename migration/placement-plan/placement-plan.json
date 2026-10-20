@@ -76,11 +76,22 @@
   "owner_portals": [
    {
     "source_map": "/shattered_islands/world_7_66_-1",
+    "line": 938,
     "source_tile": [
      13,
      15
     ],
     "arch": "hole",
+    "site_top": [
+     181,
+     1599,
+     -1
+    ],
+    "site_bottom": [
+     181,
+     1599,
+     -4
+    ],
     "decided": "2026-10-19",
     "decision": "Zechna's first hole stays a portal: no stairwell is built through zechna_temple_1_1, the floor in its column"
    }

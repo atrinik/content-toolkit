@@ -790,6 +790,12 @@ class FailedPlacement(VerifierTest):
         p["settings"]["max_shift_tiles"] = -1
         self.assertCaught(p, "past the search limits")
 
+    def test_an_alignment_of_a_group_with_exits(self):
+        p = self.plan()
+        deck = "/shattered_islands/deserted_tutorial_island/ship_lower_deck"
+        group(p, MINES)["entrances_from_other_groups"] = [group(p, deck)["entrances_from_overworld"][0]]
+        self.assertCaught(p, "owner alignment of {} applies to a group with exits of its own".format(MINES))
+
     def test_a_dangling_alignment(self):
         p = self.plan()
         p["settings"]["owner_alignments"].append({"group": "/not/a/group", "anchor": "/also/missing", "layer_delta": 0,
@@ -859,7 +865,7 @@ class OwnerDecisions(VerifierTest):
             e.update(becomes="stairwell", stairwell="SW1")
             for k in ("portal_reason", "portal_reason_text", "slope_reachable"):
                 e.pop(k, None)
-        self.assertCaught(p, "exit {}:{} is kept a portal by the owner but becomes stairwell".format(*ZECHNA_HOLE))
+        self.assertCaught(p, "exit {}:{} is kept a portal by the owner but its record is stairwell".format(*ZECHNA_HOLE))
 
     def test_the_blocked_site_carries_the_decision(self):
         p = self.plan()
@@ -875,18 +881,27 @@ class OwnerDecisions(VerifierTest):
         p = self.plan()
         p["stairwell_sites_blocked"][0]["owner_decision"]["decision"] = "made up"
         self.assertCaught(p, "blocked column stairwell site at [181, 1599, -1] records owner decision")
+        # the decision is for the site with these ends
+        p = self.plan()
+        p["settings"]["owner_portals"][0]["site_bottom"] = [181, 1599, -5]
+        self.assertCaught(p, "blocked column stairwell site [181, 1599, -1] -> [181, 1599, -4] is kept a portal for "
+                             "only some of its exits or for other ends")
 
     def test_a_portal_decision_for_an_exit_at_no_blocked_site(self):
         p = self.plan()
         e = copies(p, CROSSING)[0][2]
-        p["settings"]["owner_portals"].append({"source_map": e["source_map"], "source_tile": e["source_tile"],
-                                               "arch": e["arch"], "decided": "2026-10-19", "decision": "made up"})
-        self.assertCaught(p, "owner portal {} {} ({},{}) is no exit at a blocked stairwell site".format(
-            e["arch"], e["source_map"], *e["source_tile"]),
-            "exit {}:{} is kept a portal by the owner but becomes stairs".format(*CROSSING))
+        p["settings"]["owner_portals"].append(dict(p["settings"]["owner_portals"][0], source_map=e["source_map"],
+                                                   line=e["line"], source_tile=e["source_tile"], arch=e["arch"]))
+        self.assertCaught(p, "owner portal {} {}:{} is no exit at a blocked stairwell site".format(e["arch"], *CROSSING),
+                          "exit {}:{} is kept a portal by the owner but its record is stairs".format(*CROSSING))
+        # the decision names one exit object: another line (a duplicate hole on the tile, say) is not decided
+        p = self.plan()
+        p["settings"]["owner_portals"][0]["line"] += 1
+        self.assertCaught(p, "owner portal hole {}:{} is no exit at a blocked stairwell site".format(
+            ZECHNA_HOLE[0], ZECHNA_HOLE[1] + 1), "records owner decision {")
         p = self.plan()
         p["settings"]["owner_portals"][0]["decided"] = ""
-        self.assertCaught(p, "is not an exit with a dated owner decision")
+        self.assertCaught(p, "is not an exit at a blocked site with a dated owner decision")
         p = self.plan()
         p["settings"]["owner_portals"].append(dict(p["settings"]["owner_portals"][0]))
         self.assertCaught(p, "is configured twice")
@@ -911,6 +926,11 @@ class OwnerDecisions(VerifierTest):
         p = self.plan()
         p["settings"]["stairwell_appearance_fallbacks"] = []
         self.assertCaught(p, *("{} intermediate tiles do not show None".format(i) for i in ("SW6", "SR17", "SR18")))
+        # a fallback no stairwell uses is a stale decision
+        p = self.plan()
+        p["settings"]["stairwell_appearance_fallbacks"].append(
+            dict(p["settings"]["stairwell_appearance_fallbacks"][0], exit_arch="teleporter"))
+        self.assertCaught(p, "stairwell appearance fallback for teleporter dresses no stairwell")
 
     def test_appearance_fallbacks_are_dated_exit_archetypes(self):
         for change, needle in ((lambda f: f.update(exit_arch="Invis_Exit"), "is not an exit archetype"),
@@ -948,6 +968,11 @@ class OwnerDecisions(VerifierTest):
         self.assertCaught(p, "the relayering judgement calls differ from the ones the owner confirmed")
         p = self.plan()
         p["placement_changes_from_v1"].pop()
+        self.assertCaught(p, "the placement changes from version 1 differ from the ones the owner confirmed")
+        # both copies agree, but the group is not placed there
+        p = self.plan()
+        p["placement_changes_from_v1"][0]["v2"][2] = 999
+        p["settings"]["owner_relayering_judgement_calls"]["placement_changes_from_v1"][0]["v2"][2] = 999
         self.assertCaught(p, "the placement changes from version 1 differ from the ones the owner confirmed")
 
     def test_the_seam_stair_archetypes(self):
@@ -1061,10 +1086,13 @@ class Report(VerifierTest):
 class OwnerDecisionRules(unittest.TestCase):
     """The generator's owner decisions of 2026-10-19 apply as recorded and fail closed when they no longer do."""
 
+    HOLE = ("/m", 7, (1, 2), "hole")
+    DECISION = {"site_top": (0, 0, 0), "site_bottom": (0, 0, -3), "decision": "kept"}
+
     @staticmethod
-    def site(*exits):
-        return {"top": [0, 0, 0], "exits": [{"source_map": m, "source_tile": list(t), "arch": a, "line": i}
-                                             for i, (m, t, a) in enumerate(exits)]}
+    def site(*exits, bottom=(0, 0, -3)):
+        return {"top": [0, 0, 0], "bottom": list(bottom),
+                "exits": [{"source_map": m, "line": ln, "source_tile": list(t), "arch": a} for m, ln, t, a in exits]}
 
     def test_stairwell_appearance(self):
         app = build_plan.stairwell_appearance
@@ -1074,23 +1102,27 @@ class OwnerDecisionRules(unittest.TestCase):
         self.assertEqual(app(["invis_exit", "invis_exit"]), (
             "stairs_stone_down", "owner decision 2026-10-19: no stair archetype among ['invis_exit'], so the "
                                  "invis_exit exits show stairs_stone_down; the intermediate objects are decorations, "
-                                 "not exits"))
+                                 "not exits", "invis_exit"))
+        self.assertEqual(app(["Well_Bucket"])[2], "well_bucket")  # the fallback used, for the staleness check
+        self.assertIsNone(app(["invis_exit", "stairs_stone_up"])[2])
         self.assertEqual(app(["hole", "teleporter"]),
-                         (None, "no stair archetype among ['hole', 'teleporter']; owner to choose"))
+                         (None, "no stair archetype among ['hole', 'teleporter']; owner to choose", None))
 
     def test_portal_decisions_mark_their_sites(self):
-        hole = ("/m", (1, 2), "hole")
-        sites = [self.site(hole), self.site(("/m", (5, 5), "ladder_down"))]
-        build_plan.apply_owner_portals(sites, {hole: "kept"})
+        sites = [self.site(self.HOLE), self.site(("/m", 9, (5, 5), "ladder_down"))]
+        build_plan.apply_owner_portals(sites, {self.HOLE: self.DECISION})
         self.assertEqual(sites[0]["owner_decision"], {"decided": "2026-10-19", "decision": "kept"})
         self.assertNotIn("owner_decision", sites[1])
 
     def test_a_portal_decision_that_no_longer_applies(self):
-        hole = ("/m", (1, 2), "hole")
-        with self.assertRaisesRegex(SystemExit, "no longer blocked"):
-            build_plan.apply_owner_portals([self.site(("/m", (5, 5), "ladder_down"))], {hole: "kept"})
-        with self.assertRaisesRegex(SystemExit, "only some exits"):
-            build_plan.apply_owner_portals([self.site(hole, ("/m", (1, 3), "hole"))], {hole: "kept"})
+        decisions = {self.HOLE: self.DECISION}
+        for sites, needle in (([self.site(("/m", 9, (5, 5), "ladder_down"))], "not at a blocked stairwell site"),
+                              # another object on the same tile, with the same archetype: not the decided exit
+                              ([self.site(("/m", 8, (1, 2), "hole"))], "not at a blocked stairwell site"),
+                              ([self.site(self.HOLE, ("/m", 8, (1, 3), "hole"))], "only for some of its exits"),
+                              ([self.site(self.HOLE, bottom=(0, 0, -4))], "or for other ends")):
+            with self.subTest(needle=needle), self.assertRaisesRegex(SystemExit, needle):
+                build_plan.apply_owner_portals(sites, decisions)
 
     def test_the_confirmed_judgement_calls(self):
         confirmed = (("k", "U1", "t"), ("j", None, "u"))
@@ -1103,8 +1135,9 @@ class OwnerDecisionRules(unittest.TestCase):
 
     def test_the_committed_plan_records_the_constants(self):
         st = json.loads(PLAN.read_text(encoding="utf-8"))["settings"]
-        self.assertEqual({(d["source_map"], tuple(d["source_tile"]), d["arch"]): d["decision"]
-                          for d in st["owner_portals"]}, build_plan.OWNER_PORTALS)
+        self.assertEqual({(d["source_map"], d["line"], tuple(d["source_tile"]), d["arch"]): {
+            "site_top": tuple(d["site_top"]), "site_bottom": tuple(d["site_bottom"]), "decision": d["decision"]}
+            for d in st["owner_portals"]}, build_plan.OWNER_PORTALS)
         self.assertEqual({f["exit_arch"]: f["appearance"] for f in st["stairwell_appearance_fallbacks"]},
                          build_plan.STAIRWELL_APPEARANCE_FALLBACKS)
         self.assertEqual({a["group"]: (a["anchor"], a["layer_delta"], a["why"]) for a in st["owner_alignments"]},

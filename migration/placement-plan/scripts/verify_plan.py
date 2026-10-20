@@ -45,7 +45,8 @@ Placement (every placed group, proposed and tentative):
     anchor has none: it is proposed, carries one of settings.owner_alignments
     (alignment_reason) and sits exactly at the anchor's offsets, the
     configured layers away, with no shift or extra layer; every configured
-    alignment is applied (its group's proposed placement carries it)
+    alignment is applied (its group's proposed placement carries it) to a
+    group without exit records of its own
   * no placement goes further from its ideal spot than max_extra_layers and
     max_shift_tiles allow, or outside its vertical bounds
   * member plane origin == local_offset + (x_offset, y_offset, layer_offset);
@@ -80,8 +81,8 @@ Stairwells (SW placement, SL sloped, SR relayering):
     other, connects: from the exits it replaces) and the intermediate tiles'
     decoration (the exits' stair family, else the owner's fallback in
     settings.stairwell_appearance_fallbacks for the first exit archetype that
-    has one) are re-derived; so are the summary's stairwell and blocked-site
-    counts
+    has one; every fallback dresses at least one stairwell) are re-derived; so
+    are the summary's stairwell and blocked-site counts
 Exits:
   * exit_inventory lists every exit object of the content once, with values
     of the right types, a known form and direction, a target exactly when its
@@ -116,8 +117,9 @@ Exits:
   * every exit 2+ layers and at most one tile per layer apart is a stairwell
     (crossing exits always, overworld exits when the relayering changed their
     span), unless a blocked site lists it; a blocked site has no void chain
-  * every exit the owner keeps a portal (settings.owner_portals) is at a
-    blocked site and becomes a portal; a blocked site carries that
+  * every exit the owner keeps a portal (settings.owner_portals: one exit
+    object by source map, line, tile and archetype) is at a blocked site with
+    the recorded ends and becomes a portal; a blocked site carries that
     owner_decision exactly when all of its exits are kept portals by it
 Relayering (re-derived from the overworld rows and tile heights):
   * regions: 8-connected tiles of one layer with the same q = H // layer
@@ -134,7 +136,7 @@ Relayering (re-derived from the overworld rows and tile heights):
 Owner confirmations (settings.owner_*): every decision is dated, and the plan
 is still what the owner confirmed: the confirmed groups' orientations and
 classifications, the relayering judgement calls and the placement changes
-from version 1 the lowered caves cause.
+from version 1 the lowered caves cause (each ending at its group's offsets).
 Not re-derived: the generator's explanations and evidence, which the
 migration does not act on. That is classification evidence, reach depth and
 script references; the placement rationale beyond the consistency above
@@ -1143,6 +1145,7 @@ def _verify(plan: dict) -> dict:
     sw_tiles = {}
     intermediate = 0
     kinds = collections.Counter()
+    fallbacks_used = set()
     sr_owners = {sw["owner"] for sw in plan["stairwells"] if sw["kind"] == "relayering"}
     for sw in plan["stairwells"]:
         kinds[sw["kind"]] += 1
@@ -1214,6 +1217,8 @@ def _verify(plan: dict) -> dict:
         else:
             fb = next(((a, fallbacks[a.casefold()]) for a in ends_arch if a.casefold() in fallbacks), None)
             fam = fb[1]["appearance"] if fb else None
+            if fb:
+                fallbacks_used.add(fb[0].casefold())
             app_src = ("owner decision {}: no stair archetype among {}, so the {} exits show {}; the intermediate "
                        "objects are decorations, not exits".format(fb[1]["decided"], ends_arch, fb[0], fam) if fb
                        else "no stair archetype among {}; owner to choose".format(ends_arch))
@@ -1284,6 +1289,8 @@ def _verify(plan: dict) -> dict:
                 errors.append("{} tile {} contacts {} != recorded {}".format(sw["id"], key, touch, touched.get(key, [])))
         if sw.get("mode") != ("clear" if not sw["view_conflicts"] and not sw["contacts"] else "void-only"):
             errors.append("{} mode {} disagrees with its view conflicts and contacts".format(sw["id"], sw["mode"]))
+    for a in sorted(set(fallbacks) - fallbacks_used):
+        errors.append("stairwell appearance fallback for {} dresses no stairwell (a stale owner decision)".format(a))
 
     # ---------------------------------------------------------------- exits
     replaced_by = collections.defaultdict(list)  # exit key -> stairwells listing it in replaces
@@ -1343,14 +1350,19 @@ def _verify(plan: dict) -> dict:
                             key_, b.get("group"), b.get("other"), *k))
                 blocked_keys[k] = (key_, b)
 
-    # Owner decision 2026-10-19: the exits the owner keeps portals (settings.owner_portals) are exits at
-    # blocked stairwell sites, every one of them a portal; a site carries the decision exactly when all its
-    # exits are kept portals by it, and no other site carries one.
+    # Owner decision 2026-10-19: the exits the owner keeps portals (settings.owner_portals) are exit objects
+    # (source map, line, tile, archetype) at blocked stairwell sites with the recorded ends, every one of them a
+    # portal; a site carries the decision exactly when all its exits are kept portals by it, and no other site
+    # carries one.
+    def portal_key(x):
+        return x.get("source_map"), x.get("line"), tuple(x.get("source_tile") or ()), x.get("arch")
+
     decided_portals = {}
     for d in st["owner_portals"]:
-        k = (d.get("source_map"), tuple(d.get("source_tile") or ()), d.get("arch")) if isinstance(d, dict) else None
-        if k is None or not dated(d):
-            errors.append("owner portal {} is not an exit with a dated owner decision".format(d))
+        k = portal_key(d) if isinstance(d, dict) else None
+        if k is None or type(k[1]) is not int or not dated(d) or not isinstance(d.get("site_top"), list) or \
+                not isinstance(d.get("site_bottom"), list):
+            errors.append("owner portal {} is not an exit at a blocked site with a dated owner decision".format(d))
             continue
         if k in decided_portals:
             errors.append("owner portal {} is configured twice".format(k))
@@ -1359,13 +1371,14 @@ def _verify(plan: dict) -> dict:
     for key_, sites in (("column", plan["stairwell_sites_blocked"]), ("sloped", plan["sloped_stairwell_sites_blocked"]),
                         ("relayering", rl["stairwells_blocked"])):
         for b in sites:
-            ks = [(x["source_map"], tuple(x["source_tile"]), x["arch"]) for x in b["exits"]]
+            ks = [portal_key(x) for x in b["exits"]]
             ds = [decided_portals.get(k) for k in ks]
             want = None
             if any(ds):
-                if not all(ds) or len({(d["decided"], d["decision"]) for d in ds}) != 1:
-                    errors.append("blocked {} stairwell site at {} is kept a portal for only some of its exits".format(
-                        key_, b["top"]))
+                if not all(ds) or len({(d["decided"], d["decision"]) for d in ds}) != 1 or \
+                        any([d["site_top"], d["site_bottom"]] != [b["top"], b["bottom"]] for d in ds):
+                    errors.append("blocked {} stairwell site {} -> {} is kept a portal for only some of its exits or "
+                                  "for other ends".format(key_, b["top"], b["bottom"]))
                 else:
                     want = {"decided": ds[0]["decided"], "decision": ds[0]["decision"]}
                 at_site.update(k for k, d in zip(ks, ds) if d)
@@ -1374,12 +1387,12 @@ def _verify(plan: dict) -> dict:
                               "{}".format(key_, b["top"], b.get("owner_decision"), want))
     for k in sorted(decided_portals, key=repr):
         if k not in at_site:
-            errors.append("owner portal {} {} ({},{}) is no exit at a blocked stairwell site".format(
-                k[2], k[0], *(k[1] or ("?", "?"))))
-        for e in records.values():
-            if (e["source_map"], tuple(e["source_tile"]), e["arch"]) == k and e.get("becomes") != "portal":
-                errors.append("exit {}:{} is kept a portal by the owner but becomes {}".format(
-                    e["source_map"], e["line"], e.get("becomes")))
+            errors.append("owner portal {} {}:{} is no exit at a blocked stairwell site".format(k[3], k[0], k[1]))
+        e = records.get((k[0], k[1]))
+        if e is None or (tuple(e["source_tile"]), e["arch"]) != (k[2], k[3]) or e.get("becomes") != "portal":
+            errors.append("exit {}:{} is kept a portal by the owner but its record {}".format(
+                k[0], k[1], "is missing" if e is None else "is {} ({} at {})".format(
+                    e.get("becomes"), e["arch"], e["source_tile"])))
 
     def portal_reason(e, k, s, dist, dl):
         """The generator's reason an exit stays a portal, its text, and whether a sloped stairwell would reach."""
@@ -1419,6 +1432,10 @@ def _verify(plan: dict) -> dict:
                 g_["placement"].get("alignment_reason") != a["why"]:
             errors.append("owner alignment of {} to {} is not applied: the group has no proposed placement that "
                           "carries it".format(a.get("group"), a.get("anchor")))
+        # the decision is for a group with no exit of its own: one with exits is placed by them
+        elif any(g_.get(key) for key in ("entrances_from_overworld", "exits_to_overworld",
+                                         "entrances_from_other_groups", "exits_to_other_groups")):
+            errors.append("owner alignment of {} applies to a group with exits of its own".format(a.get("group")))
     exits_checked = 0
     for (src_map, line), e in sorted(records.items()):
         live = all(x == ow_id or x in placed_ids for x in (e["source_group"], e["target_group"]))
@@ -1757,8 +1774,12 @@ def _verify(plan: dict) -> dict:
     rj = st["owner_relayering_judgement_calls"]
     if not dated(rj) or rj.get("calls") != rl["judgement_calls"]:
         errors.append("the relayering judgement calls differ from the ones the owner confirmed")
+    # each confirmed change ends where its group is placed now (its version 1 offsets are not in the plan)
     if rj.get("placement_changes_from_v1") != [{"group": x["group"], "v1": x["v1"], "v2": x["v2"]}
-                                               for x in plan["placement_changes_from_v1"]]:
+                                               for x in plan["placement_changes_from_v1"]] or any(
+            x["v2"] != [(by_id.get(x["group"], {}).get("placement") or {}).get(f)
+                        for f in ("x_offset", "y_offset", "layer_offset")]
+            for x in rj.get("placement_changes_from_v1") or []):
         errors.append("the placement changes from version 1 differ from the ones the owner confirmed")
     ssa = st["seam_stair_archetypes"]
     if not dated(ssa):
