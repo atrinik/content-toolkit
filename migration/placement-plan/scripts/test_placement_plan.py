@@ -33,6 +33,9 @@ INDEX = ("entrances_from_overworld", "exits_to_overworld", "entrances_from_other
          "internal_exits")
 MINE = "/shattered_islands/eld_woods_island/clearhaven/mine/"
 CROSSING = (MINE + "mine_entrance_a", 641)  # ladder_up to mine_entrance: one copy in each group
+ROCKFORGE = "/shattered_islands/strakewood_island/rockforge/"
+MINES = ROCKFORGE + "rockforge_c"  # placed under rockforge_b by owner decision 2026-10-19
+ZECHNA_HOLE = ("/shattered_islands/world_7_66_-1", 938)  # kept a portal by owner decision 2026-10-19
 
 
 def group(plan, gid):
@@ -157,8 +160,8 @@ class CommittedPlan(VerifierTest):
 
     def test_another_schema(self):
         p = self.plan()
-        p["schema"] = "atrinik-overworld-placement-plan/3"
-        self.assertCaught(p, "schema atrinik-overworld-placement-plan/3 is not atrinik-overworld-placement-plan/4")
+        p["schema"] = "atrinik-overworld-placement-plan/4"
+        self.assertCaught(p, "schema atrinik-overworld-placement-plan/4 is not atrinik-overworld-placement-plan/5")
 
 
 class ExitInventory(VerifierTest):
@@ -310,17 +313,16 @@ class ExitInventory(VerifierTest):
         p = self.plan()
         group(p, deck)["placement"]["main_connection"]["kind"] = "sideways"
         self.assertCaught(p, "main connection of {} has kind sideways".format(deck))
+        p = self.plan()  # an alignment nobody configured, on a group placed by its exits
+        group(p, deck)["placement"]["alignment_reason"] = "hint"
+        self.assertCaught(p, "owner alignment of {} is not its configured spot under a placed anchor".format(deck),
+                          "placement of {} has both a main connection and an owner alignment".format(deck))
         p = self.plan()
-        group(p, deck)["placement"]["tentative_reason"] = "hint"
-        self.assertCaught(p, "proposed placement of {} carries an alignment hint".format(deck))
+        group(p, deck)["placement"].update(main_connection=None, alignment_reason="hint")
+        self.assertCaught(p, "owner alignment of {} is not its configured spot under a placed anchor".format(deck))
         p = self.plan()
-        group(p, deck)["placement"].update(main_connection=None, tentative_reason="hint")
-        self.assertCaught(p, "proposed placement of {} carries an alignment hint".format(deck),
-                          "placement of {} has no main connection".format(deck))
-        p = self.plan()
-        tent = group(p, p["summary"]["tentative_placement_order"][0])["placement"]
-        tent["main_connection"] = dict(group(p, deck)["placement"]["main_connection"])
-        self.assertCaught(p, "has both a main connection and an alignment hint")
+        group(p, MINES)["placement"]["main_connection"] = dict(group(p, deck)["placement"]["main_connection"])
+        self.assertCaught(p, "placement of {} has both a main connection and an owner alignment".format(MINES))
         # mine_entrance_a is entered from mine_entrance, placed before it; claim it was placed after
         p = self.plan()
         a, b = group(p, MINE + "mine_entrance_a")["placement"], group(p, MINE + "mine_entrance")["placement"]
@@ -716,41 +718,56 @@ class FailedPlacement(VerifierTest):
         self.assertFalse(any("summary unplaced" in e or "failed_placements" in e or "placement order" in e
                              for e in res["errors"]), res["errors"][:8])
 
-    def test_failed_tentative_group(self):
+    def test_failed_aligned_group(self):
         p = self.plan()
-        gid = p["summary"]["tentative_placement_order"][0]
-        self.fail(p, gid)
-        self.assertCaught(p, "placement of {} failed".format(gid))
+        self.fail(p, MINES)
+        self.assertCaught(p, "placement of {} failed".format(MINES))
 
-    def test_tentative_placement_only_by_classification_or_hint(self):
+    def test_a_tentative_placement_only_for_an_uncertain_group(self):
+        # what version 2 published for the Rockforge mines: unreachable, tentative, hinted
         p = self.plan()
-        gid = p["summary"]["tentative_placement_order"][0]
-        g = group(p, gid)
-        self.assertEqual((g["classification"], g["reason"]), ("separate", "unreachable"))
-        g["placement"].pop("tentative_reason")
-        self.assertCaught(p, "separate group {} (unreachable) has a tentative placement without an alignment "
-                             "hint".format(gid))
-        p = self.plan()
-        group(p, gid)["reason"] = "per_player"
-        self.assertCaught(p, "separate group {} (per_player) has a tentative placement".format(gid))
-
-    def test_a_fabricated_alignment_hint(self):
-        # the last proposed placement turned into an uncertain group with a made-up hint instead of a connection
-        p = self.plan()
+        g = group(p, MINES)
+        self.assertEqual((g["classification"], g["placement"]["status"]), ("place", "proposed"))
+        g.update(classification="separate", reason="unreachable")
+        g["placement"]["status"] = "tentative"
         s = p["summary"]
-        gid = s["placement_order"].pop()
-        s["tentative_placement_order"].insert(0, gid)
+        s["placement_order"].remove(MINES)
+        s["tentative_placement_order"] = [MINES]
         s["by_classification"]["place:place"] -= 1
-        s["by_classification"]["uncertain:uncertain"] = 1
-        g = group(p, gid)
-        g.update(classification="uncertain", reason="uncertain")
-        g["placement"].update(status="tentative", main_connection=None, tentative_reason="made up")
-        self.assertCaught(p, "alignment hint of {} is not a configured alignment to a placed anchor".format(gid))
-        # a configured hint whose layer distance does not match the placement
+        s["by_classification"]["separate:unreachable"] = 1
+        self.assertCaught(p, "separate group {} (unreachable) has a tentative placement".format(MINES),
+                          "tentative placement of {} carries an owner alignment".format(MINES),
+                          "owner alignment of {} to {} is not applied".format(MINES, ROCKFORGE + "rockforge_b"))
         p = self.plan()
-        p["settings"]["tentative_alignments"][0]["layer_delta"] -= 1
-        self.assertCaught(p, "alignment hint of {} is not a configured alignment".format(
-            p["settings"]["tentative_alignments"][0]["group"]))
+        group(p, MINES)["placement"]["status"] = "tentative"
+        self.assertCaught(p, "place group {} has no proposed placement".format(MINES),
+                          "place group {} (place) has a tentative placement".format(MINES))
+
+    def test_a_fabricated_owner_alignment(self):
+        # a group placed by its exits claimed to be an owner alignment instead
+        p = self.plan()
+        group(p, self.GID)["placement"].update(main_connection=None, alignment_reason="made up")
+        self.assertCaught(p, "owner alignment of {} is not its configured spot under a placed anchor".format(self.GID))
+        # a configured alignment whose layer distance does not match the placement
+        p = self.plan()
+        p["settings"]["owner_alignments"][0]["layer_delta"] -= 1
+        self.assertCaught(p, "owner alignment of {} is not its configured spot".format(MINES))
+        # the decided spot is exact: no extra layer, even one the search might have taken
+        p = self.plan()
+        pl = group(p, MINES)["placement"]
+        pl["layer_offset"] -= 1
+        pl["extra_layers_from_ideal"] = 1
+        for o in pl["member_origins"].values():
+            o[2] -= 1
+        self.assertCaught(p, "owner alignment of {} is not its configured spot".format(MINES))
+        # an alignment with no decision date, or another date than the owner's
+        for date in ("soon", "2099-12-31", "9999-99-99"):
+            p = self.plan()
+            p["settings"]["owner_alignments"][0]["decided"] = date
+            self.assertCaught(p, "owner alignment of {} to {} is not applied".format(MINES, ROCKFORGE + "rockforge_b"))
+        p = self.plan()
+        p["settings"]["owner_relayering_judgement_calls"]["decided"] = "9999-99-99"
+        self.assertCaught(p, "the relayering judgement calls differ from the ones the owner confirmed")
 
     def test_a_layer_outside_the_vertical_bounds(self):
         p = self.plan()
@@ -777,17 +794,64 @@ class FailedPlacement(VerifierTest):
         p["settings"]["max_shift_tiles"] = -1
         self.assertCaught(p, "past the search limits")
 
+    def test_kept_placed_without_a_footprint(self):
+        p = self.plan()
+        self.assertEqual(group(p, MINES)["placement"]["occupied_tiles_by_layer"], {})
+        self.assertEqual([d["group"] for d in p["settings"]["owner_no_footprint"]], [MINES])
+        for change in (lambda d: d.update(group="/shattered_islands/everlink/everlink"),  # not placed
+                       lambda d: d.update(decided="later")):
+            p = self.plan()
+            change(p["settings"]["owner_no_footprint"][0])
+            self.assertCaught(p, "to keep a group placed without a footprint does not hold in the plan",
+                              "placed group {} has no footprint and no owner decision to keep it placed".format(MINES))
+        # the decision dropped or moved to another placed group
+        p = self.plan()
+        p["settings"]["owner_no_footprint"] = []
+        self.assertCaught(p, "placed group {} has no footprint and no owner decision to keep it placed".format(MINES))
+        # ... or a footprint claimed that its rows do not hold
+        p = self.plan()
+        p["settings"]["owner_no_footprint"] = []
+        group(p, MINES)["placement"]["occupied_tiles_by_layer"] = {"-7": 1}
+        self.assertCaught(p, "occupied_tiles_by_layer of {} is not what its occupied rows claim ({{}})".format(MINES),
+                          "placed group {} has no footprint and no owner decision to keep it placed".format(MINES))
+        p = self.plan()
+        p["settings"]["owner_no_footprint"][0]["group"] = self.GID
+        self.assertCaught(p, "placed group {} has no footprint and no owner decision to keep it placed".format(MINES))
+        p = self.plan()
+        p["settings"]["owner_no_footprint"].append(dict(p["settings"]["owner_no_footprint"][0]))
+        self.assertCaught(p, "to keep a group placed without a footprint does not hold in the plan")
+
+    def test_an_alignment_of_a_group_with_exits(self):
+        p = self.plan()
+        deck = "/shattered_islands/deserted_tutorial_island/ship_lower_deck"
+        group(p, MINES)["entrances_from_other_groups"] = [group(p, deck)["entrances_from_overworld"][0]]
+        self.assertCaught(p, "owner alignment of {} applies to a group with exits of its own".format(MINES))
+        # the decision was made on the sheets of rockforge_a/_b/_c as they were laid out and the a<->b stairs
+        for change in (lambda p: group(p, MINES)["maps"][0]["tile_links"].pop("N"),
+                       lambda p: group(p, ROCKFORGE + "rockforge_b")["maps"][0]["local_offset"].__setitem__(0, 1),
+                       lambda p: p["settings"]["owner_alignments"][0]["evidence_groups"].remove(
+                           ROCKFORGE + "rockforge_a")):
+            p = self.plan()
+            change(p)
+            self.assertCaught(p, "owner alignment of {} was decided on other evidence".format(MINES))
+        p = self.plan()
+        k = next((e["source_map"], e["line"]) for e in group(p, ROCKFORGE + "rockforge_a")["exits_to_other_groups"]
+                 if e["target_group"] == ROCKFORGE + "rockforge_b")
+        for _g, _lst, e in copies(p, k):
+            e["target_tile"] = [e["target_tile"][0] + 1, e["target_tile"][1]]
+        self.assertCaught(p, "owner alignment of {} was decided on other evidence".format(MINES))
+
     def test_a_dangling_alignment(self):
         p = self.plan()
-        p["settings"]["tentative_alignments"].append(
-            {"group": "/not/a/group", "anchor": "/also/missing", "layer_delta": 0, "why": "fabricated"})
-        self.assertCaught(p, "tentative alignment of /not/a/group to /also/missing is not the hint of a tentative "
-                             "placement")
+        p["settings"]["owner_alignments"].append({"group": "/not/a/group", "anchor": "/also/missing", "layer_delta": 0,
+                                                  "decided": "2026-10-19", "why": "fabricated"})
+        self.assertCaught(p, "owner alignment of /not/a/group to /also/missing is not applied")
         # an entry between two ordinary proposed groups is not applied anywhere
         p = self.plan()
         a, b = p["summary"]["placement_order"][:2]
-        p["settings"]["tentative_alignments"].append({"group": b, "anchor": a, "layer_delta": -1, "why": "stale"})
-        self.assertCaught(p, "tentative alignment of {} to {} is not the hint of a tentative placement".format(b, a))
+        p["settings"]["owner_alignments"].append({"group": b, "anchor": a, "layer_delta": -1, "decided": "2026-10-19",
+                                                  "why": "stale"})
+        self.assertCaught(p, "owner alignment of {} to {} is not applied".format(b, a))
 
     def test_the_overworld_grid(self):
         p = self.plan()
@@ -807,11 +871,11 @@ class FailedPlacement(VerifierTest):
 
     def test_alignment_reasons_are_text(self):
         p = self.plan()
-        a = p["settings"]["tentative_alignments"][0]
+        a = p["settings"]["owner_alignments"][0]
         a["why"] = ["x"]
-        group(p, a["group"])["placement"]["tentative_reason"] = ["x"]
-        self.assertCaught(p, "tentative_reason of {} is not a text".format(a["group"]),
-                          "tentative alignment of {} to {} is not the hint".format(a["group"], a["anchor"]))
+        group(p, a["group"])["placement"]["alignment_reason"] = ["x"]
+        self.assertCaught(p, "alignment_reason of {} is not a text".format(a["group"]),
+                          "owner alignment of {} to {} is not applied".format(a["group"], a["anchor"]))
 
     def test_place_group_without_a_placement(self):
         p = self.plan()
@@ -831,6 +895,189 @@ class FailedPlacement(VerifierTest):
         p = self.plan()
         p["summary"].pop("failed_placements")
         self.assertCaught(p, "summary failed_placements")
+
+
+class OwnerDecisions(VerifierTest):
+    """The owner decisions of 2026-10-19 are re-checked from the JSON (settings.owner_* and their effects)."""
+
+    def sw(self, p, sid):
+        return next(sw for sw in p["stairwells"] if sw["id"] == sid)
+
+    def test_a_decided_portal_stays_a_portal(self):
+        p = self.plan()
+        for _g, _lst, e in copies(p, ZECHNA_HOLE):
+            self.assertEqual((e["becomes"], e["portal_reason"]), ("portal", "stairwell-blocked"))
+            e.update(becomes="stairwell", stairwell="SW1")
+            for k in ("portal_reason", "portal_reason_text", "slope_reachable"):
+                e.pop(k, None)
+        self.assertCaught(p, "exit {}:{} is kept a portal by the owner but its record is stairwell".format(*ZECHNA_HOLE))
+
+    def test_the_blocked_site_carries_the_decision(self):
+        p = self.plan()
+        site = p["stairwell_sites_blocked"][0]
+        decision = site.pop("owner_decision")
+        self.assertEqual(decision["decided"], "2026-10-19")
+        self.assertCaught(p, "blocked column stairwell site at [181, 1599, -1] records owner decision None, "
+                             "settings.owner_portals give")
+        p = self.plan()
+        p["settings"]["owner_portals"] = []
+        self.assertCaught(p, "blocked column stairwell site at [181, 1599, -1] records owner decision {",
+                          "settings.owner_portals give None")
+        p = self.plan()
+        p["stairwell_sites_blocked"][0]["owner_decision"]["decision"] = "made up"
+        self.assertCaught(p, "blocked column stairwell site at [181, 1599, -1] records owner decision")
+        # the decision was made on this site record: another obstruction in the column, another target end or
+        # another owner is another premise
+        for change in (lambda b: b["column_occupied"][0].update(map=b["column_occupied"][0]["map"] + "_x"),
+                       lambda b: b["bottom"].__setitem__(2, -5),
+                       lambda b: b.update(other="/shattered_islands/world_7_66")):
+            p = self.plan()
+            change(p["stairwell_sites_blocked"][0])
+            self.assertCaught(p, "is kept a portal for only some of its exits or on another site record")
+
+    def test_a_portal_decision_for_an_exit_at_no_blocked_site(self):
+        p = self.plan()
+        e = copies(p, CROSSING)[0][2]
+        p["settings"]["owner_portals"].append(dict(p["settings"]["owner_portals"][0], source_map=e["source_map"],
+                                                   line=e["line"], source_tile=e["source_tile"], arch=e["arch"]))
+        self.assertCaught(p, "owner portal {} {}:{} is no exit at a blocked stairwell site".format(e["arch"], *CROSSING),
+                          "exit {}:{} is kept a portal by the owner but its record is stairs".format(*CROSSING))
+        # the decision names one exit object: another line (a duplicate hole on the tile, say) is not decided
+        p = self.plan()
+        p["settings"]["owner_portals"][0]["line"] += 1
+        self.assertCaught(p, "owner portal hole {}:{} is no exit at a blocked stairwell site".format(
+            ZECHNA_HOLE[0], ZECHNA_HOLE[1] + 1), "records owner decision {")
+        p = self.plan()
+        p["settings"]["owner_portals"][0]["decided"] = ""
+        self.assertCaught(p, "is not an exit at a blocked site with a dated owner decision")
+        p = self.plan()
+        p["settings"]["owner_portals"].append(dict(p["settings"]["owner_portals"][0]))
+        self.assertCaught(p, "is configured twice")
+
+    def test_the_stairwell_appearance_rule(self):
+        p = self.plan()
+        self.assertEqual([self.sw(p, i)["intermediate_appearance"] for i in ("SW6", "SR17", "SR18")],
+                         ["stairs_stone_down", "ladder_down", "ladder_down"])
+        sw6 = self.sw(p, "SW6")
+        sw6["intermediate_appearance"] = "ladder_down"
+        for t in sw6["tiles"][1:-1]:
+            t["objects"][0]["archetype"] = "ladder_down"
+        self.assertCaught(p, "SW6 intermediate tiles do not show stairs_stone_down")
+        # the verifier follows the recorded rule; a stair family still wins over a fallback (SW10: invis_exit and
+        # stairs_stone_* exits keeps stairs_stone_down)
+        p = self.plan()
+        next(f for f in p["settings"]["stairwell_appearance_fallbacks"]
+             if f["exit_arch"] == "invis_exit")["appearance"] = "ladder_down"
+        res = verify_plan.verify(p)
+        self.assertIn("SW6 intermediate tiles do not show ladder_down as a decoration", res["errors"])
+        self.assertFalse([e for e in res["errors"] if "SW10" in e], res["errors"][:8])
+        p = self.plan()
+        p["settings"]["stairwell_appearance_fallbacks"] = []
+        self.assertCaught(p, *("{} intermediate tiles do not show None".format(i) for i in ("SW6", "SR17", "SR18")))
+        # a fallback no stairwell uses is a stale decision
+        p = self.plan()
+        p["settings"]["stairwell_appearance_fallbacks"].append(
+            dict(p["settings"]["stairwell_appearance_fallbacks"][0], exit_arch="teleporter"))
+        self.assertCaught(p, "stairwell appearance fallback for teleporter dresses [], the owner chose it for "
+                             "['SW6:f2adfb3c19b1']")
+        # each fallback is bound to the stairwells the owner chose it for, by premise, not by positional id
+        p = self.plan()
+        next(f for f in p["settings"]["stairwell_appearance_fallbacks"]
+             if f["exit_arch"] == "well_bucket")["stairwells"].append({"id": "SR17", "premise": "0" * 64})
+        self.assertCaught(p, "stairwell appearance fallback for well_bucket dresses ['SR18:7c7394a44511'], the owner "
+                             "chose it for ['SR18:7c7394a44511', 'SR17:000000000000']")
+        p = self.plan()  # another stairwell in SW6's place: same id, other exits
+        self.sw(p, "SW6")["direction"] = "down"
+        self.assertCaught(p, "stairwell appearance fallback for invis_exit dresses ['SW6:")
+
+    def test_appearance_fallbacks_are_dated_exit_archetypes(self):
+        for change, needle in ((lambda f: f.update(exit_arch="Invis_Exit"), "is not an exit archetype"),
+                               (lambda f: f.update(appearance=""), "is not an exit archetype"),
+                               (lambda f: f.pop("decided"), "is not an exit archetype")):
+            p = self.plan()
+            change(p["settings"]["stairwell_appearance_fallbacks"][0])
+            self.assertCaught(p, needle)
+        p = self.plan()
+        fbs = p["settings"]["stairwell_appearance_fallbacks"]
+        fbs.append(dict(fbs[0]))
+        self.assertCaught(p, "stairwell appearance fallback for {} is configured twice".format(fbs[0]["exit_arch"]))
+
+    def test_confirmed_orientations_and_classifications(self):
+        dark = "/shattered_islands/strakewood_island/dark_cave/dark_cave"
+        p = self.plan()
+        group(p, dark)["placement"]["orientation"] = "above"
+        self.assertCaught(p, "owner orientation decision {{'group': '{}'".format(dark))
+        p = self.plan()
+        p["settings"]["owner_orientations"].append(dict(p["settings"]["owner_orientations"][0]))
+        self.assertCaught(p, "owner orientation decision", "does not hold in the plan")
+        # 'below' still, but no longer from a name keyword alone: a directional exit voted
+        p = self.plan()
+        group(p, dark)["placement"]["orientation_evidence"].insert(
+            0, "exit semantics with upstream groups/overworld: {'below': 1}")
+        self.assertCaught(p, "owner orientation decision {{'group': '{}'".format(dark))
+        # the same classification on other evidence
+        p = self.plan()
+        group(p, "/shattered_islands/everlink/everlink")["evidence"][1] = "1 exit object(s) from the overworld lead here"
+        self.assertCaught(p, "owner classification decision {'group': '/shattered_islands/everlink/everlink'")
+        # the garden's hole retargeted: the same evidence strings, other content
+        p = self.plan()
+        garden = "/shattered_islands/berri_lur/temple_loki/desert_plane/unusual_garden"
+        hole = group(p, garden)["exits_to_overworld"][0]
+        for _g, _lst, e in copies(p, (hole["source_map"], hole["line"])):
+            e["target_tile"] = [e["target_tile"][0] + 1, e["target_tile"][1]]
+        self.assertCaught(p, "owner classification decision {{'group': '{}'".format(garden))
+        # a confirmed orientation on other content: another map name (the keyword's source)
+        p = self.plan()
+        cave = "/shattered_islands/eld_woods_island/cave_morlarg"
+        group(p, cave)["maps"][0]["name"] = "A Tower"
+        self.assertCaught(p, "owner orientation decision {{'group': '{}'".format(cave))
+        # a confirmation the plan carries needs its settings entry
+        p = self.plan()
+        p["settings"]["owner_orientations"].pop(0)
+        p["settings"]["owner_classifications"] = []
+        self.assertCaught(p, "/shattered_islands/eld_woods_island/cave_morlarg carries an owner orientation "
+                             "confirmation without its settings entry",
+                          "/hall_of_dms carries an owner classification confirmation without its settings entry")
+        p = self.plan()
+        group(p, "/shattered_islands/everlink/everlink")["reason"] = "unreachable"
+        self.assertCaught(p, "owner classification decision {'group': '/shattered_islands/everlink/everlink'")
+        p = self.plan()
+        p["settings"]["owner_classifications"][0]["decided"] = "2026-19-10x"
+        self.assertCaught(p, "owner classification decision")
+
+    def test_confirmed_relayering_judgement_calls(self):
+        p = self.plan()
+        p["relayering"]["judgement_calls"][0]["text"] += " (changed)"
+        self.assertCaught(p, "the relayering judgement calls differ from the ones the owner confirmed")
+        # the same call texts over other records: a cave's recorded reasoning (not re-derived elsewhere)
+        p = self.plan()
+        p["relayering"]["caves"][0]["why"] += " (changed)"
+        res = verify_plan.verify(p)
+        self.assertEqual(res["errors"], ["the relayering judgement calls differ from the ones the owner confirmed (or "
+                                         "the records they summarise do)"])
+        p = self.plan()
+        p["settings"]["owner_relayering_judgement_calls"]["calls"].pop()
+        self.assertCaught(p, "the relayering judgement calls differ from the ones the owner confirmed")
+        p = self.plan()
+        p["placement_changes_from_v1"].pop()
+        self.assertCaught(p, "the placement changes from version 1 differ from the ones the owner confirmed")
+        # both copies agree, but the group is not placed there
+        p = self.plan()
+        p["placement_changes_from_v1"][0]["v2"][2] = 999
+        p["settings"]["owner_relayering_judgement_calls"]["placement_changes_from_v1"][0]["v2"][2] = 999
+        self.assertCaught(p, "the placement changes from version 1 differ from the ones the owner confirmed")
+
+    def test_the_seam_stair_archetypes(self):
+        p = self.plan()
+        ns = p["relayering"]["new_stairs"][0]
+        self.assertEqual([(o["tile"], o["archetype"]) for o in ns["objects"]],
+                         [("low", "stairs_stone_up"), ("high", "stairs_stone_down")])
+        ns["objects"][0]["archetype"] = "stairs_wood_up"  # still an up stair, but not the decided one
+        self.assertCaught(p, "new stairs {} do not use the seam stair archetypes stairs_stone_up/stairs_stone_down"
+                          .format(ns["id"]))
+        p = self.plan()
+        p["settings"]["seam_stair_archetypes"]["decided"] = None
+        self.assertCaught(p, "settings.seam_stair_archetypes records no dated owner decision")
 
 
 @unittest.skipUnless(os.environ.get("PLACEMENT_PLAN_CONTENT"), "set PLACEMENT_PLAN_CONTENT to a content checkout")
@@ -869,6 +1116,25 @@ class ContentFidelity(VerifierTest):
         group(p, "/emergency")["evidence"][0] = "made up"
         self.assertUnfaithful(p)
 
+    def test_an_owner_decision_dropped_with_its_effect(self):
+        # which decisions apply is an input of the generator: a decision removed from settings together with its
+        # effect keeps the JSON consistent with itself, and the rebuild from the generator's constants differs
+        p = self.plan()
+        st = p["settings"]
+        st["stairwell_appearance_fallbacks"] = [f for f in st["stairwell_appearance_fallbacks"]
+                                                if f["exit_arch"] != "invis_exit"]
+        sw6 = next(sw for sw in p["stairwells"] if sw["id"] == "SW6")
+        sw6.update(intermediate_appearance=None,
+                   intermediate_appearance_source="no stair archetype among ['invis_exit']; owner to choose")
+        for t in sw6["tiles"][1:-1]:
+            t["objects"] = []
+        self.assertUnfaithful(p)
+        p = self.plan()
+        cave = "/shattered_islands/eld_woods_island/cave_morlarg"
+        p["settings"]["owner_orientations"] = [d for d in p["settings"]["owner_orientations"] if d["group"] != cave]
+        group(p, cave)["placement"]["orientation_evidence"].pop()
+        self.assertUnfaithful(p)
+
     def test_type_strict_comparison(self):
         p = self.plan()  # caught by both checks, and by the rebuild comparison type for type
         p["summary"]["wired_exits"] = 5.0
@@ -894,6 +1160,140 @@ class Report(VerifierTest):
             text = (Path(tmp) / "REPORT.md").read_text(encoding="utf-8")
         self.assertIn("**66 become plain stairs** (5 of them wired dangling exits)", text)
         self.assertIn("**Wired exits**: 6 legacy exits", text)
+
+    def write(self, p):
+        import tempfile
+
+        import report
+
+        with tempfile.TemporaryDirectory() as tmp:
+            report.write_report(p, Path(tmp))
+            return (Path(tmp) / "REPORT.md").read_text(encoding="utf-8")
+
+    def test_open_decisions_follow_the_plan(self):
+        p = self.plan()
+        text = self.write(p)
+        self.assertIn("### Decided 2026-10-19", text)
+        self.assertIn("7. **#26 `rockforge_c` stays placed without a footprint**", text)
+        self.assertIn("Open owner decisions: none.", text)
+        self.assertIn("## Open owner decisions\n\nNone.", text)
+        # without the owner's answers, an undecided blocked site and a stairwell without stair art are open
+        # decisions again
+        p["stairwell_sites_blocked"][0].pop("owner_decision")
+        next(sw for sw in p["stairwells"] if sw["id"] == "SW6")["intermediate_appearance"] = None
+        text = self.write(p)
+        self.assertIn("1. **Blocked stairwell at #28 `zechna_temple`**", text)
+        self.assertIn("2. **Stair archetype for stairwells without stairs**: SW6 (#17 `dark_cave`: invis_exit)", text)
+        self.assertIn("2 owner decisions are open", text)
+        # once content gives the mines a footprint, the report says so instead of calling them empty
+        p = self.plan()
+        group(p, MINES)["placement"]["occupied_tiles_by_layer"] = {"-7": 5}
+        text = self.write(p)
+        self.assertIn("7. **#26 `rockforge_c` stays placed** (`settings.owner_no_footprint`", text)
+        self.assertIn("it now occupies 5 tiles, held to the gap rule like any placement", text)
+        self.assertNotIn("without a footprint while its maps are empty", text)
+        self.assertNotIn("holds an object yet", text)
+
+
+class OwnerDecisionRules(unittest.TestCase):
+    """The generator's owner decisions of 2026-10-19 apply as recorded and fail closed when they no longer do."""
+
+    HOLE = ("/m", 7, (1, 2), "hole")
+
+    @staticmethod
+    def site(*exits, bottom=(0, 0, -3)):
+        return {"top": [0, 0, 0], "bottom": list(bottom),
+                "exits": [{"source_map": m, "line": ln, "source_tile": list(t), "arch": a} for m, ln, t, a in exits]}
+
+    def decision(self, site):
+        return {"premise": build_plan.premise(build_plan.portal_evidence(site, {})), "decision": "kept"}
+
+    def test_stairwell_appearance(self):
+        app = build_plan.stairwell_appearance
+        self.assertEqual(app(["invis_exit", "stairs_stone_down", "invis_exit"])[0], "stairs_stone_down")
+        self.assertEqual(app(["invis_exit", "stairs_wood_up"])[0], "stairs_wood_down")  # a family wins
+        self.assertEqual(app(["well_stone", "well_bucket"])[0], "ladder_down")
+        self.assertEqual(app(["invis_exit", "invis_exit"]), (
+            "stairs_stone_down", "owner decision 2026-10-19: no stair archetype among ['invis_exit'], so the "
+                                 "invis_exit exits show stairs_stone_down; the intermediate objects are decorations, "
+                                 "not exits", "invis_exit"))
+        self.assertEqual(app(["Well_Bucket"])[2], "well_bucket")  # the fallback used, for the staleness check
+        self.assertIsNone(app(["invis_exit", "stairs_stone_up"])[2])
+        self.assertEqual(app(["hole", "teleporter"]),
+                         (None, "no stair archetype among ['hole', 'teleporter']; owner to choose", None))
+
+    def test_decisions_name_existing_groups(self):
+        names = set(build_plan.OWNER_CLASSIFICATIONS) | set(build_plan.OWNER_ORIENTATIONS) | \
+            set(build_plan.OWNER_NO_FOOTPRINT) | {x for d in build_plan.OWNER_ALIGN.values()
+                                                  for x in (*d["evidence_groups"], d["anchor"])}
+        build_plan.check_decision_groups(names | set(build_plan.OWNER_ALIGN))
+        with self.assertRaisesRegex(SystemExit, "name groups the content no longer has: \\['{}'\\]".format(MINES)):
+            build_plan.check_decision_groups(names - {MINES})
+
+    def test_portal_decisions_mark_their_sites(self):
+        sites = [self.site(self.HOLE), self.site(("/m", 9, (5, 5), "ladder_down"))]
+        build_plan.apply_owner_portals(sites, {self.HOLE: self.decision(self.site(self.HOLE))}, {})
+        self.assertEqual(sites[0]["owner_decision"], {"decided": "2026-10-19", "decision": "kept"})
+        self.assertNotIn("owner_decision", sites[1])
+
+    def test_a_portal_decision_that_no_longer_applies(self):
+        decisions = {self.HOLE: self.decision(self.site(self.HOLE))}
+        for sites, needle in (([self.site(("/m", 9, (5, 5), "ladder_down"))], "not at a blocked stairwell site"),
+                              # another object on the same tile, with the same archetype: not the decided exit
+                              ([self.site(("/m", 8, (1, 2), "hole"))], "not at a blocked stairwell site"),
+                              ([self.site(self.HOLE, ("/m", 8, (1, 3), "hole"))], "only for some of its exits"),
+                              # the same exit at a site whose record changed (here its bottom end)
+                              ([self.site(self.HOLE, bottom=(0, 0, -4))], "or for another site record")):
+            with self.subTest(needle=needle), self.assertRaisesRegex(SystemExit, needle):
+                build_plan.apply_owner_portals(sites, decisions, {})
+        # the same site whose exit now leads elsewhere (its record changed)
+        with self.assertRaisesRegex(SystemExit, "or for another site record"):
+            build_plan.apply_owner_portals([self.site(self.HOLE)], decisions,
+                                           {("/m", 7): {"target_map": "/elsewhere"}})
+
+    def test_the_confirmed_judgement_calls(self):
+        confirmed = (("k", "U1", "t"), ("j", None, "u"))
+        calls = build_plan.check_judgement_calls([{"kind": "k", "unit": "U1", "text": "t"}, {"kind": "j", "text": "u"}],
+                                                 confirmed)
+        self.assertEqual(calls, [{"kind": "k", "unit": "U1", "text": "t"}, {"kind": "j", "text": "u"}])
+        with self.assertRaisesRegex(SystemExit, "they now differ"):
+            build_plan.check_judgement_calls([{"kind": "k", "unit": "U1", "text": "t2"}, {"kind": "j", "text": "u"}],
+                                             confirmed)
+
+    def test_the_committed_plan_records_the_constants(self):
+        st = json.loads(PLAN.read_text(encoding="utf-8"))["settings"]
+        self.assertEqual({(d["source_map"], d["line"], tuple(d["source_tile"]), d["arch"]): {
+            "premise": d["premise"], "decision": d["decision"]} for d in st["owner_portals"]}, build_plan.OWNER_PORTALS)
+        self.assertEqual({f["exit_arch"]: (f["appearance"], tuple((x["id"], x["premise"]) for x in f["stairwells"]))
+                          for f in st["stairwell_appearance_fallbacks"]}, build_plan.STAIRWELL_APPEARANCE_FALLBACKS)
+        self.assertEqual(verify_plan.STAIRWELL_PREMISE_FIELDS, build_plan.STAIRWELL_PREMISE_FIELDS)
+        self.assertEqual({a["group"]: {"anchor": a["anchor"], "layer_delta": a["layer_delta"],
+                                       "evidence_groups": tuple(a["evidence_groups"]), "premise": a["premise"],
+                                       "why": a["why"]} for a in st["owner_alignments"]}, build_plan.OWNER_ALIGN)
+        plan = json.loads(PLAN.read_text(encoding="utf-8"))
+        recs = {g["id"]: g for g in plan["groups"]}
+        gids = st["owner_alignments"][0]["evidence_groups"]
+        self.assertEqual(verify_plan.alignment_evidence(recs, gids), build_plan.alignment_evidence(recs, gids))
+        # the verifier's copies of the evidence functions agree with the generator's
+        records = {(e["source_map"], e["line"]): e for g in plan["groups"] for k in build_plan.EXIT_LISTS
+                   for e in g.get(k, [])}
+        for gid in list(build_plan.OWNER_CLASSIFICATIONS) + list(build_plan.OWNER_ORIENTATIONS):
+            self.assertEqual(verify_plan.group_evidence(recs[gid]), build_plan.group_evidence(recs[gid]))
+        site = plan["stairwell_sites_blocked"][0]
+        self.assertEqual(verify_plan.portal_evidence(site, records), build_plan.portal_evidence(site, records))
+        self.assertEqual(verify_plan.relayering_evidence(plan["relayering"], plan["stairwells"]),
+                         build_plan.relayering_evidence(plan["relayering"], plan["stairwells"]))
+        self.assertEqual({d["group"]: (d["orientation"], tuple(d["evidence"]), d["premise"])
+                          for d in st["owner_orientations"]}, build_plan.OWNER_ORIENTATIONS)
+        self.assertEqual(st["owner_relayering_judgement_calls"]["premise"], build_plan.OWNER_RELAYERING_PREMISE)
+        self.assertEqual({d["group"]: (d["classification"], d["reason"], d["premise"])
+                          for d in st["owner_classifications"]}, build_plan.OWNER_CLASSIFICATIONS)
+        self.assertEqual({d["group"]: d["decision"] for d in st["owner_no_footprint"]}, build_plan.OWNER_NO_FOOTPRINT)
+        self.assertEqual(verify_plan.ALIGN_LAYOUT_FIELDS, build_plan.ALIGN_LAYOUT_FIELDS)
+        self.assertEqual(verify_plan.premise({"b": [1, "x"], "a": None}), build_plan.premise({"a": None, "b": [1, "x"]}))
+        self.assertEqual(st["owner_relayering_judgement_calls"]["calls"], build_plan.check_judgement_calls(
+            st["owner_relayering_judgement_calls"]["calls"], build_plan.OWNER_RELAYERING_JUDGEMENT_CALLS))
+        self.assertEqual({k: st["seam_stair_archetypes"][k] for k in ("low", "high")}, build_plan.SEAM_STAIR_ARCHETYPES)
 
 
 class PlacePool(unittest.TestCase):
