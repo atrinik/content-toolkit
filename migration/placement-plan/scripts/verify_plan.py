@@ -82,8 +82,10 @@ Stairwells (SW placement, SL sloped, SR relayering):
     other, connects: from the exits it replaces) and the intermediate tiles'
     decoration (the exits' stair family, else the owner's fallback in
     settings.stairwell_appearance_fallbacks for the first exit archetype that
-    has one; each fallback dresses exactly the stairwells recorded with it) are
-    re-derived; so are the summary's stairwell and blocked-site counts
+    has one; each fallback dresses exactly the stairwells recorded with it,
+    each by id and by the premise of its kind, owners, direction and replaced
+    exits) are re-derived; so are the summary's stairwell and blocked-site
+    counts
 Exits:
   * exit_inventory lists every exit object of the content once, with values
     of the right types, a known form and direction, a target exactly when its
@@ -140,7 +142,8 @@ is still what the owner confirmed, on the same evidence: the confirmed
 groups' orientations with their evidence, their classifications with the
 premise of their evidence, the relayering judgement calls and the placement
 changes from version 1 the lowered caves cause (each ending at its group's
-offsets). A premise is the SHA-256 of the evidence record's canonical JSON.
+offsets); every confirmation the groups carry has its settings entry. A
+premise is the SHA-256 of the evidence record's canonical JSON.
 Not re-derived: the generator's explanations and evidence, which the
 migration does not act on. That is classification evidence, reach depth and
 script references; the placement rationale beyond the consistency above
@@ -257,8 +260,13 @@ def premise(evidence) -> str:
     return hashlib.sha256(json.dumps(evidence, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
-# The fields of each member map an owner alignment's premise covers, in group order (build_plan.ALIGN_LAYOUT_FIELDS).
+# The fields of each member map an owner alignment's premise covers, in group order (build_plan.ALIGN_LAYOUT_FIELDS),
+# and of a stairwell record its premise covers (build_plan.STAIRWELL_PREMISE_FIELDS).
 ALIGN_LAYOUT_FIELDS = ("path", "width", "height", "local_offset", "tile_links")
+STAIRWELL_PREMISE_FIELDS = ("kind", "group", "owner", "other", "connects", "direction", "replaces")
+# The evidence an owner confirmation appends: to a placement's orientation_evidence, to a group's evidence.
+ORIENTATION_MARK = re.compile(r"owner decision \d{4}-\d{2}-\d{2}: .*")
+CLASSIFICATION_MARK = re.compile(r"owner decision \d{4}-\d{2}-\d{2}: .* confirmed \(a version 1 judgement call\)")
 
 
 def dated(d, text="decision") -> bool:
@@ -1159,7 +1167,7 @@ def _verify(plan: dict) -> dict:
     sw_tiles = {}
     intermediate = 0
     kinds = collections.Counter()
-    fallbacks_used = collections.defaultdict(list)  # exit archetype -> ids of the stairwells its fallback dresses
+    fallbacks_used = collections.defaultdict(list)  # exit archetype -> the stairwells its fallback dresses
     sr_owners = {sw["owner"] for sw in plan["stairwells"] if sw["kind"] == "relayering"}
     for sw in plan["stairwells"]:
         kinds[sw["kind"]] += 1
@@ -1232,7 +1240,8 @@ def _verify(plan: dict) -> dict:
             fb = next(((a, fallbacks[a.casefold()]) for a in ends_arch if a.casefold() in fallbacks), None)
             fam = fb[1]["appearance"] if fb else None
             if fb:
-                fallbacks_used[fb[0].casefold()].append(sw["id"])
+                fallbacks_used[fb[0].casefold()].append(
+                    {"id": sw["id"], "premise": premise({k: sw.get(k) for k in STAIRWELL_PREMISE_FIELDS})})
             app_src = ("owner decision {}: no stair archetype among {}, so the {} exits show {}; the intermediate "
                        "objects are decorations, not exits".format(fb[1]["decided"], ends_arch, fb[0], fam) if fb
                        else "no stair archetype among {}; owner to choose".format(ends_arch))
@@ -1305,8 +1314,9 @@ def _verify(plan: dict) -> dict:
             errors.append("{} mode {} disagrees with its view conflicts and contacts".format(sw["id"], sw["mode"]))
     for a, f in sorted(fallbacks.items()):
         if fallbacks_used.get(a, []) != f.get("stairwells"):
-            errors.append("stairwell appearance fallback for {} dresses {}, the owner chose it for {}".format(
-                a, fallbacks_used.get(a, []), f.get("stairwells")))
+            errors.append("stairwell appearance fallback for {} dresses {}, the owner chose it for {} (id:premise)".format(
+                a, ["{}:{}".format(x["id"], x["premise"][:12]) for x in fallbacks_used.get(a, [])],
+                ["{}:{}".format(x.get("id"), str(x.get("premise"))[:12]) for x in f.get("stairwells") or []]))
 
     # ---------------------------------------------------------------- exits
     replaced_by = collections.defaultdict(list)  # exit key -> stairwells listing it in replaces
@@ -1777,15 +1787,15 @@ def _verify(plan: dict) -> dict:
     # ------------------------------------------------- owner confirmations
     # Decisions of 2026-10-19 that confirm what the rules derived: the plan must still be what was confirmed.
     by_id = {g["id"]: g for g in plan["groups"]}
-    for what, entries, check in (
+    for what, entries, mark, check in (
             # the derived orientation and its evidence, then the decision
-            ("orientation", st["owner_orientations"],
+            ("orientation", st["owner_orientations"], ORIENTATION_MARK,
              lambda d, g: (g.get("placement") or {}).get("status") == "proposed"
              and g["placement"].get("orientation") == d.get("orientation") and isinstance(d.get("evidence"), list)
              and g["placement"].get("orientation_evidence") == d["evidence"] + [
                  "owner decision {}: {}".format(d["decided"], d["decision"])]),
             # the derived classification on the same evidence (its premise), then the confirmation
-            ("classification", st["owner_classifications"],
+            ("classification", st["owner_classifications"], CLASSIFICATION_MARK,
              lambda d, g: [g["classification"], g["reason"]] == [d.get("classification"), d.get("reason")]
              and g["evidence"][-1:] == ["owner decision {}: {} confirmed (a version 1 judgement call)".format(
                  d["decided"], d.get("reason"))] and premise(g["evidence"][:-1]) == d.get("premise"))):
@@ -1796,6 +1806,11 @@ def _verify(plan: dict) -> dict:
                 errors.append("owner {} decision {} does not hold in the plan".format(what, d))
             else:
                 seen_.add(d["group"])
+        # every confirmation the plan carries is one of these settings entries
+        marked = {g["id"] for g in plan["groups"] if any(isinstance(t, str) and mark.fullmatch(t) for t in (
+            (g.get("placement") or {}).get("orientation_evidence") or [] if what == "orientation" else g["evidence"]))}
+        for gid in sorted(marked - seen_):
+            errors.append("{} carries an owner {} confirmation without its settings entry".format(gid, what))
     rj = st["owner_relayering_judgement_calls"]
     if not dated(rj) or rj.get("calls") != rl["judgement_calls"]:
         errors.append("the relayering judgement calls differ from the ones the owner confirmed")

@@ -124,12 +124,16 @@ OWNER_PORTALS = {
 # Decision 2: a stairwell whose exits belong to no stair family (STAIR_FAMILIES)
 # shows, on its intermediate tiles, the archetype chosen for the first of its
 # exit archetypes listed here (down-going exits first, each set sorted). Each
-# fallback is bound to the stairwells the owner chose it for.
+# fallback is bound to the stairwells the owner chose it for: (id as the owner
+# saw it, stairwell_premise()). An id is positional; the premise is the identity.
 STAIRWELL_APPEARANCE_FALLBACKS = {
-    "invis_exit": ("stairs_stone_down", ("SW6",)),
-    "well_bucket": ("ladder_down", ("SR18",)),
-    "well_stone": ("ladder_down", ("SR17",)),
+    "invis_exit": ("stairs_stone_down", (("SW6", "f2adfb3c19b1fb4bee44f296e5071e1ddb6c7390cd0e8539bec6c4f5cb0f55f4"),)),
+    "well_bucket": ("ladder_down", (("SR18", "7c7394a4451176950e74cbf647c9038d0b8ba5d30d6aa0668e9db95ec5733adc"),)),
+    "well_stone": ("ladder_down", (("SR17", "696b3636a020a3d31e0e6af411d9429923edcde41d65a6da37560788f1b0c5a7"),)),
 }
+# The evidence a stairwell's premise covers: its kind, owners, direction and every exit it replaces (tiles,
+# targets, archetypes, plane ends).
+STAIRWELL_PREMISE_FIELDS = ("kind", "group", "owner", "other", "connects", "direction", "replaces")
 STAIRWELL_APPEARANCE_DECISION = (
     "stairwells whose exits have no stair archetype: the wells (SR17, SR18) show ladder_down and the invisible "
     "exit of #17 dark_cave (SW6) shows stairs_stone_down on their intermediate tiles")
@@ -413,6 +417,11 @@ def stair_family_down(arch: str):
 def premise(evidence) -> str:
     """Fingerprint of the evidence an owner decision was made on: SHA-256 of its canonical JSON."""
     return hashlib.sha256(json.dumps(evidence, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def stairwell_premise(sw: dict) -> str:
+    """The premise of a stairwell record: what a decision about it was made on (STAIRWELL_PREMISE_FIELDS)."""
+    return premise({k: sw[k] for k in STAIRWELL_PREMISE_FIELDS})
 
 
 def stairwell_appearance(exit_archs: list):
@@ -1604,15 +1613,17 @@ def build(content: Path, allow_dirty: bool = False):
     order1, left1, order_t, left2, failed_placements = run_placement(VIEW_RADIUS)
     # Owner decision 1 (2026-10-19): the blocked sites of the exits the owner keeps portals carry the decision
     apply_owner_portals(S.blocked_sites + S.slope_failed + S.relayer_blocked, OWNER_PORTALS)
-    # Owner decision 2 (2026-10-19): every fallback dresses exactly the stairwells the owner chose it for
+    # Owner decision 2 (2026-10-19): every fallback dresses exactly the stairwells the owner chose it for (the
+    # same records, by premise)
     dressed = collections.defaultdict(list)
     for sw in S.stairwells:
         if id(sw) in S.fallback_of:
-            dressed[S.fallback_of[id(sw)]].append(sw["id"])
-    for a, (_app, ids) in sorted(STAIRWELL_APPEARANCE_FALLBACKS.items()):
-        if dressed.get(a, []) != list(ids):
-            raise SystemExit("owner decision {} chose stair art for the {} exits of {}, but it now dresses {}; ask "
-                             "the owner again".format(DECIDED_2026_10_19, a, list(ids), dressed.get(a, [])))
+            dressed[S.fallback_of[id(sw)]].append((sw["id"], stairwell_premise(sw)))
+    for a, (_app, chosen) in sorted(STAIRWELL_APPEARANCE_FALLBACKS.items()):
+        if dressed.get(a, []) != list(chosen):
+            raise SystemExit("owner decision {} chose stair art for the {} exits of {}, but it now dresses {} (id, "
+                             "premise); ask the owner again".format(DECIDED_2026_10_19, a, list(chosen),
+                                                                    dressed.get(a, [])))
     place_index = {gid: i for i, gid in enumerate(S.order)}
     placements = S.placements
     sensitivity["groups_placed_differently"] = sorted(
@@ -2265,9 +2276,9 @@ def build(content: Path, allow_dirty: bool = False):
                                        for (m, ln, t, a), d in sorted(OWNER_PORTALS.items())],
                      "stairwell_appearance_fallbacks": [
                          {"exit_arch": a, "appearance": app, "appearance_defined_in": defined_in(app),
-                          "stairwells": list(ids), "decided": DECIDED_2026_10_19,
+                          "stairwells": [{"id": i, "premise": pr} for i, pr in chosen], "decided": DECIDED_2026_10_19,
                           "decision": STAIRWELL_APPEARANCE_DECISION}
-                         for a, (app, ids) in sorted(STAIRWELL_APPEARANCE_FALLBACKS.items())],
+                         for a, (app, chosen) in sorted(STAIRWELL_APPEARANCE_FALLBACKS.items())],
                      "owner_alignments": [{"group": gid, "anchor": anchor, "layer_delta": dl, "premise": layout,
                                            "decided": DECIDED_2026_10_19, "why": why}
                                           for gid, (anchor, dl, why, layout) in sorted(OWNER_ALIGN.items())],

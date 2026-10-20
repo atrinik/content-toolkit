@@ -93,7 +93,10 @@
     "appearance": "stairs_stone_down",
     "appearance_defined_in": "arch/connect/stairs/stairs_stone/stairs_stone.arc",
     "stairwells": [
-     "SW6"
+     {
+      "id": "SW6",
+      "premise": "f2adfb3c19b1fb4bee44f296e5071e1ddb6c7390cd0e8539bec6c4f5cb0f55f4"
+     }
     ],
     "decided": "2026-10-19",
     "decision": "stairwells whose exits have no stair archetype: the wells (SR17, SR18) show ladder_down and the invisible exit of #17 dark_cave (SW6) shows stairs_stone_down on their intermediate tiles"
@@ -103,7 +106,10 @@
     "appearance": "ladder_down",
     "appearance_defined_in": "arch/connect/exits/ladder/ladder.arc",
     "stairwells": [
-     "SR18"
+     {
+      "id": "SR18",
+      "premise": "7c7394a4451176950e74cbf647c9038d0b8ba5d30d6aa0668e9db95ec5733adc"
+     }
     ],
     "decided": "2026-10-19",
     "decision": "stairwells whose exits have no stair archetype: the wells (SR17, SR18) show ladder_down and the invisible exit of #17 dark_cave (SW6) shows stairs_stone_down on their intermediate tiles"
@@ -113,7 +119,10 @@
     "appearance": "ladder_down",
     "appearance_defined_in": "arch/connect/exits/ladder/ladder.arc",
     "stairwells": [
-     "SR17"
+     {
+      "id": "SR17",
+      "premise": "696b3636a020a3d31e0e6af411d9429923edcde41d65a6da37560788f1b0c5a7"
+     }
     ],
     "decided": "2026-10-19",
     "decision": "stairwells whose exits have no stair archetype: the wells (SR17, SR18) show ladder_down and the invisible exit of #17 dark_cave (SW6) shows stairs_stone_down on their intermediate tiles"

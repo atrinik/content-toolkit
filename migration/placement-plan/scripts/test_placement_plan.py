@@ -937,13 +937,17 @@ class OwnerDecisions(VerifierTest):
         p = self.plan()
         p["settings"]["stairwell_appearance_fallbacks"].append(
             dict(p["settings"]["stairwell_appearance_fallbacks"][0], exit_arch="teleporter"))
-        self.assertCaught(p, "stairwell appearance fallback for teleporter dresses [], the owner chose it for ['SW6']")
-        # each fallback is bound to the stairwells the owner chose it for
+        self.assertCaught(p, "stairwell appearance fallback for teleporter dresses [], the owner chose it for "
+                             "['SW6:f2adfb3c19b1']")
+        # each fallback is bound to the stairwells the owner chose it for, by premise, not by positional id
         p = self.plan()
         next(f for f in p["settings"]["stairwell_appearance_fallbacks"]
-             if f["exit_arch"] == "well_bucket")["stairwells"] = ["SR17", "SR18"]
-        self.assertCaught(p, "stairwell appearance fallback for well_bucket dresses ['SR18'], the owner chose it for "
-                             "['SR17', 'SR18']")
+             if f["exit_arch"] == "well_bucket")["stairwells"].append({"id": "SR17", "premise": "0" * 64})
+        self.assertCaught(p, "stairwell appearance fallback for well_bucket dresses ['SR18:7c7394a44511'], the owner "
+                             "chose it for ['SR18:7c7394a44511', 'SR17:000000000000']")
+        p = self.plan()  # another stairwell in SW6's place: same id, other exits
+        self.sw(p, "SW6")["direction"] = "down"
+        self.assertCaught(p, "stairwell appearance fallback for invis_exit dresses ['SW6:")
 
     def test_appearance_fallbacks_are_dated_exit_archetypes(self):
         for change, needle in ((lambda f: f.update(exit_arch="Invis_Exit"), "is not an exit archetype"),
@@ -974,6 +978,13 @@ class OwnerDecisions(VerifierTest):
         p = self.plan()
         group(p, "/shattered_islands/everlink/everlink")["evidence"][1] = "1 exit object(s) from the overworld lead here"
         self.assertCaught(p, "owner classification decision {'group': '/shattered_islands/everlink/everlink'")
+        # a confirmation the plan carries needs its settings entry
+        p = self.plan()
+        p["settings"]["owner_orientations"].pop(0)
+        p["settings"]["owner_classifications"] = []
+        self.assertCaught(p, "/shattered_islands/eld_woods_island/cave_morlarg carries an owner orientation "
+                             "confirmation without its settings entry",
+                          "/hall_of_dms carries an owner classification confirmation without its settings entry")
         p = self.plan()
         group(p, "/shattered_islands/everlink/everlink")["reason"] = "unreachable"
         self.assertCaught(p, "owner classification decision {'group': '/shattered_islands/everlink/everlink'")
@@ -1162,8 +1173,9 @@ class OwnerDecisionRules(unittest.TestCase):
         st = json.loads(PLAN.read_text(encoding="utf-8"))["settings"]
         self.assertEqual({(d["source_map"], d["line"], tuple(d["source_tile"]), d["arch"]): {
             "premise": d["premise"], "decision": d["decision"]} for d in st["owner_portals"]}, build_plan.OWNER_PORTALS)
-        self.assertEqual({f["exit_arch"]: (f["appearance"], tuple(f["stairwells"]))
+        self.assertEqual({f["exit_arch"]: (f["appearance"], tuple((x["id"], x["premise"]) for x in f["stairwells"]))
                           for f in st["stairwell_appearance_fallbacks"]}, build_plan.STAIRWELL_APPEARANCE_FALLBACKS)
+        self.assertEqual(verify_plan.STAIRWELL_PREMISE_FIELDS, build_plan.STAIRWELL_PREMISE_FIELDS)
         self.assertEqual({a["group"]: (a["anchor"], a["layer_delta"], a["why"], a["premise"])
                           for a in st["owner_alignments"]}, build_plan.OWNER_ALIGN)
         self.assertEqual({d["group"]: (d["orientation"], tuple(d["evidence"])) for d in st["owner_orientations"]},
