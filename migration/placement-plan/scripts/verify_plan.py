@@ -46,7 +46,8 @@ Placement (every placed group, proposed and tentative):
     (alignment_reason) and sits exactly at the anchor's offsets, the
     configured layers away, with no shift or extra layer; every configured
     alignment is applied (its group's proposed placement carries it) to a
-    group without exit records of its own
+    group without exit records of its own, whose member maps are laid out as
+    when the owner decided (the alignment's premise)
   * no placement goes further from its ideal spot than max_extra_layers and
     max_shift_tiles allow, or outside its vertical bounds
   * member plane origin == local_offset + (x_offset, y_offset, layer_offset);
@@ -81,8 +82,8 @@ Stairwells (SW placement, SL sloped, SR relayering):
     other, connects: from the exits it replaces) and the intermediate tiles'
     decoration (the exits' stair family, else the owner's fallback in
     settings.stairwell_appearance_fallbacks for the first exit archetype that
-    has one; every fallback dresses at least one stairwell) are re-derived; so
-    are the summary's stairwell and blocked-site counts
+    has one; each fallback dresses exactly the stairwells recorded with it) are
+    re-derived; so are the summary's stairwell and blocked-site counts
 Exits:
   * exit_inventory lists every exit object of the content once, with values
     of the right types, a known form and direction, a target exactly when its
@@ -118,9 +119,10 @@ Exits:
     (crossing exits always, overworld exits when the relayering changed their
     span), unless a blocked site lists it; a blocked site has no void chain
   * every exit the owner keeps a portal (settings.owner_portals: one exit
-    object by source map, line, tile and archetype) is at a blocked site with
-    the recorded ends and becomes a portal; a blocked site carries that
-    owner_decision exactly when all of its exits are kept portals by it
+    object by source map, line, tile and archetype) is at a blocked site whose
+    record is the one the decision was made on (its premise) and becomes a
+    portal; a blocked site carries that owner_decision exactly when all of its
+    exits are kept portals by it
 Relayering (re-derived from the overworld rows and tile heights):
   * regions: 8-connected tiles of one layer with the same q = H // layer
     height >= 1; relayered when large enough or touching a relayered region
@@ -134,9 +136,11 @@ Relayering (re-derived from the overworld rows and tile heights):
     archetypes of settings.seam_stair_archetypes); steep steps; new contacts;
     moved maps and the before/after layer deltas of exits
 Owner confirmations (settings.owner_*): every decision is dated, and the plan
-is still what the owner confirmed: the confirmed groups' orientations and
-classifications, the relayering judgement calls and the placement changes
-from version 1 the lowered caves cause (each ending at its group's offsets).
+is still what the owner confirmed, on the same evidence: the confirmed
+groups' orientations with their evidence, their classifications with the
+premise of their evidence, the relayering judgement calls and the placement
+changes from version 1 the lowered caves cause (each ending at its group's
+offsets). A premise is the SHA-256 of the evidence record's canonical JSON.
 Not re-derived: the generator's explanations and evidence, which the
 migration does not act on. That is classification evidence, reach depth and
 script references; the placement rationale beyond the consistency above
@@ -245,6 +249,16 @@ def world_cell(path: str):
 
 def cheb(a, b):
     return max(abs(a[0] - b[0]), abs(a[1] - b[1]))
+
+
+def premise(evidence) -> str:
+    """Fingerprint of the evidence an owner decision was made on: SHA-256 of its canonical JSON
+    (build_plan.premise)."""
+    return hashlib.sha256(json.dumps(evidence, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+# The fields of each member map an owner alignment's premise covers, in group order (build_plan.ALIGN_LAYOUT_FIELDS).
+ALIGN_LAYOUT_FIELDS = ("path", "width", "height", "local_offset", "tile_links")
 
 
 def dated(d, text="decision") -> bool:
@@ -1145,7 +1159,7 @@ def _verify(plan: dict) -> dict:
     sw_tiles = {}
     intermediate = 0
     kinds = collections.Counter()
-    fallbacks_used = set()
+    fallbacks_used = collections.defaultdict(list)  # exit archetype -> ids of the stairwells its fallback dresses
     sr_owners = {sw["owner"] for sw in plan["stairwells"] if sw["kind"] == "relayering"}
     for sw in plan["stairwells"]:
         kinds[sw["kind"]] += 1
@@ -1218,7 +1232,7 @@ def _verify(plan: dict) -> dict:
             fb = next(((a, fallbacks[a.casefold()]) for a in ends_arch if a.casefold() in fallbacks), None)
             fam = fb[1]["appearance"] if fb else None
             if fb:
-                fallbacks_used.add(fb[0].casefold())
+                fallbacks_used[fb[0].casefold()].append(sw["id"])
             app_src = ("owner decision {}: no stair archetype among {}, so the {} exits show {}; the intermediate "
                        "objects are decorations, not exits".format(fb[1]["decided"], ends_arch, fb[0], fam) if fb
                        else "no stair archetype among {}; owner to choose".format(ends_arch))
@@ -1289,8 +1303,10 @@ def _verify(plan: dict) -> dict:
                 errors.append("{} tile {} contacts {} != recorded {}".format(sw["id"], key, touch, touched.get(key, [])))
         if sw.get("mode") != ("clear" if not sw["view_conflicts"] and not sw["contacts"] else "void-only"):
             errors.append("{} mode {} disagrees with its view conflicts and contacts".format(sw["id"], sw["mode"]))
-    for a in sorted(set(fallbacks) - fallbacks_used):
-        errors.append("stairwell appearance fallback for {} dresses no stairwell (a stale owner decision)".format(a))
+    for a, f in sorted(fallbacks.items()):
+        if fallbacks_used.get(a, []) != f.get("stairwells"):
+            errors.append("stairwell appearance fallback for {} dresses {}, the owner chose it for {}".format(
+                a, fallbacks_used.get(a, []), f.get("stairwells")))
 
     # ---------------------------------------------------------------- exits
     replaced_by = collections.defaultdict(list)  # exit key -> stairwells listing it in replaces
@@ -1360,8 +1376,7 @@ def _verify(plan: dict) -> dict:
     decided_portals = {}
     for d in st["owner_portals"]:
         k = portal_key(d) if isinstance(d, dict) else None
-        if k is None or type(k[1]) is not int or not dated(d) or not isinstance(d.get("site_top"), list) or \
-                not isinstance(d.get("site_bottom"), list):
+        if k is None or type(k[1]) is not int or not dated(d) or not isinstance(d.get("premise"), str):
             errors.append("owner portal {} is not an exit at a blocked site with a dated owner decision".format(d))
             continue
         if k in decided_portals:
@@ -1375,10 +1390,11 @@ def _verify(plan: dict) -> dict:
             ds = [decided_portals.get(k) for k in ks]
             want = None
             if any(ds):
+                now = premise({k_: v for k_, v in b.items() if k_ != "owner_decision"})
                 if not all(ds) or len({(d["decided"], d["decision"]) for d in ds}) != 1 or \
-                        any([d["site_top"], d["site_bottom"]] != [b["top"], b["bottom"]] for d in ds):
+                        any(d["premise"] != now for d in ds):
                     errors.append("blocked {} stairwell site {} -> {} is kept a portal for only some of its exits or "
-                                  "for other ends".format(key_, b["top"], b["bottom"]))
+                                  "on another site record".format(key_, b["top"], b["bottom"]))
                 else:
                     want = {"decided": ds[0]["decided"], "decision": ds[0]["decision"]}
                 at_site.update(k for k, d in zip(ks, ds) if d)
@@ -1432,10 +1448,13 @@ def _verify(plan: dict) -> dict:
                 g_["placement"].get("alignment_reason") != a["why"]:
             errors.append("owner alignment of {} to {} is not applied: the group has no proposed placement that "
                           "carries it".format(a.get("group"), a.get("anchor")))
-        # the decision is for a group with no exit of its own: one with exits is placed by them
+        # the decision is for a group with no exit of its own (one with exits is placed by them), laid out as
+        # it was when the owner decided
         elif any(g_.get(key) for key in ("entrances_from_overworld", "exits_to_overworld",
                                          "entrances_from_other_groups", "exits_to_other_groups")):
             errors.append("owner alignment of {} applies to a group with exits of its own".format(a.get("group")))
+        elif premise([{f: m.get(f) for f in ALIGN_LAYOUT_FIELDS} for m in g_["maps"]]) != a.get("premise"):
+            errors.append("owner alignment of {} was decided on another layout of its maps".format(a.get("group")))
     exits_checked = 0
     for (src_map, line), e in sorted(records.items()):
         live = all(x == ow_id or x in placed_ids for x in (e["source_group"], e["target_group"]))
@@ -1759,11 +1778,17 @@ def _verify(plan: dict) -> dict:
     # Decisions of 2026-10-19 that confirm what the rules derived: the plan must still be what was confirmed.
     by_id = {g["id"]: g for g in plan["groups"]}
     for what, entries, check in (
+            # the derived orientation and its evidence, then the decision
             ("orientation", st["owner_orientations"],
              lambda d, g: (g.get("placement") or {}).get("status") == "proposed"
-             and g["placement"].get("orientation") == d.get("orientation")),
+             and g["placement"].get("orientation") == d.get("orientation") and isinstance(d.get("evidence"), list)
+             and g["placement"].get("orientation_evidence") == d["evidence"] + [
+                 "owner decision {}: {}".format(d["decided"], d["decision"])]),
+            # the derived classification on the same evidence (its premise), then the confirmation
             ("classification", st["owner_classifications"],
-             lambda d, g: [g["classification"], g["reason"]] == [d.get("classification"), d.get("reason")])):
+             lambda d, g: [g["classification"], g["reason"]] == [d.get("classification"), d.get("reason")]
+             and g["evidence"][-1:] == ["owner decision {}: {} confirmed (a version 1 judgement call)".format(
+                 d["decided"], d.get("reason"))] and premise(g["evidence"][:-1]) == d.get("premise"))):
         seen_ = set()
         for d in entries:
             g = by_id.get(d.get("group")) if isinstance(d, dict) else None

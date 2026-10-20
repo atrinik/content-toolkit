@@ -82,16 +82,7 @@
      15
     ],
     "arch": "hole",
-    "site_top": [
-     181,
-     1599,
-     -1
-    ],
-    "site_bottom": [
-     181,
-     1599,
-     -4
-    ],
+    "premise": "45cdd3565efa504f5ccec3065d37631a9e7b91a297edc7ceed8018c4bcc4f755",
     "decided": "2026-10-19",
     "decision": "Zechna's first hole stays a portal: no stairwell is built through zechna_temple_1_1, the floor in its column"
    }
@@ -101,6 +92,9 @@
     "exit_arch": "invis_exit",
     "appearance": "stairs_stone_down",
     "appearance_defined_in": "arch/connect/stairs/stairs_stone/stairs_stone.arc",
+    "stairwells": [
+     "SW6"
+    ],
     "decided": "2026-10-19",
     "decision": "stairwells whose exits have no stair archetype: the wells (SR17, SR18) show ladder_down and the invisible exit of #17 dark_cave (SW6) shows stairs_stone_down on their intermediate tiles"
    },
@@ -108,6 +102,9 @@
     "exit_arch": "well_bucket",
     "appearance": "ladder_down",
     "appearance_defined_in": "arch/connect/exits/ladder/ladder.arc",
+    "stairwells": [
+     "SR18"
+    ],
     "decided": "2026-10-19",
     "decision": "stairwells whose exits have no stair archetype: the wells (SR17, SR18) show ladder_down and the invisible exit of #17 dark_cave (SW6) shows stairs_stone_down on their intermediate tiles"
    },
@@ -115,6 +112,9 @@
     "exit_arch": "well_stone",
     "appearance": "ladder_down",
     "appearance_defined_in": "arch/connect/exits/ladder/ladder.arc",
+    "stairwells": [
+     "SR17"
+    ],
     "decided": "2026-10-19",
     "decision": "stairwells whose exits have no stair archetype: the wells (SR17, SR18) show ladder_down and the invisible exit of #17 dark_cave (SW6) shows stairs_stone_down on their intermediate tiles"
    }
@@ -124,6 +124,7 @@
     "group": "/shattered_islands/strakewood_island/rockforge/rockforge_c",
     "anchor": "/shattered_islands/strakewood_island/rockforge/rockforge_b",
     "layer_delta": -1,
+    "premise": "fa277a5b5aeacdefda6d4c9ca8a3b5d6b7f1e1ff1c63d981c8e3684e1ad71e5b",
     "decided": "2026-10-19",
     "why": "owner decision 2026-10-19: the Rockforge mines ('Rockforge: Mines') are placed on the layer directly under rockforge_b at the same x/y (rockforge_a/_b/_c share the same 5x5 sheet naming 0101..ab05, and the rockforge_a<->rockforge_b stairs connect identical local coordinates)"
    }
@@ -132,24 +133,36 @@
    {
     "group": "/shattered_islands/eld_woods_island/cave_morlarg",
     "orientation": "below",
+    "evidence": [
+     "name keyword (below)"
+    ],
     "decided": "2026-10-19",
     "decision": "'below' confirmed for a group entered only through neutral exits"
    },
    {
     "group": "/shattered_islands/strakewood_island/brynknot/sewers/lab",
     "orientation": "below",
+    "evidence": [
+     "name keyword (below)"
+    ],
     "decided": "2026-10-19",
     "decision": "'below' confirmed for a group entered only through neutral exits"
    },
    {
     "group": "/shattered_islands/strakewood_island/dark_cave/dark_cave",
     "orientation": "below",
+    "evidence": [
+     "name keyword (below)"
+    ],
     "decided": "2026-10-19",
     "decision": "'below' confirmed for a group entered only through neutral exits"
    },
    {
     "group": "/shattered_islands/strakewood_island/giant_stronghold/giant_stronghold",
     "orientation": "below",
+    "evidence": [
+     "name keyword (below)"
+    ],
     "decided": "2026-10-19",
     "decision": "'below' confirmed for a group entered only through neutral exits"
    }
@@ -159,6 +172,7 @@
     "group": "/hall_of_dms",
     "classification": "separate",
     "reason": "system",
+    "premise": "c1a1596617f7399ec7798b67d7c8af032ec16d291272583673ead96bcc88c735",
     "decided": "2026-10-19",
     "decision": "version 1 judgement call confirmed (Everlink and the Temple of Loki desert-plane chain are other_world, the Incuna lower decks are ships, hall_of_dms is a system map)"
    },
@@ -166,6 +180,7 @@
     "group": "/shattered_islands/berri_lur/temple_loki/desert_plane/desert_plane",
     "classification": "separate",
     "reason": "other_world",
+    "premise": "85be6fac8a8953f4034c69aac13c5c24a695dbb441029710e7ce70e67ccca395",
     "decided": "2026-10-19",
     "decision": "version 1 judgement call confirmed (Everlink and the Temple of Loki desert-plane chain are other_world, the Incuna lower decks are ships, hall_of_dms is a system map)"
    },
@@ -173,6 +188,7 @@
     "group": "/shattered_islands/berri_lur/temple_loki/desert_plane/entrance",
     "classification": "separate",
     "reason": "other_world",
+    "premise": "85be6fac8a8953f4034c69aac13c5c24a695dbb441029710e7ce70e67ccca395",
     "decided": "2026-10-19",
     "decision": "version 1 judgement call confirmed (Everlink and the Temple of Loki desert-plane chain are other_world, the Incuna lower decks are ships, hall_of_dms is a system map)"
    },
@@ -180,6 +196,7 @@
     "group": "/shattered_islands/berri_lur/temple_loki/desert_plane/passage",
     "classification": "separate",
     "reason": "other_world",
+    "premise": "85be6fac8a8953f4034c69aac13c5c24a695dbb441029710e7ce70e67ccca395",
     "decided": "2026-10-19",
     "decision": "version 1 judgement call confirmed (Everlink and the Temple of Loki desert-plane chain are other_world, the Incuna lower decks are ships, hall_of_dms is a system map)"
    },
@@ -187,6 +204,7 @@
     "group": "/shattered_islands/berri_lur/temple_loki/desert_plane/unusual_garden",
     "classification": "separate",
     "reason": "other_world",
+    "premise": "ba2b26b1b99f20b5196e6a3a5e9bc2f61679ce91a43e546b9b44c654bbc8f2ad",
     "decided": "2026-10-19",
     "decision": "version 1 judgement call confirmed (Everlink and the Temple of Loki desert-plane chain are other_world, the Incuna lower decks are ships, hall_of_dms is a system map)"
    },
@@ -194,6 +212,7 @@
     "group": "/shattered_islands/everlink/everlink",
     "classification": "separate",
     "reason": "other_world",
+    "premise": "93f26332fec26c6f9f3ff1f22e6bb2f3979ce8d06184a20d7e2b0eee35556eaf",
     "decided": "2026-10-19",
     "decision": "version 1 judgement call confirmed (Everlink and the Temple of Loki desert-plane chain are other_world, the Incuna lower decks are ships, hall_of_dms is a system map)"
    },
@@ -201,6 +220,7 @@
     "group": "/shattered_islands/incuna/ship_lower_deck",
     "classification": "separate",
     "reason": "ship",
+    "premise": "ae7da06fa8a6e5584f521eb69399e36a6724fa1b61314288121d606e802f8edb",
     "decided": "2026-10-19",
     "decision": "version 1 judgement call confirmed (Everlink and the Temple of Loki desert-plane chain are other_world, the Incuna lower decks are ships, hall_of_dms is a system map)"
    },
@@ -208,6 +228,7 @@
     "group": "/shattered_islands/incuna/ship_lower_deck_to_incuna",
     "classification": "separate",
     "reason": "ship",
+    "premise": "4ed5fa65c9dd84678849e1647fa26c39826402eb1a1f53c7433a28cffa8550b1",
     "decided": "2026-10-19",
     "decision": "version 1 judgement call confirmed (Everlink and the Temple of Loki desert-plane chain are other_world, the Incuna lower decks are ships, hall_of_dms is a system map)"
    },
@@ -215,6 +236,7 @@
     "group": "/shattered_islands/incuna/ship_lower_deck_to_strakewood",
     "classification": "separate",
     "reason": "ship",
+    "premise": "18d4b0b2debafb06e49b30511f92e28e10e4770e4372f9090346d5535137c22f",
     "decided": "2026-10-19",
     "decision": "version 1 judgement call confirmed (Everlink and the Temple of Loki desert-plane chain are other_world, the Incuna lower decks are ships, hall_of_dms is a system map)"
    }
@@ -364,7 +386,7 @@
   "wired_exits": "an exit with form 'wired' led nowhere in legacy; it now targets the content on the layer above or below (see its 'wired' evidence)",
   "exits_kept_as_decoration": "dangling exits the owner keeps as decoration (no exit): not wired, with the landing they would have had",
   "stairwell_appearance": "a stairwell's intermediate tiles show the down archetype of the first stair family among its exit archetypes (down-going exits first); failing that, the owner's fallback for the first exit archetype settings.stairwell_appearance_fallbacks lists (decision 2026-10-19)",
-  "owner_decisions": "settings.owner_* and the seam stair and appearance settings record the owner's decisions with their dates; a blocked stairwell site carries owner_decision when the owner keeps its exits portals (settings.owner_portals), and a placement with alignment_reason is the owner's fixed spot under its anchor (settings.owner_alignments); confirmations (orientations, classifications, relayering judgement calls) equal what the plan derives",
+  "owner_decisions": "settings.owner_* and the seam stair and appearance settings record the owner's decisions with their dates; a blocked stairwell site carries owner_decision when the owner keeps its exits portals (settings.owner_portals), and a placement with alignment_reason is the owner's fixed spot under its anchor (settings.owner_alignments); confirmations (orientations, classifications, relayering judgement calls) equal what the plan derives; each decision is bound to the evidence it was made on (the evidence itself, or its premise: the SHA-256 of the evidence record's canonical JSON) and no longer applies when that evidence changes",
   "exit_inventory": "every exit object read from the content (inventory exits excluded), keyed by source_map and line: the content fields of its exit record with its legacy form and resolved target (none for an exit that leads nowhere), plus the facts its data problems come from; the exit records and data problems are checked against it"
  },
  "summary": {

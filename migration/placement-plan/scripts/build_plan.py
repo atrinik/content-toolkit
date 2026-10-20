@@ -104,61 +104,77 @@ OWNER_KEEP_AS_DECORATION = {
 # ------------------------------------------------ owner decisions 2026-10-19
 # The owner's answers to the six questions version 2 left open. Each is an
 # input here and is recorded with its date in the JSON settings. Decisions 1-3
-# change the plan; decisions 4-6 confirm what the rules derived. The generator
-# refuses to publish when a decision no longer matches what it decides (the
-# owner must be asked again), and verify_plan.py checks each one in the JSON.
+# change the plan; decisions 4-6 confirm what the rules derived. A decision is
+# bound to the evidence it was made on (the record itself, or its premise(): a
+# SHA-256 of the record's canonical JSON); the generator refuses to publish when
+# that evidence changed (the owner must be asked again; the refusal names the
+# new premise), and verify_plan.py re-checks the binding in the JSON.
 DECIDED_2026_10_19 = "2026-10-19"
 ROCKFORGE = "/shattered_islands/strakewood_island/rockforge/"
 # Decision 1: these exits stay portals where their stairwell is blocked; no
 # stairwell is forced through the content in its way. Each is one exit object
-# (source map, line, tile, archetype) at a blocked site with these plane ends.
+# (source map, line, tile, archetype); its premise is the blocked site record
+# (owners, ends, exits and what occupies the column).
 OWNER_PORTALS = {
     ("/shattered_islands/world_7_66_-1", 938, (13, 15), "hole"): {
-        "site_top": (181, 1599, -1), "site_bottom": (181, 1599, -4),
+        "premise": "45cdd3565efa504f5ccec3065d37631a9e7b91a297edc7ceed8018c4bcc4f755",
         "decision": "Zechna's first hole stays a portal: no stairwell is built through zechna_temple_1_1, the floor "
                     "in its column"},
 }
 # Decision 2: a stairwell whose exits belong to no stair family (STAIR_FAMILIES)
 # shows, on its intermediate tiles, the archetype chosen for the first of its
-# exit archetypes listed here (down-going exits first, each set sorted).
+# exit archetypes listed here (down-going exits first, each set sorted). Each
+# fallback is bound to the stairwells the owner chose it for.
 STAIRWELL_APPEARANCE_FALLBACKS = {
-    "invis_exit": "stairs_stone_down",
-    "well_bucket": "ladder_down",
-    "well_stone": "ladder_down",
+    "invis_exit": ("stairs_stone_down", ("SW6",)),
+    "well_bucket": ("ladder_down", ("SR18",)),
+    "well_stone": ("ladder_down", ("SR17",)),
 }
 STAIRWELL_APPEARANCE_DECISION = (
     "stairwells whose exits have no stair archetype: the wells (SR17, SR18) show ladder_down and the invisible "
     "exit of #17 dark_cave (SW6) shows stairs_stone_down on their intermediate tiles")
 # Decision 3: groups without an exit connection placed at a fixed layer from an
 # anchor group, at the anchor's x/y (no search: the spot is the decision).
+# (anchor, layer delta, why, premise of the group's sheet layout: each member
+# map's path, size, local offset and tile links).
 OWNER_ALIGN = {
     ROCKFORGE + "rockforge_c": (
         ROCKFORGE + "rockforge_b", -1,
         "owner decision 2026-10-19: the Rockforge mines ('Rockforge: Mines') are placed on the layer directly under "
         "rockforge_b at the same x/y (rockforge_a/_b/_c share the same 5x5 sheet naming 0101..ab05, and the "
-        "rockforge_a<->rockforge_b stairs connect identical local coordinates)"),
+        "rockforge_a<->rockforge_b stairs connect identical local coordinates)",
+        "fa277a5b5aeacdefda6d4c9ca8a3b5d6b7f1e1ff1c63d981c8e3684e1ad71e5b"),
 }
-# Decision 4: the orientation derived for these groups (entered only through
-# neutral exits, so it came from a name keyword) is confirmed.
+ALIGN_LAYOUT_FIELDS = ("path", "width", "height", "local_offset", "tile_links")  # per member map, in group order
+# Decision 4: the orientation derived for these groups is confirmed, with the
+# evidence it came from: a name keyword, no exit with a direction.
+KEYWORD_BELOW = ("name keyword (below)",)
 OWNER_ORIENTATIONS = {
-    "/shattered_islands/eld_woods_island/cave_morlarg": "below",
-    "/shattered_islands/strakewood_island/brynknot/sewers/lab": "below",
-    "/shattered_islands/strakewood_island/dark_cave/dark_cave": "below",
-    "/shattered_islands/strakewood_island/giant_stronghold/giant_stronghold": "below",
+    "/shattered_islands/eld_woods_island/cave_morlarg": ("below", KEYWORD_BELOW),
+    "/shattered_islands/strakewood_island/brynknot/sewers/lab": ("below", KEYWORD_BELOW),
+    "/shattered_islands/strakewood_island/dark_cave/dark_cave": ("below", KEYWORD_BELOW),
+    "/shattered_islands/strakewood_island/giant_stronghold/giant_stronghold": ("below", KEYWORD_BELOW),
 }
 ORIENTATION_DECISION = "'below' confirmed for a group entered only through neutral exits"
-# Decision 5: version 1's classification judgement calls are confirmed.
+# Decision 5: version 1's classification judgement calls are confirmed, each
+# with the premise of the evidence the rules gave for it.
 LOKI_DESERT = "/shattered_islands/berri_lur/temple_loki/desert_plane/"
+DESERT_PLANE_EVIDENCE = "85be6fac8a8953f4034c69aac13c5c24a695dbb441029710e7ce70e67ccca395"
 OWNER_CLASSIFICATIONS = {
-    "/shattered_islands/everlink/everlink": ("separate", "other_world"),
-    LOKI_DESERT + "desert_plane": ("separate", "other_world"),
-    LOKI_DESERT + "entrance": ("separate", "other_world"),
-    LOKI_DESERT + "passage": ("separate", "other_world"),
-    LOKI_DESERT + "unusual_garden": ("separate", "other_world"),
-    "/shattered_islands/incuna/ship_lower_deck": ("separate", "ship"),
-    "/shattered_islands/incuna/ship_lower_deck_to_incuna": ("separate", "ship"),
-    "/shattered_islands/incuna/ship_lower_deck_to_strakewood": ("separate", "ship"),
-    "/hall_of_dms": ("separate", "system"),
+    "/shattered_islands/everlink/everlink":
+        ("separate", "other_world", "93f26332fec26c6f9f3ff1f22e6bb2f3979ce8d06184a20d7e2b0eee35556eaf"),
+    LOKI_DESERT + "desert_plane": ("separate", "other_world", DESERT_PLANE_EVIDENCE),
+    LOKI_DESERT + "entrance": ("separate", "other_world", DESERT_PLANE_EVIDENCE),
+    LOKI_DESERT + "passage": ("separate", "other_world", DESERT_PLANE_EVIDENCE),
+    LOKI_DESERT + "unusual_garden":
+        ("separate", "other_world", "ba2b26b1b99f20b5196e6a3a5e9bc2f61679ce91a43e546b9b44c654bbc8f2ad"),
+    "/shattered_islands/incuna/ship_lower_deck":
+        ("separate", "ship", "ae7da06fa8a6e5584f521eb69399e36a6724fa1b61314288121d606e802f8edb"),
+    "/shattered_islands/incuna/ship_lower_deck_to_incuna":
+        ("separate", "ship", "4ed5fa65c9dd84678849e1647fa26c39826402eb1a1f53c7433a28cffa8550b1"),
+    "/shattered_islands/incuna/ship_lower_deck_to_strakewood":
+        ("separate", "ship", "18d4b0b2debafb06e49b30511f92e28e10e4770e4372f9090346d5535137c22f"),
+    "/hall_of_dms": ("separate", "system", "c1a1596617f7399ec7798b67d7c8af032ec16d291272583673ead96bcc88c735"),
 }
 CLASSIFICATION_DECISION = ("version 1 judgement call confirmed (Everlink and the Temple of Loki desert-plane chain "
                            "are other_world, the Incuna lower decks are ships, hall_of_dms is a system map)")
@@ -394,6 +410,11 @@ def stair_family_down(arch: str):
     return None
 
 
+def premise(evidence) -> str:
+    """Fingerprint of the evidence an owner decision was made on: SHA-256 of its canonical JSON."""
+    return hashlib.sha256(json.dumps(evidence, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
 def stairwell_appearance(exit_archs: list):
     """(archetype, source text) shown on a stairwell's intermediate tiles, or (None, text) when there is none.
 
@@ -409,7 +430,7 @@ def stairwell_appearance(exit_archs: list):
             return fam, ("appearance of the down archetype of the {} family used by this stairwell's exits; the "
                          "intermediate objects are decorations, not exits".format(fam.rsplit("_", 1)[0])), None
     for a in exit_archs:
-        app = STAIRWELL_APPEARANCE_FALLBACKS.get(a.casefold())
+        app = STAIRWELL_APPEARANCE_FALLBACKS.get(a.casefold(), (None,))[0]
         if app:
             return app, ("owner decision {}: no stair archetype among {}, so the {} exits show {}; the intermediate "
                          "objects are decorations, not exits".format(DECIDED_2026_10_19, exit_archs, a, app)), \
@@ -433,12 +454,12 @@ def portal_key(x: dict) -> tuple:
 def apply_owner_portals(sites: list, decisions: dict):
     """Owner decision 1 (2026-10-19): mark the blocked stairwell sites whose exits the owner keeps portals.
 
-    `decisions` maps portal_key() to the decision: its text and the plane ends of
-    the blocked site it was made for. A site whose exits are all decided, with
-    those ends, carries the decision (owner_decision). A site decided for only
-    some of its exits or with other ends, or a decision for an exit at no blocked
-    site (its stairwell is no longer blocked, or the object changed), no longer
-    applies: SystemExit."""
+    `decisions` maps portal_key() to the decision: its text and the premise() of
+    the blocked site record it was made on. A site whose exits are all decided,
+    on that same record, carries the decision (owner_decision). A site decided
+    for only some of its exits or whose record changed (other ends, owners,
+    exits or column occupants), or a decision for an exit at no blocked site (no
+    longer blocked, or not the same object), no longer applies: SystemExit."""
     decided_at = set()
     for site in sites:
         keys = [portal_key(x) for x in site["exits"]]
@@ -446,11 +467,11 @@ def apply_owner_portals(sites: list, decisions: dict):
         if not any(found):
             continue
         texts = {d["decision"] if d else None for d in found}
-        if len(texts) != 1 or any((tuple(d["site_top"]), tuple(d["site_bottom"])) !=
-                                  (tuple(site["top"]), tuple(site["bottom"])) for d in found):
+        now = premise({k: v for k, v in site.items() if k != "owner_decision"})
+        if len(texts) != 1 or any(d["premise"] != now for d in found):
             raise SystemExit("owner decision {} keeps the blocked stairwell site {} -> {} a portal only for some of "
-                             "its exits {} or for other ends; ask the owner again".format(
-                                 DECIDED_2026_10_19, site["top"], site["bottom"], keys))
+                             "its exits {} or for another site record (its premise is now {}); ask the owner "
+                             "again".format(DECIDED_2026_10_19, site["top"], site["bottom"], keys, now))
         site["owner_decision"] = {"decided": DECIDED_2026_10_19, "decision": texts.pop()}
         decided_at.update(keys)
     stale = sorted(k for k in decisions if k not in decided_at)
@@ -768,15 +789,16 @@ def build(content: Path, allow_dirty: bool = False):
                     g["evidence"].append("region '{}' description: {!r}; only entered by scripts "
                                          "(python/houses/exit.py via House.py)".format(
                                              rg, re.search(r"msg\n(.*?)\nendmsg", txt, re.S).group(1)))
-    # Owner decision 5 (2026-10-19): the classifications the owner confirmed must still be what the rules derive.
-    for gid, want in sorted(OWNER_CLASSIFICATIONS.items()):
-        got = (G[gid]["classification"], G[gid]["reason"]) if gid in G else None
-        if got != want:
-            raise SystemExit("owner decision {} confirmed {} as {}, but the rules now give {}; ask the owner "
-                             "again".format(DECIDED_2026_10_19, gid, "/".join(want), "/".join(got) if got else
-                                            "no such group"))
+    # Owner decision 5 (2026-10-19): the classifications the owner confirmed must still be what the rules derive,
+    # on the same evidence.
+    for gid, (cls, rsn, ev_premise) in sorted(OWNER_CLASSIFICATIONS.items()):
+        got = (G[gid]["classification"], G[gid]["reason"], premise(G[gid]["evidence"])) if gid in G else None
+        if got != (cls, rsn, ev_premise):
+            raise SystemExit("owner decision {} confirmed {} as {}/{} on evidence {}, but the rules now give {}; ask "
+                             "the owner again".format(DECIDED_2026_10_19, gid, cls, rsn, ev_premise,
+                                                      "/".join(got) if got else "no such group"))
         G[gid]["evidence"].append("owner decision {}: {} confirmed (a version 1 judgement call)".format(
-            DECIDED_2026_10_19, want[1]))
+            DECIDED_2026_10_19, rsn))
 
     # ---------------------------------------------------------- relayering
     # Owner decision (2026-10-18): fix the conflicts, then relayer. Every group
@@ -884,7 +906,7 @@ def build(content: Path, allow_dirty: bool = False):
         slope_failed: list = []
         slope_failed_exit: dict = {}
         relayer_blocked: list = []
-        fallbacks_used: set = set()
+        fallback_of: dict = {}
 
     def local_tile(gid, m, x, y):
         ox, oy, _oz = G[gid]["layout"]["offsets"][m]
@@ -924,12 +946,14 @@ def build(content: Path, allow_dirty: bool = False):
             return d is not None and depth is not None and d < depth
 
         orient, why = derived_orientation(g, votes_for, upstream)
-        # Owner decision 4 (2026-10-19): a confirmed orientation must still be the derived one.
+        # Owner decision 4 (2026-10-19): a confirmed orientation must still be the derived one, from the same
+        # evidence (a name keyword, no exit with a direction).
         decided = OWNER_ORIENTATIONS.get(g["id"])
         if decided is not None:
-            if decided != orient:
-                raise SystemExit("owner decision {} confirmed '{}' for {}, but the rules now give '{}'; ask the owner "
-                                 "again".format(DECIDED_2026_10_19, decided, g["id"], orient))
+            if decided != (orient, tuple(why)):
+                raise SystemExit("owner decision {} confirmed '{}' for {} from {}, but the rules now give '{}' from "
+                                 "{}; ask the owner again".format(DECIDED_2026_10_19, decided[0], g["id"],
+                                                                  list(decided[1]), orient, why))
             why = why + ["owner decision {}: {}".format(DECIDED_2026_10_19, ORIENTATION_DECISION)]
         return orient, why
 
@@ -1218,8 +1242,6 @@ def build(content: Path, allow_dirty: bool = False):
         top_objs = sorted({o["e"]["arch"] for o in site if o["src_is_upper"]})
         bot_objs = sorted({o["e"]["arch"] for o in site if not o["src_is_upper"]})
         fam, fam_source, fallback = stairwell_appearance(top_objs + bot_objs)
-        if fallback:
-            S.fallbacks_used.add(fallback)
         # Top and bottom keep their existing exit objects. Intermediate tiles get
         # a decoration that only borrows the chosen archetype's appearance: it is
         # not an exit (no exit type, destination or tiled link) and not walkable,
@@ -1248,6 +1270,8 @@ def build(content: Path, allow_dirty: bool = False):
               "intermediate_appearance_source": fam_source,
               "tiles": tiles, "view_conflicts": [], "replaces": exits_rec}
         S.stairwells.append(sw)
+        if fallback:
+            S.fallback_of[id(sw)] = fallback  # the stairwell's id is given after the run
         for o in site:
             S.sw_of_exit[o["e"]["key"]] = sw
         return sw
@@ -1431,7 +1455,7 @@ def build(content: Path, allow_dirty: bool = False):
     def run_placement(radius):
         S.placed, S.placements, S.order = {}, {}, []
         S.stairwells, S.blocked_sites, S.sw_of_exit = [], [], {}
-        S.slope_failed, S.slope_failed_exit, S.relayer_blocked, S.fallbacks_used = [], {}, [], set()
+        S.slope_failed, S.slope_failed_exit, S.relayer_blocked, S.fallback_of = [], {}, [], {}
         S.occ = fp.Occupancy(radius, CONTACT_MARGIN)
         for m in G[ow_id]["maps"]:
             for L in sorted(ow_pieces.get(m, {})):
@@ -1443,7 +1467,7 @@ def build(content: Path, allow_dirty: bool = False):
         # Owner alignments (decision 3, 2026-10-19), right after the pool: the anchor's x/y, the decided layer
         # distance, nothing else tried. A group whose anchor or spot fails stays unplaced and fails verification.
         oa, fa = [], []
-        for gid, (anchor, dl, why) in sorted(OWNER_ALIGN.items()):
+        for gid, (anchor, dl, why, _layout) in sorted(OWNER_ALIGN.items()):
             a = S.placed.get(anchor)
             res = None if a is None else place_group(gid, forced={"dx": a["dx"], "dy": a["dy"], "L": a["L"] + dl})
             if placement_failed(res):
@@ -1580,11 +1604,15 @@ def build(content: Path, allow_dirty: bool = False):
     order1, left1, order_t, left2, failed_placements = run_placement(VIEW_RADIUS)
     # Owner decision 1 (2026-10-19): the blocked sites of the exits the owner keeps portals carry the decision
     apply_owner_portals(S.blocked_sites + S.slope_failed + S.relayer_blocked, OWNER_PORTALS)
-    # Owner decision 2 (2026-10-19): every fallback the owner chose still dresses a stairwell
-    unused = sorted(set(STAIRWELL_APPEARANCE_FALLBACKS) - S.fallbacks_used)
-    if unused:
-        raise SystemExit("owner decision {} chose stair art for stairwells whose exits are {}, but no stairwell uses "
-                         "it any more; ask the owner again".format(DECIDED_2026_10_19, unused))
+    # Owner decision 2 (2026-10-19): every fallback dresses exactly the stairwells the owner chose it for
+    dressed = collections.defaultdict(list)
+    for sw in S.stairwells:
+        if id(sw) in S.fallback_of:
+            dressed[S.fallback_of[id(sw)]].append(sw["id"])
+    for a, (_app, ids) in sorted(STAIRWELL_APPEARANCE_FALLBACKS.items()):
+        if dressed.get(a, []) != list(ids):
+            raise SystemExit("owner decision {} chose stair art for the {} exits of {}, but it now dresses {}; ask "
+                             "the owner again".format(DECIDED_2026_10_19, a, list(ids), dressed.get(a, [])))
     place_index = {gid: i for i, gid in enumerate(S.order)}
     placements = S.placements
     sensitivity["groups_placed_differently"] = sorted(
@@ -2129,6 +2157,13 @@ def build(content: Path, allow_dirty: bool = False):
             if placed_ok:
                 mr["occupied_rows"] = occupied_rows(maps[m])
             rec["maps"].append(mr)
+        if gid in OWNER_ALIGN:
+            # Owner decision 3 (2026-10-19) was made on this sheet layout of the group
+            layout = premise([{k: mr[k] for k in ALIGN_LAYOUT_FIELDS} for mr in rec["maps"]])
+            if layout != OWNER_ALIGN[gid][3]:
+                raise SystemExit("owner decision {} aligns {} under {} as its sheets were laid out; the layout "
+                                 "changed (its premise is now {}); ask the owner again".format(
+                                     DECIDED_2026_10_19, gid, OWNER_ALIGN[gid][0], layout))
         rec["local_bounding_boxes"] = bbox_layers(gid)
         rec["layout_problems"] = g["layout"]["problems"]
         rec["related_owners"] = sorted(related[gid])
@@ -2188,7 +2223,7 @@ def build(content: Path, allow_dirty: bool = False):
         raise SystemExit("owner decision {} confirmed the placement changes from version 1 {}, but this run makes "
                          "{}; ask the owner again".format(DECIDED_2026_10_19, list(OWNER_PLACEMENT_CHANGES_FROM_V1),
                                                           got_changes))
-    for gid, want in sorted(OWNER_ORIENTATIONS.items()):
+    for gid, (want, _evidence) in sorted(OWNER_ORIENTATIONS.items()):
         got = (placements.get(gid) or {}).get("orientation")
         if got != want:
             raise SystemExit("owner decision {} confirmed '{}' for {}, which is {}; ask the owner again".format(
@@ -2196,7 +2231,7 @@ def build(content: Path, allow_dirty: bool = False):
     # Every archetype the plan adds must exist in the content: stairwell decorations, the owner's fallbacks
     # and the seam stairs.
     added = {sw["intermediate_appearance"] for sw in S.stairwells if sw["intermediate_appearance"]}
-    added |= set(STAIRWELL_APPEARANCE_FALLBACKS.values()) | set(SEAM_STAIR_ARCHETYPES.values())
+    added |= {app for app, _ids in STAIRWELL_APPEARANCE_FALLBACKS.values()} | set(SEAM_STAIR_ARCHETYPES.values())
     missing = sorted(a for a in added if a.casefold() not in archs)
     if missing:
         raise SystemExit("the plan adds archetypes the content does not define: {}".format(missing))
@@ -2225,22 +2260,23 @@ def build(content: Path, allow_dirty: bool = False):
                      "owner_keep_as_decoration": [[m, list(t), a] for (m, t, a) in sorted(OWNER_KEEP_AS_DECORATION)],
                      # owner decisions of 2026-10-19 (see the constants in build_plan.py)
                      "owner_portals": [{"source_map": m, "line": ln, "source_tile": list(t), "arch": a,
-                                        "site_top": list(d["site_top"]), "site_bottom": list(d["site_bottom"]),
-                                        "decided": DECIDED_2026_10_19, "decision": d["decision"]}
+                                        "premise": d["premise"], "decided": DECIDED_2026_10_19,
+                                        "decision": d["decision"]}
                                        for (m, ln, t, a), d in sorted(OWNER_PORTALS.items())],
                      "stairwell_appearance_fallbacks": [
                          {"exit_arch": a, "appearance": app, "appearance_defined_in": defined_in(app),
-                          "decided": DECIDED_2026_10_19, "decision": STAIRWELL_APPEARANCE_DECISION}
-                         for a, app in sorted(STAIRWELL_APPEARANCE_FALLBACKS.items())],
-                     "owner_alignments": [{"group": gid, "anchor": anchor, "layer_delta": dl,
+                          "stairwells": list(ids), "decided": DECIDED_2026_10_19,
+                          "decision": STAIRWELL_APPEARANCE_DECISION}
+                         for a, (app, ids) in sorted(STAIRWELL_APPEARANCE_FALLBACKS.items())],
+                     "owner_alignments": [{"group": gid, "anchor": anchor, "layer_delta": dl, "premise": layout,
                                            "decided": DECIDED_2026_10_19, "why": why}
-                                          for gid, (anchor, dl, why) in sorted(OWNER_ALIGN.items())],
-                     "owner_orientations": [{"group": gid, "orientation": o, "decided": DECIDED_2026_10_19,
-                                             "decision": ORIENTATION_DECISION}
-                                            for gid, o in sorted(OWNER_ORIENTATIONS.items())],
-                     "owner_classifications": [{"group": gid, "classification": c, "reason": r,
+                                          for gid, (anchor, dl, why, layout) in sorted(OWNER_ALIGN.items())],
+                     "owner_orientations": [{"group": gid, "orientation": o, "evidence": list(ev),
+                                             "decided": DECIDED_2026_10_19, "decision": ORIENTATION_DECISION}
+                                            for gid, (o, ev) in sorted(OWNER_ORIENTATIONS.items())],
+                     "owner_classifications": [{"group": gid, "classification": c, "reason": r, "premise": ev,
                                                 "decided": DECIDED_2026_10_19, "decision": CLASSIFICATION_DECISION}
-                                               for gid, (c, r) in sorted(OWNER_CLASSIFICATIONS.items())],
+                                               for gid, (c, r, ev) in sorted(OWNER_CLASSIFICATIONS.items())],
                      "owner_relayering_judgement_calls": {
                          "decided": DECIDED_2026_10_19, "decision": RELAYERING_DECISION, "calls": confirmed_calls,
                          "placement_changes_from_v1": [{"group": "/shattered_islands/" + g, "v1": list(a), "v2": list(b)}
@@ -2298,7 +2334,9 @@ def build(content: Path, allow_dirty: bool = False):
                                "owner keeps its exits portals (settings.owner_portals), and a placement with "
                                "alignment_reason is the owner's fixed spot under its anchor (settings.owner_"
                                "alignments); confirmations (orientations, classifications, relayering judgement "
-                               "calls) equal what the plan derives",
+                               "calls) equal what the plan derives; each decision is bound to the evidence it was "
+                               "made on (the evidence itself, or its premise: the SHA-256 of the evidence record's "
+                               "canonical JSON) and no longer applies when that evidence changes",
             "exit_inventory": "every exit object read from the content (inventory exits excluded), keyed by "
                               "source_map and line: the content fields of its exit record with its legacy form "
                               "and resolved target (none for an exit that leads nowhere), plus the facts its data "
