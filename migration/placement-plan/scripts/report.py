@@ -117,11 +117,15 @@ def write_report(plan, out: Path):
           dig["sha256"][:16], dig["files"], ", ".join("`{}/`".format(t) for t in dig["trees"])))
     w("Machine-readable plan: `placement-plan.json`. Rerun: see [Reproducing](#reproducing).")
     w("")
+    open_dec = open_decisions(plan, lab)
     w("Version 2 applies the owner's decisions of 2026-10-18 on top of version 1 (PR #44): the relayering is "
       "applied after its conflicts are fixed, every stairwell is drawn only on the player's layer, sloped "
-      "stairwells replace near-aligned portals, and the dangling exits are wired. Every map that moves, every new "
-      "object and every judgement call is listed for review; the decisions still open are in "
-      "[Open owner decisions](#open-owner-decisions).")
+      "stairwells replace near-aligned portals, and the dangling exits are wired. The owner's answers of "
+      "2026-10-19 to the six questions it left open are applied too ([Decided 2026-10-19](#decided-2026-10-19)). "
+      "Every map that moves, every new object and every judgement call is listed for review; {}.".format(
+          "no owner decision is open ([Open owner decisions](#open-owner-decisions))" if not open_dec else
+          "{} owner decision{} open ([Open owner decisions](#open-owner-decisions))".format(
+              len(open_dec), " is" if len(open_dec) == 1 else "s are")))
     w("")
     # ---------------------------------------------------------- summary
     w("## Summary")
@@ -188,6 +192,8 @@ def write_report(plan, out: Path):
         "`{}` layer offset {} -> {}".format(base(x["group"]), x["v1"][2], x["v2"][2]) if x["v1"] else
         "`{}` newly placed at layer offset {}".format(base(x["group"]), x["v2"][2]) for x in ch) or "none"))
     pr = s["portal_reasons"]
+    w("- **Owner decisions of 2026-10-19 applied**: {}. Open owner decisions: {}.".format(
+        "; ".join(decided_summary(plan, lab)), len(open_dec) or "none"))
     w("- Why portals remain: {}. See [Portals that remain](#portals-that-remain).".format(
         "; ".join("{} {}".format(v, k) for k, v in sorted(pr.items(), key=lambda kv: (-kv[1], kv[0])))))
     w("- View radius: **{} tiles** (the classic server's limit; the shipped client sees 10). "
@@ -220,6 +226,7 @@ def write_report(plan, out: Path):
     # ---------------------------------------------------------- decisions
     w("## Owner decisions applied")
     w("")
+    write_decided_2026_10_19(plan, w, lab)
     w("### Decided 2026-10-18 (new in version 2)")
     w("")
     w("1. **Relayering: fix the conflicts, then relayer.** Storeys standing on raised ground move up with it, caves "
@@ -330,11 +337,16 @@ def write_report(plan, out: Path):
       "teleport, with `portal_reason` in the JSON.".format(st["stair_tolerance_tiles"]))
     w("")
     # ---------------------------------------------------------- placed table
+    aligned_to = {a["group"]: a for a in st["owner_alignments"]}
+
     def main_cell(g):
         p = g["placement"]
         mc = p.get("main_connection")
         if not mc:
-            return "none (forced alignment)"
+            a = aligned_to.get(g["id"])
+            return "none: owner alignment, {} {} #{} `{}` at its x/y".format(
+                layers(a["layer_delta"]), "under" if a["layer_delta"] < 0 else "over", lab[a["anchor"]],
+                base(a["anchor"])) if a else "none"
         for _key, e in crossing(g):
             if e["source_map"] == mc["source_map"] and e["source_tile"] == mc["source_tile"]:
                 ps, pt = e.get("plane_source"), e.get("plane_target")
@@ -353,7 +365,7 @@ def write_report(plan, out: Path):
         p = g["placement"]
         n = []
         ev = "; ".join(p["orientation_evidence"])
-        if "keyword" in ev or "default" in ev:
+        if ("keyword" in ev or "default" in ev) and p.get("main_connection"):
             n.append("orientation {} by {}".format(p["orientation"], ev))
         if p["extra_layers_from_ideal"] or p["shift_from_ideal"] != [0, 0]:
             col = sorted({"{} ({})".format(base(c["blocked_by"]), c["rule"]) for c in p["conflicts_resolved"]})
@@ -364,8 +376,8 @@ def write_report(plan, out: Path):
             n.append("main stairwell blocked (see Stairwells)")
         if p.get("constraint_note"):
             n.append(p["constraint_note"])
-        if p.get("tentative_reason"):
-            n.append(p["tentative_reason"])
+        if p.get("alignment_reason"):
+            n.append(p["alignment_reason"])
         return "; ".join(n) or "-"
 
     def placed_table(rows):
@@ -486,7 +498,7 @@ def write_report(plan, out: Path):
         w("| `{}` | {} | {} | {}; {} | {} |".format(short(g["id"]), g["map_count"], g["reason"], names,
                                                  "; ".join(ev).replace("|", "/"), "; ".join(conn) or "-"))
     w("")
-    write_open_decisions(plan, w, lab, placed, tent, wired)
+    write_open_decisions(plan, w, lab)
     write_problems(plan, w, wired)
     write_images(plan, w, lab, groups, ow, sws)
     write_reproducing(plan, w)
@@ -670,11 +682,13 @@ def write_relayering(plan, w, lab):
       "its two tiles must still be connected (walking on the final layers, legacy exits, the new stairs), and an "
       "edge whose tiles are still apart, a pocket the piece's stairs do not reach, gets stairs of its own. **Every "
       "cut is flagged here**: {} new stair pairs in {} pieces ({} for pockets), {} pieces already joined by an "
-      "exit. The stair objects default to `stairs_stone_up` on the low tile and `stairs_stone_down` on the high "
-      "tile.".format(
+      "exit. The stair objects are `{}` on the low tile and `{}` on the high tile, the default archetypes, kept "
+      "by owner decision {} (`settings.seam_stair_archetypes`).".format(
           sum(sm["cut_edges"] for sm in rl["seams"]), len(rl["seams"]), len(rl["new_stairs"]),
           sum(len(sm["pieces"]) for sm in rl["seams"]), len(pockets),
-          sum(1 for sm in rl["seams"] for p in sm["pieces"] if not p["stairs"])))
+          sum(1 for sm in rl["seams"] for p in sm["pieces"] if not p["stairs"]),
+          st["seam_stair_archetypes"]["low"], st["seam_stair_archetypes"]["high"],
+          st["seam_stair_archetypes"]["decided"]))
     w("")
     w("| seam | regions | layers | cut edges | maps | new stairs |")
     w("|---|---|---|---:|---|---|")
@@ -715,6 +729,11 @@ def write_relayering(plan, w, lab):
     w("")
     w("### Relayering judgement calls")
     w("")
+    rj = st["owner_relayering_judgement_calls"]
+    if rj["calls"] == rl["judgement_calls"]:
+        w("Confirmed by the owner on {} ([decision 6](#decided-{})), every call as listed here.".format(
+            rj["decided"], rj["decided"]))
+        w("")
     for j in rl["judgement_calls"]:
         w("- {}: {}.".format(j["kind"], j["text"]))
     w("")
@@ -727,14 +746,17 @@ def write_stairwells(plan, w, lab, sw_kind):
     w("")
     w("Each row is one stairwell (`stairwells[]` in the JSON): one stair tile per layer from the top end to the "
       "bottom end. Top and bottom are the existing exit objects; the intermediate tiles are new decorations that "
-      "borrow the appearance of the family's `*_down` archetype, are not exits and not walkable, so the stairwell "
-      "stays one exit. **Every stairwell is drawn only on the player's layer** "
+      "borrow the appearance of the family's `*_down` archetype (or, when no exit belongs to a stair family, of the "
+      "archetype the owner chose for its exits: {}), are not exits and not walkable, so the stairwell stays one "
+      "exit. **Every stairwell is drawn only on the player's layer** "
       "(`segments_drawn_only_on_player_layer`), so its **view conflicts** (intermediate tiles within {} tiles "
       "of an unrelated area on that layer) are listed but not seen. The chain search also avoids tiles within {} "
       "tile of a related area (the contact margin); **contacts** it cannot avoid are listed. A stairwell that "
       "replaces a legacy one-way exit is used only that way (**use**: down or up); its far end is a landing "
       "without an exit. Ids: SW = built for a placed group, SL = sloped, SR = for an overworld exit the "
-      "relayering put 2 or more layers apart.".format(R, st["contact_margin_tiles"]))
+      "relayering put 2 or more layers apart.".format(
+          "; ".join("`{}` -> `{}`".format(f["exit_arch"], f["appearance"]) for f in st["stairwell_appearance_fallbacks"]),
+          R, st["contact_margin_tiles"]))
     w("")
     w("| id | owner | connects to | top (x, y) | layers | span | shape | use | top / intermediate / bottom objects | "
       "replaces | view conflicts | contacts |")
@@ -756,8 +778,9 @@ def write_stairwells(plan, w, lab, sw_kind):
         w("| {} | {} | {} | {} | {}..{} | {} | {} | {} | {} / {} / {} | {} | {} | {} |".format(
             sw["id"], own, other, col, sw["top_layer"], sw["bottom_layer"], sw["top_layer"] - sw["bottom_layer"],
             shape, use, ", ".join(o["archetype"] for o in top["objects"]) or "landing",
-            "{} (look only)".format(sw["intermediate_appearance"]) if sw["intermediate_appearance"]
-            else "**none (owner to choose)**",
+            "{} (look only{})".format(sw["intermediate_appearance"], ", owner's choice"
+                                      if sw["intermediate_appearance_source"].startswith("owner decision") else "")
+            if sw["intermediate_appearance"] else "**none (owner to choose)**",
             ", ".join(o["archetype"] for o in bot["objects"]) or "landing",
             ", ".join("{}{}".format(k, "" if v == 1 else " x{}".format(v)) for k, v in sorted(reps.items())), conf,
             touch))
@@ -768,10 +791,11 @@ def write_stairwells(plan, w, lab, sw_kind):
         for b in plan["stairwell_sites_blocked"]:
             occ = "; ".join("L{} by `{}`".format(o["layer"], base(o["map"] or o["occupied_by"]))
                             for o in b["column_occupied"])
-            w("- #{} `{}` <- {}: {} at plane ({}, {}, L{}) down to L{}; the column is occupied on {}; {}.".format(
-                lab[b["group"]], base(b["group"]), owner_name(b["other"], lab),
-                ", ".join(sorted({"{} ({},{}) {}".format(base(e["source_map"]), *e["source_tile"], e["arch"])
-                                  for e in b["exits"]})), *b["top"], b["bottom"][2], occ or "no layer", b["reason"]))
+            dec = b.get("owner_decision")
+            w("- #{} `{}` <- {}: {} at plane ({}, {}, L{}) down to L{}; the column is occupied on {}; {}.{}".format(
+                lab[b["group"]], base(b["group"]), owner_name(b["other"], lab), site_exits(b), *b["top"],
+                b["bottom"][2], occ or "no layer", b["reason"],
+                " Owner decision {}: **{}**.".format(dec["decided"], dec["decision"]) if dec else ""))
         w("")
     w("### Sloped stairwells")
     w("")
@@ -922,70 +946,206 @@ def write_evidence(plan, w):
     w("")
 
 
-def write_open_decisions(plan, w, lab, placed, tent, wired):
+def layers(delta: int) -> str:
+    return "{} layer{}".format(abs(delta), "" if abs(delta) == 1 else "s")
+
+
+def and_list(items) -> str:
+    items = list(items)
+    if len(items) < 2:
+        return "".join(items)
+    return "{} and {}".format(", ".join(items[:-1]), items[-1])
+
+
+def site_exits(b) -> str:
+    return ", ".join(sorted({"{} ({},{}) {}".format(base(e["source_map"]), *e["source_tile"], e["arch"])
+                             for e in b["exits"]}))
+
+
+def decided_sites(plan):
+    """Blocked stairwell sites whose exits the owner keeps portals (they carry owner_decision)."""
+    return [b for b in plan["stairwell_sites_blocked"] + plan["sloped_stairwell_sites_blocked"] +
+            plan["relayering"]["stairwells_blocked"] if b.get("owner_decision")]
+
+
+def fallback_stairwells(plan):
+    """appearance -> ids of the stairwells that show an owner-chosen fallback (decision 2026-10-19)."""
+    out = collections.defaultdict(list)
+    for sw in plan["stairwells"]:
+        if sw["intermediate_appearance"] and sw["intermediate_appearance_source"].startswith("owner decision"):
+            out[sw["intermediate_appearance"]].append(sw["id"])
+    return out
+
+
+def decided_summary(plan, lab):
+    """One clause per owner decision of 2026-10-19, for the summary."""
+    st = plan["settings"]
+    byid = {g["id"]: g for g in plan["groups"]}
+    out = [b["owner_decision"]["decision"].split(":")[0] for b in decided_sites(plan)]
+    fb = fallback_stairwells(plan)
+    if fb:
+        out.append("stair art for stairwells without stairs: {}".format("; ".join(
+            "{} show{} `{}`".format(and_list(ids), "s" if len(ids) == 1 else "", a) for a, ids in sorted(fb.items()))))
+    for a in st["owner_alignments"]:
+        p = byid[a["group"]].get("placement") or {}
+        out.append("#{} `{}` is placed on layer {} under `{}`".format(lab.get(a["group"], "?"), base(a["group"]),
+                                                                     p.get("layer_offset"), base(a["anchor"])))
+    out.append("'below' confirmed for {} groups, version 1's classification of {} groups and the {} relayering "
+               "judgement calls".format(len(st["owner_orientations"]), len(st["owner_classifications"]),
+                                        len(st["owner_relayering_judgement_calls"]["calls"])))
+    return out
+
+
+def write_decided_2026_10_19(plan, w, lab):
+    st = plan["settings"]
     rl = plan["relayering"]
-    w("## Open owner decisions")
+    byid = {g["id"]: g for g in plan["groups"]}
+    w("### Decided 2026-10-19")
     w("")
+    w("The owner's answers to the six questions version 2 left open. Decisions 1-3 change the plan; 4-6 confirm "
+      "what the rules derived. Each one is an input of `build_plan.py` and is recorded with its date in the JSON "
+      "settings. The generator refuses to publish when a decision no longer matches what it applies to, so the "
+      "owner is asked again, and `verify_plan.py` checks each one in the JSON.")
+    w("")
+    items = []
+    for b in decided_sites(plan):
+        title, _, rest = b["owner_decision"]["decision"].partition(": ")
+        into = "#{} `{}`".format(lab[b["group"]], base(b["group"])) if b.get("group") in lab else \
+            "`{}`".format(base(b.get("bottom_map")))
+        occ = sorted({"`{}` on L{}".format(base(o["map"] or o["occupied_by"]), o["layer"])
+                      for o in b.get("column_occupied", [])})
+        items.append("**{}** (`settings.owner_portals`): {} drops {} layers into {}{}. {}: the exit stays a portal "
+                     "({}), and its blocked site carries the decision (`owner_decision`).".format(
+                         title, site_exits(b), b["top"][2] - b["bottom"][2], into,
+                         ", and {} occupies its column".format(and_list(occ)) if occ else "",
+                         rest[:1].upper() + rest[1:] if rest else "No stairwell is built",
+                         "`slope-blocked`" if b.get("shape") == "sloped" else "`stairwell-blocked`"))
+    fbs = collections.defaultdict(list)
+    for f in st["stairwell_appearance_fallbacks"]:
+        fbs[(f["appearance"], f["appearance_defined_in"])].append("`{}`".format(f["exit_arch"]))
+    applied = fallback_stairwells(plan)
+    items.append("**Stair art for stairwells without stairs** (`settings.stairwell_appearance_fallbacks`): a "
+                 "stairwell whose exits belong to no stair family shows, on its intermediate tiles, the archetype "
+                 "chosen for the first of its exit archetypes: {}. Applied to {}. The rule is an input of the "
+                 "generator (`STAIRWELL_APPEARANCE_FALLBACKS`), which refuses any archetype it adds that the content "
+                 "does not define.".format(
+                     "; ".join("{} -> `{}` (`{}`)".format(and_list(sorted(archs)), a, f_)
+                               for (a, f_), archs in sorted(fbs.items())),
+                     "; ".join("{} (`{}`)".format(and_list(ids), a) for a, ids in sorted(applied.items())) or "none"))
+    for a in st["owner_alignments"]:
+        g = byid[a["group"]]
+        p = g.get("placement") or {}
+        items.append("**The Rockforge mines are placed** (`settings.owner_alignments`): #{} `{}` on layer {}, {} "
+                     "{} #{} `{}` at the same x/y (offset {}, {}, {}). It is a proposed placement, no longer "
+                     "tentative; the spot is the decision, so no other spot is tried, and the plan fails verification "
+                     "if it breaks the gap rule.".format(
+                         lab.get(g["id"], "?"), base(g["id"]), p.get("layer_offset"), layers(a["layer_delta"]),
+                         "under" if a["layer_delta"] < 0 else "over", lab.get(a["anchor"], "?"), base(a["anchor"]),
+                         p.get("x_offset"), p.get("y_offset"), p.get("layer_offset"))
+                     + ("" if p.get("occupied_tiles_by_layer") else " None of its {} maps holds an object yet, so it "
+                        "occupies no tile ([Open owner decisions](#open-owner-decisions)).".format(g["map_count"])))
+    orient = sorted(st["owner_orientations"], key=lambda d: lab.get(d["group"], 0))
+    items.append("**{} is confirmed** (`settings.owner_orientations`) for the groups entered only through neutral "
+                 "exits, whose orientation came from a name keyword: {}.".format(
+                     and_list(["'{}'".format(o.capitalize()) for o in sorted({d["orientation"] for d in orient})]),
+                     and_list(["#{} `{}`".format(lab.get(d["group"], "?"), base(d["group"])) for d in orient])))
+    cls = collections.defaultdict(list)
+    for d in sorted(st["owner_classifications"], key=lambda d: short(d["group"])):
+        cls[d["reason"]].append("`{}`".format(short(d["group"])))
+    items.append("**Version 1's judgement calls are confirmed** (`settings.owner_classifications`): {}.".format(
+        "; ".join("{}: {}".format(r, and_list(v)) for r, v in sorted(cls.items()))))
+    rj = st["owner_relayering_judgement_calls"]
+    in_place = [c["unit"] for c in rl["caves"] if c["choice"] == "lower-regions-in-place"]
+    whole = [c["unit"] for c in rl["caves"] if c["choice"] == "lower-whole-cave"]
+    storeys = [j["unit"] for j in rl["judgement_calls"] if j["kind"] == "storey partly over unmoved ground"]
+    ssa = st["seam_stair_archetypes"]
+    items.append("**The relayering judgement calls are confirmed** (`settings.owner_relayering_judgement_calls`: all "
+                 "{}, as listed in [Relayering judgement calls](#relayering-judgement-calls)): {} {} lowered in "
+                 "place; {} move down as whole caves, pushing {} one layer deeper; the {} new seam stairs keep the "
+                 "default archetypes `{}` / `{}` (`settings.seam_stair_archetypes`); the storeys {}, partly over "
+                 "unmoved ground, move up.".format(
+                     len(rj["calls"]), and_list(in_place) or "no cave", "is" if len(in_place) == 1 else "are",
+                     and_list(whole) or "no cave",
+                     and_list(["`{}` ({} -> {})".format(base(x["group"]), x["v1"][2], x["v2"][2])
+                               for x in rj["placement_changes_from_v1"]]) or "no placement",
+                     len(rl["new_stairs"]), ssa["low"], ssa["high"], and_list(storeys) or "none"))
+    for i, d in enumerate(items, 1):
+        w("{}. {}".format(i, d))
+    w("")
+
+
+def open_decisions(plan, lab):
+    """Questions the plan still needs the owner to answer, one REPORT item each."""
+    st = plan["settings"]
     dec = []
     for b in plan["stairwell_sites_blocked"]:
+        if b.get("owner_decision"):
+            continue
         own = [o for o in b["column_occupied"] if o["occupied_by"] == b["group"]]
-        dec.append("**Blocked stairwell at #{} `{}`** (Zechna's first hole): the {} drops {} layers, but {} "
-                   "occupies the column. Keep it a portal, or let the stairwell pass through that floor.".format(
-                       lab[b["group"]], base(b["group"]),
-                       ", ".join(sorted({"{} ({},{}) {}".format(base(e["source_map"]), *e["source_tile"], e["arch"])
-                                         for e in b["exits"]})),
-                       b["top"][2] - b["bottom"][2],
+        dec.append("**Blocked stairwell at #{} `{}`**: the {} drops {} layers, but {} occupies the column. Keep it a "
+                   "portal, or let the stairwell pass through that floor.".format(
+                       lab[b["group"]], base(b["group"]), site_exits(b), b["top"][2] - b["bottom"][2],
                        ", ".join(sorted({"`{}` on L{}".format(base(o["map"] or o["occupied_by"]), o["layer"])
                                          for o in (own or b["column_occupied"])}))))
     nofam = [sw for sw in plan["stairwells"] if not sw["intermediate_appearance"]]
     if nofam:
         dec.append("**Stair archetype for stairwells without stairs**: {} {} exits that have no stair archetype "
-                   "to reuse. Pick one (for example `stairs_stone_down`) or leave the intermediate tiles "
-                   "empty.".format(
+                   "and no owner fallback to reuse. Pick one or leave the intermediate tiles empty.".format(
                        ", ".join("{} ({}{})".format(sw["id"], "#{} `{}`: ".format(lab[sw["group"]], base(sw["group"]))
                                                      if sw["group"] in lab else "",
                                                      " / ".join(sorted({r["arch"] for r in sw["replaces"]})))
                                  for sw in nofam),
                        "joins" if len(nofam) == 1 else "join"))
-    for g in tent:
-        dec.append("**Tentative `{}`** (#{}): {}".format(short(g["id"]), lab[g["id"]],
-                                                        g["placement"].get("tentative_reason", "")))
-    orient = sorted(("#{} `{}`".format(lab[g["id"]], base(g["id"])) for g in placed
-                     if any(k in "; ".join(g["placement"]["orientation_evidence"]) for k in ("keyword", "default"))),
+    for g in plan["groups"]:
+        if (g.get("placement") or {}).get("status") == "tentative":
+            dec.append("**Tentative `{}`** (#{}): {}".format(short(g["id"]), lab[g["id"]], g["evidence"][-1]))
+    for g in sorted(plan["groups"], key=lambda g: lab.get(g["id"], 0)):
+        p = g.get("placement") or {}
+        if p.get("status") in ("proposed", "tentative") and not p["occupied_tiles_by_layer"]:
+            dec.append("**New: placed group without a footprint, #{} `{}`**: none of its {} maps holds an object "
+                       "(each is a map header with tile links), so its placement on layer {} occupies no tile and "
+                       "reserves nothing there; the gap rule holds trivially. Keep it placed without a footprint "
+                       "(objects added later get one when the plan is regenerated), reserve its maps' full extent, "
+                       "or leave the empty maps out of the migration?".format(
+                           lab[g["id"]], short(g["id"]), g["map_count"], layers_of(p["plane_bounding_boxes"])))
+    confirmed = {d["group"] for d in st["owner_orientations"]}
+    orient = sorted(("#{} `{}`".format(lab[g["id"]], base(g["id"])) for g in plan["groups"]
+                     if (g.get("placement") or {}).get("status") == "proposed" and g["placement"]["main_connection"]
+                     and g["id"] not in confirmed
+                     and any(k in "; ".join(g["placement"]["orientation_evidence"]) for k in ("keyword", "default"))),
                     key=lambda t: int(t[1:].split()[0]))
     if orient:
-        dec.append("**Confirm 'below' for groups entered only through neutral exits** (invis_exit/exit, so the "
-                   "direction came from a name keyword): {}. A building interior would rather go above.".format(
-                       ", ".join(orient)))
-    dec.append("**Confirm the judgement calls**: Everlink is other_world (no exit leads in, its region text says "
-               "nobody knows where it is, only house scripts reach it); the Temple of Loki desert-plane chain incl. "
-               "`unusual_garden` is other_world (the garden's hole lands on the same (12,15) of world_12_59, so it "
-               "could instead sit above that map); the three Incuna `ship_lower_deck*` maps are ship (travel decks "
-               "entered at one port and left at another, also reached by NPC dialog teleports); `hall_of_dms` is "
-               "system although world_1_68 has an exit into it.")
+        dec.append("**Confirm the orientation of groups entered only through neutral exits** (the direction came "
+                   "from a name keyword or the default): {}.".format(", ".join(orient)))
+    wired = wired_exits(plan)
     doubtful = [e for e in wired if e["wired"]["verdict"] == "doubtful"]
     if doubtful:
-        beds = sorted({o for e in wired for o in e["wired"]["source_tile_objects"] if o.startswith("bed")})
-        dec.append("**New: wired exits that land where nobody can walk**: {} land on {} (a walking player cannot "
-                   "enter it). They are wired as instructed{}. Keep them wired, retarget them, or keep them as "
-                   "decoration (no destination)?".format(
+        dec.append("**Wired exits that land where nobody can walk**: {} land on {} (a walking player cannot enter "
+                   "it). Keep them wired, retarget them, or keep them as decoration (no destination)?".format(
                        ", ".join(tile_name(e["source_map"], e["source_tile"]) for e in doubtful),
-                       "/".join(sorted({t for e in doubtful for t in e["wired"]["landing_floor_terrain"]})),
-                       "; every one shares its tile with {}, so they may be bunk-bed ladders".format(
-                           ", ".join("`{}`".format(b) for b in beds)) if beds else ""))
-    dec.append("**New: confirm the relayering judgement calls** ([list](#relayering-judgement-calls)): in "
-               "particular the cave lowered in place ({}), the caves moved down as a whole and the placements they "
-               "push one layer deeper ({}), and the {} new seam stairs with their default archetype.".format(
-                   ", ".join(", ".join(c["regions"]) for c in rl["caves"]
-                             if c["choice"] == "lower-regions-in-place") or "none",
-                   ", ".join("`{}`".format(base(x["group"])) for x in plan["placement_changes_from_v1"]) or "none",
-                   len(rl["new_stairs"])))
+                       "/".join(sorted({t for e in doubtful for t in e["wired"]["landing_floor_terrain"]}))))
+    return dec
+
+
+def write_open_decisions(plan, w, lab):
+    w("## Open owner decisions")
+    w("")
+    dec = open_decisions(plan, lab)
     for i, d in enumerate(dec, 1):
         w("{}. {}".format(i, d))
+    if not dec:
+        w("None. The six decisions version 2 left open were answered on 2026-10-19 (see "
+          "[Decided 2026-10-19](#decided-2026-10-19)), and no new one came up.")
+    else:
+        w("")
+        w("The six decisions version 2 left open were answered on 2026-10-19 (see "
+          "[Decided 2026-10-19](#decided-2026-10-19)); the items above came up since.")
     w("")
     w("Resolved by the 2026-10-18 decisions: the layer-height relayering (applied), stairwells in view of "
       "unrelated areas (hidden in the engine), sloped staircases (built where free), the dangling stairs (wired) "
-      "and the Greyton jail ladders (kept as decoration).")
+      "and the Greyton jail ladders (kept as decoration). Resolved by the 2026-10-19 decisions: Zechna's first hole "
+      "(kept a portal), the stair art of the stairwells without stairs (chosen), the Rockforge mines (placed), and "
+      "the orientations and judgement calls of version 1 and of the relayering (confirmed).")
     w("")
 
 
@@ -1032,6 +1192,12 @@ def write_problems(plan, w, wired):
         bym[x["source_map"]].append("({},{}) {}{}".format(*x["source_tile"], x["arch"], tag))
     for m in sorted(bym):
         w("  - `{}`: {}".format(short(m), ", ".join(bym[m])))
+    empty = [(g, sum(1 for m in g["maps"] if not m["occupied_tiles"])) for g in plan["groups"]
+             if g["classification"] != "overworld"]
+    empty = [(g, n) for g, n in empty if n]
+    if empty:
+        w("- Empty maps outside the overworld (a map header and tile links, no object, so no footprint): {}.".format(
+            "; ".join("`{}` {} of {}".format(short(g["id"]), n, g["map_count"]) for g, n in empty)))
     for x in dp["connectivity"]:
         w("- Connectivity: `{}`: {}.".format(short(x["group"]), x["kind"].replace("-", " ")))
     w("- Return exits are often not the exact reverse of their entrance (e.g. Temple of Loki stairs land 6 "
@@ -1131,8 +1297,8 @@ def write_reproducing(plan, w):
       "(independent check of the JSON). Tunables (`VIEW_RADIUS`, `CONTACT_MARGIN`, `MAX_EXTRA_LAYERS`, "
       "`MAX_SHIFT`, `STAIR_TOLERANCE`, `STAIRWELL_MAX_BEND`, `LAYER_HEIGHT_Z` in `build_plan.py`; "
       "`MIN_REGION_TILES`, `WALKABLE_DZ`, `SEAM_CELL` in `relayer.py`) and the hand-written inputs (system maps, "
-      "owner decisions, the Rockforge mines alignment hint, version 1's placements for the comparison) are "
-      "constants.")
+      "the owner's decisions of 2026-10-18 and 2026-10-19 with their dates, version 1's placements for the "
+      "comparison) are constants.")
     w("")
     w("`mapdata.py` is a read-only reader for this analysis, not the toolkit's parser. At content "
       "`{rev}` it was cross-checked against the canonical `atrinik_source::Document::parse` records (with "

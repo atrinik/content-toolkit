@@ -1,8 +1,8 @@
 {
- "schema": "atrinik-overworld-placement-plan/4",
+ "schema": "atrinik-overworld-placement-plan/5",
  "generated_by": "scripts/build_plan.py",
  "content_root": "/home/zoey/dev/worktrees/content-plan-v2-input",
- "content_git_head": "3ad20150da7656516dae06d4f504d09af4cba344",
+ "content_git_head": "3828651987a5c975148fee58e057074df4722b29",
  "content_worktree_clean": true,
  "content_inputs_digest": {
   "trees": [
@@ -73,14 +73,260 @@
     "ladder_up"
    ]
   ],
-  "tentative_alignments": [
+  "owner_portals": [
+   {
+    "source_map": "/shattered_islands/world_7_66_-1",
+    "source_tile": [
+     13,
+     15
+    ],
+    "arch": "hole",
+    "decided": "2026-10-19",
+    "decision": "Zechna's first hole stays a portal: no stairwell is built through zechna_temple_1_1, the floor in its column"
+   }
+  ],
+  "stairwell_appearance_fallbacks": [
+   {
+    "exit_arch": "invis_exit",
+    "appearance": "stairs_stone_down",
+    "appearance_defined_in": "arch/connect/stairs/stairs_stone/stairs_stone.arc",
+    "decided": "2026-10-19",
+    "decision": "stairwells whose exits have no stair archetype: the wells (SR17, SR18) show ladder_down and the invisible exit of #17 dark_cave (SW6) shows stairs_stone_down on their intermediate tiles"
+   },
+   {
+    "exit_arch": "well_bucket",
+    "appearance": "ladder_down",
+    "appearance_defined_in": "arch/connect/exits/ladder/ladder.arc",
+    "decided": "2026-10-19",
+    "decision": "stairwells whose exits have no stair archetype: the wells (SR17, SR18) show ladder_down and the invisible exit of #17 dark_cave (SW6) shows stairs_stone_down on their intermediate tiles"
+   },
+   {
+    "exit_arch": "well_stone",
+    "appearance": "ladder_down",
+    "appearance_defined_in": "arch/connect/exits/ladder/ladder.arc",
+    "decided": "2026-10-19",
+    "decision": "stairwells whose exits have no stair archetype: the wells (SR17, SR18) show ladder_down and the invisible exit of #17 dark_cave (SW6) shows stairs_stone_down on their intermediate tiles"
+   }
+  ],
+  "owner_alignments": [
    {
     "group": "/shattered_islands/strakewood_island/rockforge/rockforge_c",
     "anchor": "/shattered_islands/strakewood_island/rockforge/rockforge_b",
     "layer_delta": -1,
-    "why": "rockforge_a/_b/_c share the same 5x5 sheet naming (0101..ab05) and rockforge_a<->rockforge_b stairs connect identical local coordinates; rockforge_c ('Rockforge: Mines') is assumed to be the next sheet below rockforge_b at the same x/y."
+    "decided": "2026-10-19",
+    "why": "owner decision 2026-10-19: the Rockforge mines ('Rockforge: Mines') are placed on the layer directly under rockforge_b at the same x/y (rockforge_a/_b/_c share the same 5x5 sheet naming 0101..ab05, and the rockforge_a<->rockforge_b stairs connect identical local coordinates)"
    }
   ],
+  "owner_orientations": [
+   {
+    "group": "/shattered_islands/eld_woods_island/cave_morlarg",
+    "orientation": "below",
+    "decided": "2026-10-19",
+    "decision": "'below' confirmed for a group entered only through neutral exits"
+   },
+   {
+    "group": "/shattered_islands/strakewood_island/brynknot/sewers/lab",
+    "orientation": "below",
+    "decided": "2026-10-19",
+    "decision": "'below' confirmed for a group entered only through neutral exits"
+   },
+   {
+    "group": "/shattered_islands/strakewood_island/dark_cave/dark_cave",
+    "orientation": "below",
+    "decided": "2026-10-19",
+    "decision": "'below' confirmed for a group entered only through neutral exits"
+   },
+   {
+    "group": "/shattered_islands/strakewood_island/giant_stronghold/giant_stronghold",
+    "orientation": "below",
+    "decided": "2026-10-19",
+    "decision": "'below' confirmed for a group entered only through neutral exits"
+   }
+  ],
+  "owner_classifications": [
+   {
+    "group": "/hall_of_dms",
+    "classification": "separate",
+    "reason": "system",
+    "decided": "2026-10-19",
+    "decision": "version 1 judgement call confirmed (Everlink and the Temple of Loki desert-plane chain are other_world, the Incuna lower decks are ships, hall_of_dms is a system map)"
+   },
+   {
+    "group": "/shattered_islands/berri_lur/temple_loki/desert_plane/desert_plane",
+    "classification": "separate",
+    "reason": "other_world",
+    "decided": "2026-10-19",
+    "decision": "version 1 judgement call confirmed (Everlink and the Temple of Loki desert-plane chain are other_world, the Incuna lower decks are ships, hall_of_dms is a system map)"
+   },
+   {
+    "group": "/shattered_islands/berri_lur/temple_loki/desert_plane/entrance",
+    "classification": "separate",
+    "reason": "other_world",
+    "decided": "2026-10-19",
+    "decision": "version 1 judgement call confirmed (Everlink and the Temple of Loki desert-plane chain are other_world, the Incuna lower decks are ships, hall_of_dms is a system map)"
+   },
+   {
+    "group": "/shattered_islands/berri_lur/temple_loki/desert_plane/passage",
+    "classification": "separate",
+    "reason": "other_world",
+    "decided": "2026-10-19",
+    "decision": "version 1 judgement call confirmed (Everlink and the Temple of Loki desert-plane chain are other_world, the Incuna lower decks are ships, hall_of_dms is a system map)"
+   },
+   {
+    "group": "/shattered_islands/berri_lur/temple_loki/desert_plane/unusual_garden",
+    "classification": "separate",
+    "reason": "other_world",
+    "decided": "2026-10-19",
+    "decision": "version 1 judgement call confirmed (Everlink and the Temple of Loki desert-plane chain are other_world, the Incuna lower decks are ships, hall_of_dms is a system map)"
+   },
+   {
+    "group": "/shattered_islands/everlink/everlink",
+    "classification": "separate",
+    "reason": "other_world",
+    "decided": "2026-10-19",
+    "decision": "version 1 judgement call confirmed (Everlink and the Temple of Loki desert-plane chain are other_world, the Incuna lower decks are ships, hall_of_dms is a system map)"
+   },
+   {
+    "group": "/shattered_islands/incuna/ship_lower_deck",
+    "classification": "separate",
+    "reason": "ship",
+    "decided": "2026-10-19",
+    "decision": "version 1 judgement call confirmed (Everlink and the Temple of Loki desert-plane chain are other_world, the Incuna lower decks are ships, hall_of_dms is a system map)"
+   },
+   {
+    "group": "/shattered_islands/incuna/ship_lower_deck_to_incuna",
+    "classification": "separate",
+    "reason": "ship",
+    "decided": "2026-10-19",
+    "decision": "version 1 judgement call confirmed (Everlink and the Temple of Loki desert-plane chain are other_world, the Incuna lower decks are ships, hall_of_dms is a system map)"
+   },
+   {
+    "group": "/shattered_islands/incuna/ship_lower_deck_to_strakewood",
+    "classification": "separate",
+    "reason": "ship",
+    "decided": "2026-10-19",
+    "decision": "version 1 judgement call confirmed (Everlink and the Temple of Loki desert-plane chain are other_world, the Incuna lower decks are ships, hall_of_dms is a system map)"
+   }
+  ],
+  "owner_relayering_judgement_calls": {
+   "decided": "2026-10-19",
+   "decision": "relayering judgement calls confirmed: R3's cave is lowered in place; U64 and U65 move down as whole caves, pushing ellamin and rockforge_a, _b and _c one layer deeper; the new seam stairs use the default archetypes; the storeys U2 and U3, partly over unmoved ground, move up",
+   "calls": [
+    {
+     "kind": "storey partly over unmoved ground",
+     "unit": "U2",
+     "text": "U2 (world_3_45_1) moves up 1 layer(s); 17 of its 87 tiles stand on ground that stays"
+    },
+    {
+     "kind": "storey partly over unmoved ground",
+     "unit": "U3",
+     "text": "U3 (world_3_45_1, world_3_46_1) moves up 1 layer(s); 18 of its 96 tiles stand on ground that stays"
+    },
+    {
+     "kind": "cave resolution",
+     "unit": "U64",
+     "text": "U64 (3411 tiles, regions R7): lower whole cave; lowering the whole cave breaks 0 stair(s) and makes 0 steep step(s); lowering only the raised regions breaks 0 and makes 14"
+    },
+    {
+     "kind": "cave resolution",
+     "unit": "U65",
+     "text": "U65 (2453 tiles, regions R8, R10, R12): lower whole cave; lowering the whole cave breaks 0 stair(s) and makes 0 steep step(s); lowering only the raised regions breaks 0 and makes 23"
+    },
+    {
+     "kind": "cave resolution",
+     "unit": "R3's cave",
+     "text": "R3's cave (3047 tiles, regions R3): lower regions in place; lowering the whole cave would push 1 unit(s) below it down; lowering the whole cave breaks 22 stair(s) and makes 0 steep step(s); lowering only the raised regions breaks 18 and makes 4"
+    },
+    {
+     "kind": "one-way stairwells",
+     "text": "12 (SR3, SR5, SR6, SR7, SR9, SR10, SR11, SR13, SR14, SR18, SR19, SR20) replace legacy exits that only go one way, so each has exits at one end and a landing at the other; making them two-way would add a way in that legacy does not have"
+    },
+    {
+     "kind": "steep steps",
+     "text": "4 walkable edge(s) become a fall on the same layer"
+    },
+    {
+     "kind": "new contacts",
+     "text": "2 tile pair(s) become neighbours on a layer"
+    },
+    {
+     "kind": "split tiles",
+     "text": "200 tile(s) carry a low floor on sub-layer 0 and a raised floor on a higher sub-layer; the raised part moves, the ground part stays"
+    },
+    {
+     "kind": "kept regions",
+     "text": "7 small raised region(s) (58 tiles) keep z as tile height"
+    },
+    {
+     "kind": "new stairs",
+     "text": "46 new stair pair(s) keep the 44 cut seam piece(s) and every pocket they leave walkable; archetypes default to stairs_stone_up/down"
+    }
+   ],
+   "placement_changes_from_v1": [
+    {
+     "group": "/shattered_islands/incuna/ellamin",
+     "v1": [
+      105,
+      1991,
+      -4
+     ],
+     "v2": [
+      105,
+      1991,
+      -5
+     ]
+    },
+    {
+     "group": "/shattered_islands/strakewood_island/rockforge/rockforge_a",
+     "v1": [
+      -13,
+      1347,
+      -4
+     ],
+     "v2": [
+      -13,
+      1347,
+      -5
+     ]
+    },
+    {
+     "group": "/shattered_islands/strakewood_island/rockforge/rockforge_b",
+     "v1": [
+      -13,
+      1347,
+      -5
+     ],
+     "v2": [
+      -13,
+      1347,
+      -6
+     ]
+    },
+    {
+     "group": "/shattered_islands/strakewood_island/rockforge/rockforge_c",
+     "v1": [
+      -13,
+      1347,
+      -6
+     ],
+     "v2": [
+      -13,
+      1347,
+      -7
+     ]
+    }
+   ]
+  },
+  "seam_stair_archetypes": {
+   "low": "stairs_stone_up",
+   "high": "stairs_stone_down",
+   "decided": "2026-10-19",
+   "decision": "the new seam stairs keep their default archetypes",
+   "defined_in": {
+    "high": "arch/connect/stairs/stairs_stone/stairs_stone.arc",
+    "low": "arch/connect/stairs/stairs_stone/stairs_stone.arc"
+   }
+  },
   "overworld_map_size": 24,
   "excluded_trees": [
    "python",
@@ -106,6 +352,8 @@
   "relayering": "overworld tiles are on their final layer everywhere in this plan (see relayering); occupied_rows_by_layer gives each map's tiles per final layer",
   "wired_exits": "an exit with form 'wired' led nowhere in legacy; it now targets the content on the layer above or below (see its 'wired' evidence)",
   "exits_kept_as_decoration": "dangling exits the owner keeps as decoration (no exit): not wired, with the landing they would have had",
+  "stairwell_appearance": "a stairwell's intermediate tiles show the down archetype of the first stair family among its exit archetypes (down-going exits first); failing that, the owner's fallback for the first exit archetype settings.stairwell_appearance_fallbacks lists (decision 2026-10-19)",
+  "owner_decisions": "settings.owner_* and the seam stair and appearance settings record the owner's decisions with their dates; a blocked stairwell site carries owner_decision when the owner keeps its exits portals (settings.owner_portals), and a placement with alignment_reason is the owner's fixed spot under its anchor (settings.owner_alignments); confirmations (orientations, classifications, relayering judgement calls) equal what the plan derives",
   "exit_inventory": "every exit object read from the content (inventory exits excluded), keyed by source_map and line: the content fields of its exit record with its legacy form and resolved target (none for an exit that leads nowhere), plus the facts its data problems come from; the exit records and data problems are checked against it"
  },
  "summary": {
@@ -113,13 +361,12 @@
   "groups_total": 59,
   "non_overworld_groups": 58,
   "by_classification": {
-   "place:place": 27,
+   "place:place": 28,
    "separate:guild": 3,
    "separate:other_world": 7,
    "separate:per_player": 13,
    "separate:ship": 5,
-   "separate:system": 2,
-   "separate:unreachable": 1
+   "separate:system": 2
   },
   "exit_objects": 1200,
   "inventory_exit_objects_ignored": 14,
@@ -190,11 +437,10 @@
    "/shattered_islands/eld_woods_island/clearhaven/treehome_3",
    "/shattered_islands/eld_woods_island/clearhaven/mine/mine_unique_a",
    "/shattered_islands/eld_woods_island/clearhaven/treehome_4",
-   "/shattered_islands/deserted_tutorial_island/ship_lower_deck"
-  ],
-  "tentative_placement_order": [
+   "/shattered_islands/deserted_tutorial_island/ship_lower_deck",
    "/shattered_islands/strakewood_island/rockforge/rockforge_c"
   ],
+  "tentative_placement_order": [],
   "unplaced_place_groups": [],
   "unplaced_uncertain_groups": [],
   "failed_placements": []
@@ -921,8 +1167,8 @@
    "mode": "clear",
    "max_bend": 1,
    "segments_drawn_only_on_player_layer": true,
-   "intermediate_appearance": null,
-   "intermediate_appearance_source": "no stair archetype among ['invis_exit', 'invis_exit']; owner to choose",
+   "intermediate_appearance": "stairs_stone_down",
+   "intermediate_appearance_source": "owner decision 2026-10-19: no stair archetype among ['invis_exit'], so the invis_exit exits show stairs_stone_down; the intermediate objects are decorations, not exits",
    "tiles": [
     {
      "layer": 0,
@@ -943,7 +1189,14 @@
      "y": 1680,
      "role": "intermediate",
      "existing": false,
-     "objects": []
+     "objects": [
+      {
+       "archetype": "stairs_stone_down",
+       "exit": false,
+       "walkable": false,
+       "use": "appearance only"
+      }
+     ]
     },
     {
      "layer": -2,
@@ -951,7 +1204,14 @@
      "y": 1681,
      "role": "intermediate",
      "existing": false,
-     "objects": []
+     "objects": [
+      {
+       "archetype": "stairs_stone_down",
+       "exit": false,
+       "walkable": false,
+       "use": "appearance only"
+      }
+     ]
     },
     {
      "layer": -3,
@@ -5365,8 +5625,8 @@
    "mode": "clear",
    "max_bend": 0,
    "segments_drawn_only_on_player_layer": true,
-   "intermediate_appearance": null,
-   "intermediate_appearance_source": "no stair archetype among ['well_stone', 'well_bucket']; owner to choose",
+   "intermediate_appearance": "ladder_down",
+   "intermediate_appearance_source": "owner decision 2026-10-19: no stair archetype among ['well_stone', 'well_bucket'], so the well_stone exits show ladder_down; the intermediate objects are decorations, not exits",
    "tiles": [
     {
      "layer": 1,
@@ -5387,7 +5647,14 @@
      "y": 1366,
      "role": "intermediate",
      "existing": false,
-     "objects": []
+     "objects": [
+      {
+       "archetype": "ladder_down",
+       "exit": false,
+       "walkable": false,
+       "use": "appearance only"
+      }
+     ]
     },
     {
      "layer": -1,
@@ -5395,7 +5662,14 @@
      "y": 1366,
      "role": "intermediate",
      "existing": false,
-     "objects": []
+     "objects": [
+      {
+       "archetype": "ladder_down",
+       "exit": false,
+       "walkable": false,
+       "use": "appearance only"
+      }
+     ]
     },
     {
      "layer": -2,
@@ -5487,8 +5761,8 @@
    "mode": "void-only",
    "max_bend": 0,
    "segments_drawn_only_on_player_layer": true,
-   "intermediate_appearance": null,
-   "intermediate_appearance_source": "no stair archetype among ['well_bucket']; owner to choose",
+   "intermediate_appearance": "ladder_down",
+   "intermediate_appearance_source": "owner decision 2026-10-19: no stair archetype among ['well_bucket'], so the well_bucket exits show ladder_down; the intermediate objects are decorations, not exits",
    "tiles": [
     {
      "layer": 1,
@@ -5504,7 +5778,14 @@
      "y": 1382,
      "role": "intermediate",
      "existing": false,
-     "objects": []
+     "objects": [
+      {
+       "archetype": "ladder_down",
+       "exit": false,
+       "walkable": false,
+       "use": "appearance only"
+      }
+     ]
     },
     {
      "layer": -1,
@@ -6110,7 +6391,11 @@
      "map": "/shattered_islands/strakewood_island/zechna_temple/zechna_temple_1_1"
     }
    ],
-   "reason": "no void chain within 2 tile(s) of the column"
+   "reason": "no void chain within 2 tile(s) of the column",
+   "owner_decision": {
+    "decided": "2026-10-19",
+    "decision": "Zechna's first hole stays a portal: no stairwell is built through zechna_temple_1_1, the floor in its column"
+   }
   }
  ],
  "sloped_stairwell_sites_blocked": [
@@ -26283,7 +26568,8 @@
    "evidence": [
     "names=['Hall of DMs']; regions=['creation']",
     "1 exit object(s) from the overworld lead here",
-    "DM hall; hub with exits to the Plane of Creation, guild oracle and several overworld towns (a DM/system map)."
+    "DM hall; hub with exits to the Plane of Creation, guild oracle and several overworld towns (a DM/system map).",
+    "owner decision 2026-10-19: system confirmed (a version 1 judgement call)"
    ],
    "reach_depth_from_overworld": null,
    "layout_root": "/hall_of_dms",
@@ -31669,7 +31955,8 @@
    "evidence": [
     "names=['Desert Plane']; regions=['berri_lur']",
     "no exit object in the overworld leads here",
-    "part of the Temple of Loki 'Desert Plane' sequence (path contains /desert_plane/); owner directive: desert planes stay separate"
+    "part of the Temple of Loki 'Desert Plane' sequence (path contains /desert_plane/); owner directive: desert planes stay separate",
+    "owner decision 2026-10-19: other_world confirmed (a version 1 judgement call)"
    ],
    "reach_depth_from_overworld": null,
    "layout_root": "/shattered_islands/berri_lur/temple_loki/desert_plane/desert_plane_0101",
@@ -31816,7 +32103,8 @@
    "evidence": [
     "names=['Desert Plane']; regions=['berri_lur']",
     "no exit object in the overworld leads here",
-    "part of the Temple of Loki 'Desert Plane' sequence (path contains /desert_plane/); owner directive: desert planes stay separate"
+    "part of the Temple of Loki 'Desert Plane' sequence (path contains /desert_plane/); owner directive: desert planes stay separate",
+    "owner decision 2026-10-19: other_world confirmed (a version 1 judgement call)"
    ],
    "reach_depth_from_overworld": null,
    "layout_root": "/shattered_islands/berri_lur/temple_loki/desert_plane/entrance",
@@ -32316,7 +32604,8 @@
    "evidence": [
     "names=['Desert Plane']; regions=['berri_lur']",
     "no exit object in the overworld leads here",
-    "part of the Temple of Loki 'Desert Plane' sequence (path contains /desert_plane/); owner directive: desert planes stay separate"
+    "part of the Temple of Loki 'Desert Plane' sequence (path contains /desert_plane/); owner directive: desert planes stay separate",
+    "owner decision 2026-10-19: other_world confirmed (a version 1 judgement call)"
    ],
    "reach_depth_from_overworld": null,
    "layout_root": "/shattered_islands/berri_lur/temple_loki/desert_plane/passage_0101",
@@ -32888,7 +33177,8 @@
    "evidence": [
     "names=['An Unusual Garden']; regions=['berri_lur']",
     "no exit object in the overworld leads here",
-    "part of the Temple of Loki 'Desert Plane' sequence (path contains /desert_plane/); owner directive: desert planes stay separate"
+    "part of the Temple of Loki 'Desert Plane' sequence (path contains /desert_plane/); owner directive: desert planes stay separate",
+    "owner decision 2026-10-19: other_world confirmed (a version 1 judgement call)"
    ],
    "reach_depth_from_overworld": null,
    "layout_root": "/shattered_islands/berri_lur/temple_loki/desert_plane/unusual_garden",
@@ -34128,7 +34418,8 @@
     },
     "orientation": "below",
     "orientation_evidence": [
-     "name keyword (below)"
+     "name keyword (below)",
+     "owner decision 2026-10-19: 'below' confirmed for a group entered only through neutral exits"
     ],
     "vertical_bounds_from_exit_semantics": [
      null,
@@ -38085,7 +38376,8 @@
     "no exit object in the overworld leads here",
     "not reachable from the overworld through exit objects; no exit object leads here at all",
     "referenced by scripts: ['maps/python/House.py']",
-    "region 'everlink' description: 'No one knows where this place is in the world, but only proud house owners can access it.'; only entered by scripts (python/houses/exit.py via House.py)"
+    "region 'everlink' description: 'No one knows where this place is in the world, but only proud house owners can access it.'; only entered by scripts (python/houses/exit.py via House.py)",
+    "owner decision 2026-10-19: other_world confirmed (a version 1 judgement call)"
    ],
    "reach_depth_from_overworld": null,
    "layout_root": "/shattered_islands/everlink/everlink_0101",
@@ -38672,7 +38964,8 @@
    "evidence": [
     "names=['Lower Deck']; regions=['incuna']",
     "1 exit object(s) from the overworld lead here",
-    "ship lower deck used for sea travel: entered from ['/shattered_islands/world_-6_79'] but exits to ['/shattered_islands/world_4_85']; NPC dialog teleports here (maps/interfaces/ocean/sam_goodberry.xml)"
+    "ship lower deck used for sea travel: entered from ['/shattered_islands/world_-6_79'] but exits to ['/shattered_islands/world_4_85']; NPC dialog teleports here (maps/interfaces/ocean/sam_goodberry.xml)",
+    "owner decision 2026-10-19: ship confirmed (a version 1 judgement call)"
    ],
    "reach_depth_from_overworld": null,
    "layout_root": "/shattered_islands/incuna/ship_lower_deck",
@@ -38827,7 +39120,8 @@
    "evidence": [
     "names=['Lower Deck']; regions=['incuna']",
     "1 exit object(s) from the overworld lead here",
-    "ship lower deck used for sea travel: entered from ['/shattered_islands/world_2_87'] but exits to ['/shattered_islands/world_4_85']; NPC dialog teleports here (maps/interfaces/ocean/sam_goodberry_to_incuna.xml)"
+    "ship lower deck used for sea travel: entered from ['/shattered_islands/world_2_87'] but exits to ['/shattered_islands/world_4_85']; NPC dialog teleports here (maps/interfaces/ocean/sam_goodberry_to_incuna.xml)",
+    "owner decision 2026-10-19: ship confirmed (a version 1 judgement call)"
    ],
    "reach_depth_from_overworld": null,
    "layout_root": "/shattered_islands/incuna/ship_lower_deck_to_incuna",
@@ -38982,7 +39276,8 @@
    "evidence": [
     "names=['Lower Deck']; regions=['strakewood_island']",
     "1 exit object(s) from the overworld lead here",
-    "ship lower deck used for sea travel: entered from ['/shattered_islands/world_0_83'] but exits to ['/shattered_islands/world_0_70']; NPC dialog teleports here (maps/interfaces/ocean/sam_goodberry_to_strakewood.xml)"
+    "ship lower deck used for sea travel: entered from ['/shattered_islands/world_0_83'] but exits to ['/shattered_islands/world_0_70']; NPC dialog teleports here (maps/interfaces/ocean/sam_goodberry_to_strakewood.xml)",
+    "owner decision 2026-10-19: ship confirmed (a version 1 judgement call)"
    ],
    "reach_depth_from_overworld": null,
    "layout_root": "/shattered_islands/incuna/ship_lower_deck_to_strakewood",
@@ -42994,7 +43289,8 @@
     },
     "orientation": "below",
     "orientation_evidence": [
-     "name keyword (below)"
+     "name keyword (below)",
+     "owner decision 2026-10-19: 'below' confirmed for a group entered only through neutral exits"
     ],
     "vertical_bounds_from_exit_semantics": [
      null,
@@ -43501,7 +43797,8 @@
     },
     "orientation": "below",
     "orientation_evidence": [
-     "name keyword (below)"
+     "name keyword (below)",
+     "owner decision 2026-10-19: 'below' confirmed for a group entered only through neutral exits"
     ],
     "vertical_bounds_from_exit_semantics": [
      null,
@@ -43824,7 +44121,8 @@
     },
     "orientation": "below",
     "orientation_evidence": [
-     "name keyword (below)"
+     "name keyword (below)",
+     "owner decision 2026-10-19: 'below' confirmed for a group entered only through neutral exits"
     ],
     "vertical_bounds_from_exit_semantics": [
      null,
@@ -51710,12 +52008,12 @@
   {
    "id": "/shattered_islands/strakewood_island/rockforge/rockforge_c",
    "map_count": 25,
-   "classification": "separate",
-   "reason": "unreachable",
+   "classification": "place",
+   "reason": "place",
    "evidence": [
     "names=['Rockforge: Mines']; regions=['rockforge_mines']",
     "no exit object in the overworld leads here",
-    "not reachable from the overworld through exit objects; no exit object leads here at all"
+    "no exit object leads here or out; owner decision 2026-10-19: the Rockforge mines ('Rockforge: Mines') are placed on the layer directly under rockforge_b at the same x/y (rockforge_a/_b/_c share the same 5x5 sheet naming 0101..ab05, and the rockforge_a<->rockforge_b stairs connect identical local coordinates)"
    ],
    "reach_depth_from_overworld": null,
    "layout_root": "/shattered_islands/strakewood_island/rockforge/rockforge_c_0101",
@@ -52907,7 +53205,7 @@
    "entrances_from_other_groups": [],
    "exits_to_other_groups": [],
    "placement": {
-    "status": "tentative",
+    "status": "proposed",
     "layer_offset": -7,
     "x_offset": -13,
     "y_offset": 1347,
@@ -53073,7 +53371,7 @@
     "placement_index": 27,
     "main_stairwell_blocked": false,
     "crossing_exits_after_placement": {},
-    "tentative_reason": "rockforge_a/_b/_c share the same 5x5 sheet naming (0101..ab05) and rockforge_a<->rockforge_b stairs connect identical local coordinates; rockforge_c ('Rockforge: Mines') is assumed to be the next sheet below rockforge_b at the same x/y."
+    "alignment_reason": "owner decision 2026-10-19: the Rockforge mines ('Rockforge: Mines') are placed on the layer directly under rockforge_b at the same x/y (rockforge_a/_b/_c share the same 5x5 sheet naming 0101..ab05, and the rockforge_a<->rockforge_b stairs connect identical local coordinates)"
    }
   },
   {
