@@ -82,7 +82,7 @@
      15
     ],
     "arch": "hole",
-    "premise": "45cdd3565efa504f5ccec3065d37631a9e7b91a297edc7ceed8018c4bcc4f755",
+    "premise": "ad3f43acaee60f6c1459523c8af820f3fdbe384f780a3468ef8f0fab23e0cf20",
     "decided": "2026-10-19",
     "decision": "Zechna's first hole stays a portal: no stairwell is built through zechna_temple_1_1, the floor in its column"
    }
@@ -157,6 +157,7 @@
     "evidence": [
      "name keyword (below)"
     ],
+    "premise": "927d5882eee6c9f761a0f044dd7b25623338f55ecebdaeda5658c9a83997bd3d",
     "decided": "2026-10-19",
     "decision": "'below' confirmed for a group entered only through neutral exits"
    },
@@ -166,6 +167,7 @@
     "evidence": [
      "name keyword (below)"
     ],
+    "premise": "1b7505d0b301c9d656d628251139e1078688dccb2590d5eceb663f10683670b6",
     "decided": "2026-10-19",
     "decision": "'below' confirmed for a group entered only through neutral exits"
    },
@@ -175,6 +177,7 @@
     "evidence": [
      "name keyword (below)"
     ],
+    "premise": "77a1804f4a83e6b4083293c1fa74e2b5893afa281bc0914bc64520fbbf46dafd",
     "decided": "2026-10-19",
     "decision": "'below' confirmed for a group entered only through neutral exits"
    },
@@ -184,6 +187,7 @@
     "evidence": [
      "name keyword (below)"
     ],
+    "premise": "74e02789aba87bb33804b7ce5c4574786d5bb8118930b8b9b1783f7a0e0ea8a9",
     "decided": "2026-10-19",
     "decision": "'below' confirmed for a group entered only through neutral exits"
    }
@@ -193,7 +197,7 @@
     "group": "/hall_of_dms",
     "classification": "separate",
     "reason": "system",
-    "premise": "c1a1596617f7399ec7798b67d7c8af032ec16d291272583673ead96bcc88c735",
+    "premise": "f62856ef0a335de5becf7234da9ea37232a19522b6df6a98133aad8cc796a224",
     "decided": "2026-10-19",
     "decision": "version 1 judgement call confirmed (Everlink and the Temple of Loki desert-plane chain are other_world, the Incuna lower decks are ships, hall_of_dms is a system map)"
    },
@@ -201,7 +205,7 @@
     "group": "/shattered_islands/berri_lur/temple_loki/desert_plane/desert_plane",
     "classification": "separate",
     "reason": "other_world",
-    "premise": "85be6fac8a8953f4034c69aac13c5c24a695dbb441029710e7ce70e67ccca395",
+    "premise": "25be0f8f36831865c4d557607e1b483fb981ff5bc31ab8acf6bd6f56d1e888d9",
     "decided": "2026-10-19",
     "decision": "version 1 judgement call confirmed (Everlink and the Temple of Loki desert-plane chain are other_world, the Incuna lower decks are ships, hall_of_dms is a system map)"
    },
@@ -209,7 +213,7 @@
     "group": "/shattered_islands/berri_lur/temple_loki/desert_plane/entrance",
     "classification": "separate",
     "reason": "other_world",
-    "premise": "85be6fac8a8953f4034c69aac13c5c24a695dbb441029710e7ce70e67ccca395",
+    "premise": "3d319765bc0e62816c33067f7c10ac845f05802a5f5e602dd9c0463f5e6ad252",
     "decided": "2026-10-19",
     "decision": "version 1 judgement call confirmed (Everlink and the Temple of Loki desert-plane chain are other_world, the Incuna lower decks are ships, hall_of_dms is a system map)"
    },
@@ -217,7 +221,7 @@
     "group": "/shattered_islands/berri_lur/temple_loki/desert_plane/passage",
     "classification": "separate",
     "reason": "other_world",
-    "premise": "85be6fac8a8953f4034c69aac13c5c24a695dbb441029710e7ce70e67ccca395",
+    "premise": "1e5bc4e079a004ba0c4c4969ca55ce1d8caa784f6e9922fe382fcec539569ef2",
     "decided": "2026-10-19",
     "decision": "version 1 judgement call confirmed (Everlink and the Temple of Loki desert-plane chain are other_world, the Incuna lower decks are ships, hall_of_dms is a system map)"
    },
@@ -225,7 +229,7 @@
     "group": "/shattered_islands/berri_lur/temple_loki/desert_plane/unusual_garden",
     "classification": "separate",
     "reason": "other_world",
-    "premise": "ba2b26b1b99f20b5196e6a3a5e9bc2f61679ce91a43e546b9b44c654bbc8f2ad",
+    "premise": "7bf7f6471a24f33c0a01463f3f058f97533f88d2eb164d2fde80473c0c09125b",
     "decided": "2026-10-19",
     "decision": "version 1 judgement call confirmed (Everlink and the Temple of Loki desert-plane chain are other_world, the Incuna lower decks are ships, hall_of_dms is a system map)"
    },
@@ -233,7 +237,7 @@
     "group": "/shattered_islands/everlink/everlink",
     "classification": "separate",
     "reason": "other_world",
-    "premise": "93f26332fec26c6f9f3ff1f22e6bb2f3979ce8d06184a20d7e2b0eee35556eaf",
+    "premise": "be278e9eeea6d8524a0c9f962507b450958575d20694d59dc1dd74776472fb3c",
     "decided": "2026-10-19",
     "decision": "version 1 judgement call confirmed (Everlink and the Temple of Loki desert-plane chain are other_world, the Incuna lower decks are ships, hall_of_dms is a system map)"
    },
@@ -241,7 +245,7 @@
     "group": "/shattered_islands/incuna/ship_lower_deck",
     "classification": "separate",
     "reason": "ship",
-    "premise": "ae7da06fa8a6e5584f521eb69399e36a6724fa1b61314288121d606e802f8edb",
+    "premise": "1f2cc9c8cb181ba6308e2fb69db18f6b936e0afedad44941cbb3a822e9c77d2f",
     "decided": "2026-10-19",
     "decision": "version 1 judgement call confirmed (Everlink and the Temple of Loki desert-plane chain are other_world, the Incuna lower decks are ships, hall_of_dms is a system map)"
    },
@@ -249,7 +253,7 @@
     "group": "/shattered_islands/incuna/ship_lower_deck_to_incuna",
     "classification": "separate",
     "reason": "ship",
-    "premise": "4ed5fa65c9dd84678849e1647fa26c39826402eb1a1f53c7433a28cffa8550b1",
+    "premise": "d74a65d957119c1216d6a783b634e504f42a0165439c56e39eabb1b32117f00b",
     "decided": "2026-10-19",
     "decision": "version 1 judgement call confirmed (Everlink and the Temple of Loki desert-plane chain are other_world, the Incuna lower decks are ships, hall_of_dms is a system map)"
    },
@@ -257,7 +261,7 @@
     "group": "/shattered_islands/incuna/ship_lower_deck_to_strakewood",
     "classification": "separate",
     "reason": "ship",
-    "premise": "18d4b0b2debafb06e49b30511f92e28e10e4770e4372f9090346d5535137c22f",
+    "premise": "21ee6f53b9f6c430728cfae798ef365ea15d379f03c991dcb430f536b9c2aa53",
     "decided": "2026-10-19",
     "decision": "version 1 judgement call confirmed (Everlink and the Temple of Loki desert-plane chain are other_world, the Incuna lower decks are ships, hall_of_dms is a system map)"
    }
@@ -316,6 +320,7 @@
      "text": "46 new stair pair(s) keep the 44 cut seam piece(s) and every pocket they leave walkable; archetypes default to stairs_stone_up/down"
     }
    ],
+   "premise": "b98a773ceeb3cd3acb1a88967274cf0ddbdc168a977600979ccbc53dda92dce1",
    "placement_changes_from_v1": [
     {
      "group": "/shattered_islands/incuna/ellamin",

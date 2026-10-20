@@ -113,11 +113,12 @@ DECIDED_2026_10_19 = "2026-10-19"
 ROCKFORGE = "/shattered_islands/strakewood_island/rockforge/"
 # Decision 1: these exits stay portals where their stairwell is blocked; no
 # stairwell is forced through the content in its way. Each is one exit object
-# (source map, line, tile, archetype); its premise is the blocked site record
-# (owners, ends, exits and what occupies the column).
+# (source map, line, tile, archetype); its premise covers portal_evidence(): the
+# blocked site record (owners, ends, exits, column occupants) and the records of
+# its exits (targets included).
 OWNER_PORTALS = {
     ("/shattered_islands/world_7_66_-1", 938, (13, 15), "hole"): {
-        "premise": "45cdd3565efa504f5ccec3065d37631a9e7b91a297edc7ceed8018c4bcc4f755",
+        "premise": "ad3f43acaee60f6c1459523c8af820f3fdbe384f780a3468ef8f0fab23e0cf20",
         "decision": "Zechna's first hole stays a portal: no stairwell is built through zechna_temple_1_1, the floor "
                     "in its column"},
 }
@@ -165,33 +166,37 @@ OWNER_NO_FOOTPRINT = {
 }
 # Decision 4: the orientation derived for these groups is confirmed, with the
 # evidence it came from: a name keyword, no exit with a direction.
+# (orientation, derived evidence, premise of the group's content: group_evidence())
 KEYWORD_BELOW = ("name keyword (below)",)
 OWNER_ORIENTATIONS = {
-    "/shattered_islands/eld_woods_island/cave_morlarg": ("below", KEYWORD_BELOW),
-    "/shattered_islands/strakewood_island/brynknot/sewers/lab": ("below", KEYWORD_BELOW),
-    "/shattered_islands/strakewood_island/dark_cave/dark_cave": ("below", KEYWORD_BELOW),
-    "/shattered_islands/strakewood_island/giant_stronghold/giant_stronghold": ("below", KEYWORD_BELOW),
+    "/shattered_islands/eld_woods_island/cave_morlarg": ("below", KEYWORD_BELOW, "927d5882eee6c9f761a0f044dd7b25623338f55ecebdaeda5658c9a83997bd3d"),
+    "/shattered_islands/strakewood_island/brynknot/sewers/lab": ("below", KEYWORD_BELOW, "1b7505d0b301c9d656d628251139e1078688dccb2590d5eceb663f10683670b6"),
+    "/shattered_islands/strakewood_island/dark_cave/dark_cave": ("below", KEYWORD_BELOW, "77a1804f4a83e6b4083293c1fa74e2b5893afa281bc0914bc64520fbbf46dafd"),
+    "/shattered_islands/strakewood_island/giant_stronghold/giant_stronghold": ("below", KEYWORD_BELOW, "74e02789aba87bb33804b7ce5c4574786d5bb8118930b8b9b1783f7a0e0ea8a9"),
 }
 ORIENTATION_DECISION = "'below' confirmed for a group entered only through neutral exits"
 # Decision 5: version 1's classification judgement calls are confirmed, each
-# with the premise of the evidence the rules gave for it.
+# with the premise of {"evidence": the evidence the rules gave for it, "group":
+# group_evidence() of its record} (its maps, exits and script references).
 LOKI_DESERT = "/shattered_islands/berri_lur/temple_loki/desert_plane/"
-DESERT_PLANE_EVIDENCE = "85be6fac8a8953f4034c69aac13c5c24a695dbb441029710e7ce70e67ccca395"
 OWNER_CLASSIFICATIONS = {
     "/shattered_islands/everlink/everlink":
-        ("separate", "other_world", "93f26332fec26c6f9f3ff1f22e6bb2f3979ce8d06184a20d7e2b0eee35556eaf"),
-    LOKI_DESERT + "desert_plane": ("separate", "other_world", DESERT_PLANE_EVIDENCE),
-    LOKI_DESERT + "entrance": ("separate", "other_world", DESERT_PLANE_EVIDENCE),
-    LOKI_DESERT + "passage": ("separate", "other_world", DESERT_PLANE_EVIDENCE),
+        ("separate", "other_world", "be278e9eeea6d8524a0c9f962507b450958575d20694d59dc1dd74776472fb3c"),
+    LOKI_DESERT + "desert_plane":
+        ("separate", "other_world", "25be0f8f36831865c4d557607e1b483fb981ff5bc31ab8acf6bd6f56d1e888d9"),
+    LOKI_DESERT + "entrance":
+        ("separate", "other_world", "3d319765bc0e62816c33067f7c10ac845f05802a5f5e602dd9c0463f5e6ad252"),
+    LOKI_DESERT + "passage":
+        ("separate", "other_world", "1e5bc4e079a004ba0c4c4969ca55ce1d8caa784f6e9922fe382fcec539569ef2"),
     LOKI_DESERT + "unusual_garden":
-        ("separate", "other_world", "ba2b26b1b99f20b5196e6a3a5e9bc2f61679ce91a43e546b9b44c654bbc8f2ad"),
+        ("separate", "other_world", "7bf7f6471a24f33c0a01463f3f058f97533f88d2eb164d2fde80473c0c09125b"),
     "/shattered_islands/incuna/ship_lower_deck":
-        ("separate", "ship", "ae7da06fa8a6e5584f521eb69399e36a6724fa1b61314288121d606e802f8edb"),
+        ("separate", "ship", "1f2cc9c8cb181ba6308e2fb69db18f6b936e0afedad44941cbb3a822e9c77d2f"),
     "/shattered_islands/incuna/ship_lower_deck_to_incuna":
-        ("separate", "ship", "4ed5fa65c9dd84678849e1647fa26c39826402eb1a1f53c7433a28cffa8550b1"),
+        ("separate", "ship", "d74a65d957119c1216d6a783b634e504f42a0165439c56e39eabb1b32117f00b"),
     "/shattered_islands/incuna/ship_lower_deck_to_strakewood":
-        ("separate", "ship", "18d4b0b2debafb06e49b30511f92e28e10e4770e4372f9090346d5535137c22f"),
-    "/hall_of_dms": ("separate", "system", "c1a1596617f7399ec7798b67d7c8af032ec16d291272583673ead96bcc88c735"),
+        ("separate", "ship", "21ee6f53b9f6c430728cfae798ef365ea15d379f03c991dcb430f536b9c2aa53"),
+    "/hall_of_dms": ("separate", "system", "f62856ef0a335de5becf7234da9ea37232a19522b6df6a98133aad8cc796a224"),
 }
 CLASSIFICATION_DECISION = ("version 1 judgement call confirmed (Everlink and the Temple of Loki desert-plane chain "
                            "are other_world, the Incuna lower decks are ships, hall_of_dms is a system map)")
@@ -231,6 +236,8 @@ OWNER_RELAYERING_JUDGEMENT_CALLS = (
      "46 new stair pair(s) keep the 44 cut seam piece(s) and every pocket they leave walkable; archetypes default to "
      "stairs_stone_up/down"),
 )
+# The premise of relayering_evidence(): the calls and every record they summarise.
+OWNER_RELAYERING_PREMISE = "b98a773ceeb3cd3acb1a88967274cf0ddbdc168a977600979ccbc53dda92dce1"
 # (x_offset, y_offset, layer_offset) of version 1 -> this plan, under /shattered_islands/
 OWNER_PLACEMENT_CHANGES_FROM_V1 = (
     ("incuna/ellamin", (105, 1991, -4), (105, 1991, -5)),
@@ -428,8 +435,48 @@ def stair_family_down(arch: str):
 
 
 def premise(evidence) -> str:
-    """Fingerprint of the evidence an owner decision was made on: SHA-256 of its canonical JSON."""
-    return hashlib.sha256(json.dumps(evidence, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    """Fingerprint of the evidence an owner decision was made on: SHA-256 of its canonical JSON (taken as the
+    plan's JSON holds it, so the generator and the verifier hash the same text)."""
+    canon = json.loads(json.dumps(evidence))
+    return hashlib.sha256(json.dumps(canon, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+# What a premise covers, from the plan's JSON records (verify_plan.py has its own copy of each).
+EXIT_LISTS = ("entrances_from_overworld", "exits_to_overworld", "entrances_from_other_groups", "exits_to_other_groups",
+              "internal_exits")
+EXIT_CONTENT_FIELDS = ("source_map", "line", "source_tile", "target_map", "target_tile", "arch", "form", "vertical",
+                       "vertical_inferred_from")
+GROUP_MAP_FIELDS = ("path", "name", "region", "width", "height", "local_offset", "tile_links", "occupied_tiles")
+
+
+def group_evidence(rec: dict) -> dict:
+    """A group's content as the rules see it: its maps (names, regions, sizes, layout, tile counts), the content
+    fields of every exit record it holds, and its script references."""
+    exits = {}
+    for key in EXIT_LISTS[:4]:
+        for e in rec.get(key, []):
+            exits[(e["source_map"], e["line"])] = {f: e.get(f) for f in EXIT_CONTENT_FIELDS}
+    return {"maps": [{k: m.get(k) for k in GROUP_MAP_FIELDS} for m in rec["maps"]],
+            "exits": [exits[k] for k in sorted(exits)],
+            "scripts": rec.get("script_and_dialog_references", []), "redirects": rec.get("script_redirects", [])}
+
+
+def portal_evidence(site: dict, records: dict) -> dict:
+    """A blocked stairwell site as a portal decision sees it: the site record (owners, ends, exits, column
+    occupants, reason) and the full exit record of each of its exits."""
+    return {"site": {k: v for k, v in site.items() if k != "owner_decision"},
+            "exits": [records.get((x["source_map"], x["line"])) for x in site["exits"]]}
+
+
+def relayering_evidence(rl: dict, stairwells: list) -> dict:
+    """What the relayering judgement calls summarise: the calls and every record behind them (regions, kept
+    regions, moved units, caves, split tiles, seams, new stairs, steep steps, new contacts) and the one-way
+    relayering stairwells."""
+    out = {k: rl[k] for k in ("judgement_calls", "regions", "kept_regions", "units_moved", "caves", "split_tiles",
+                              "seams", "new_stairs", "steep_steps", "new_contacts")}
+    out["one_way_stairwells"] = [{k: sw[k] for k in STAIRWELL_PREMISE_FIELDS} for sw in stairwells
+                                 if sw["kind"] == "relayering" and sw["direction"] != "both"]
+    return out
 
 
 def alignment_evidence(recs: dict, gids) -> dict:
@@ -489,15 +536,17 @@ def portal_key(x: dict) -> tuple:
     return x["source_map"], x["line"], tuple(x["source_tile"]), x["arch"]
 
 
-def apply_owner_portals(sites: list, decisions: dict):
+def apply_owner_portals(sites: list, decisions: dict, records: dict):
     """Owner decision 1 (2026-10-19): mark the blocked stairwell sites whose exits the owner keeps portals.
 
     `decisions` maps portal_key() to the decision: its text and the premise() of
-    the blocked site record it was made on. A site whose exits are all decided,
-    on that same record, carries the decision (owner_decision). A site decided
-    for only some of its exits or whose record changed (other ends, owners,
-    exits or column occupants), or a decision for an exit at no blocked site (no
-    longer blocked, or not the same object), no longer applies: SystemExit."""
+    the portal_evidence() it was made on (the site record and the exit records,
+    from `records`, keyed by source map and line). A site whose exits are all
+    decided, on that same evidence, carries the decision (owner_decision). A
+    site decided for only some of its exits or whose evidence changed (other
+    ends, owners, exits, targets or column occupants), or a decision for an exit
+    at no blocked site (no longer blocked, or not the same object), no longer
+    applies: SystemExit."""
     decided_at = set()
     for site in sites:
         keys = [portal_key(x) for x in site["exits"]]
@@ -505,7 +554,7 @@ def apply_owner_portals(sites: list, decisions: dict):
         if not any(found):
             continue
         texts = {d["decision"] if d else None for d in found}
-        now = premise({k: v for k, v in site.items() if k != "owner_decision"})
+        now = premise(portal_evidence(site, records))
         if len(texts) != 1 or any(d["premise"] != now for d in found):
             raise SystemExit("owner decision {} keeps the blocked stairwell site {} -> {} a portal only for some of "
                              "its exits {} or for another site record (its premise is now {}); ask the owner "
@@ -827,14 +876,14 @@ def build(content: Path, allow_dirty: bool = False):
                     g["evidence"].append("region '{}' description: {!r}; only entered by scripts "
                                          "(python/houses/exit.py via House.py)".format(
                                              rg, re.search(r"msg\n(.*?)\nendmsg", txt, re.S).group(1)))
-    # Owner decision 5 (2026-10-19): the classifications the owner confirmed must still be what the rules derive,
-    # on the same evidence.
-    for gid, (cls, rsn, ev_premise) in sorted(OWNER_CLASSIFICATIONS.items()):
-        got = (G[gid]["classification"], G[gid]["reason"], premise(G[gid]["evidence"])) if gid in G else None
-        if got != (cls, rsn, ev_premise):
-            raise SystemExit("owner decision {} confirmed {} as {}/{} on evidence {}, but the rules now give {}; ask "
-                             "the owner again".format(DECIDED_2026_10_19, gid, cls, rsn, ev_premise,
-                                                      "/".join(got) if got else "no such group"))
+    # Owner decision 5 (2026-10-19): the classifications the owner confirmed must still be what the rules derive
+    # (on the same evidence: checked with the group's JSON record below).
+    for gid, (cls, rsn, _premise) in sorted(OWNER_CLASSIFICATIONS.items()):
+        got = (G[gid]["classification"], G[gid]["reason"]) if gid in G else None
+        if got != (cls, rsn):
+            raise SystemExit("owner decision {} confirmed {} as {}/{}, but the rules now give {}; ask the owner "
+                             "again".format(DECIDED_2026_10_19, gid, cls, rsn, "/".join(got) if got else
+                                            "no such group"))
         G[gid]["evidence"].append("owner decision {}: {} confirmed (a version 1 judgement call)".format(
             DECIDED_2026_10_19, rsn))
 
@@ -988,7 +1037,7 @@ def build(content: Path, allow_dirty: bool = False):
         # evidence (a name keyword, no exit with a direction).
         decided = OWNER_ORIENTATIONS.get(g["id"])
         if decided is not None:
-            if decided != (orient, tuple(why)):
+            if decided[:2] != (orient, tuple(why)):
                 raise SystemExit("owner decision {} confirmed '{}' for {} from {}, but the rules now give '{}' from "
                                  "{}; ask the owner again".format(DECIDED_2026_10_19, decided[0], g["id"],
                                                                   list(decided[1]), orient, why))
@@ -1641,8 +1690,6 @@ def build(content: Path, allow_dirty: bool = False):
         "groups_unplaced": sorted(set(sens_left1) | set(sens_left2) | set(sens_failed)),
     }
     order1, left1, order_t, left2, failed_placements = run_placement(VIEW_RADIUS)
-    # Owner decision 1 (2026-10-19): the blocked sites of the exits the owner keeps portals carry the decision
-    apply_owner_portals(S.blocked_sites + S.slope_failed + S.relayer_blocked, OWNER_PORTALS)
     # Owner decision 2 (2026-10-19): every fallback dresses exactly the stairwells the owner chose it for (the
     # same records, by premise)
     dressed = collections.defaultdict(list)
@@ -2119,6 +2166,12 @@ def build(content: Path, allow_dirty: bool = False):
                                "its sub-layer 0 floor, then b when it holds a no_pass object; . = no floor",
     }
 
+    # Owner decision 6 (2026-10-19): the judgement calls, and every record they summarise, are as confirmed
+    now = premise(relayering_evidence(relayering, S.stairwells))
+    if now != OWNER_RELAYERING_PREMISE:
+        raise SystemExit("owner decision {} confirmed the relayering judgement calls on other records (their premise "
+                         "is now {}); ask the owner again".format(DECIDED_2026_10_19, now))
+
     # -------------------------------------------------------------- output
     def bbox_layers(gid, dx=0, dy=0, L=0):
         bl = {}
@@ -2237,8 +2290,23 @@ def build(content: Path, allow_dirty: bool = False):
             rec["placement"] = {"status": "failed", "ideal": p["ideal"]}
         groups_out.append(rec)
 
-    # Owner decision 3 (2026-10-19) was made on the evidence groups' sheets and the stairs between them
+    # Owner decisions checked against the JSON records they were made on
     recs_out = {r["id"]: r for r in groups_out}
+    records_out = {(e["source_map"], e["line"]): e for r in groups_out for key in EXIT_LISTS for e in r.get(key, [])}
+    # 1: the blocked sites of the exits the owner keeps portals carry the decision
+    apply_owner_portals(S.blocked_sites + S.slope_failed + S.relayer_blocked, OWNER_PORTALS, records_out)
+    # 4 and 5: the confirmed orientations and classifications, on the same group content
+    for gid, (_o, _ev, want) in sorted(OWNER_ORIENTATIONS.items()):
+        now = premise(group_evidence(recs_out[gid]))
+        if now != want:
+            raise SystemExit("owner decision {} confirmed the orientation of {} on other content (its premise is now "
+                             "{}); ask the owner again".format(DECIDED_2026_10_19, gid, now))
+    for gid, (_c, _r, want) in sorted(OWNER_CLASSIFICATIONS.items()):
+        now = premise({"evidence": recs_out[gid]["evidence"][:-1], "group": group_evidence(recs_out[gid])})
+        if now != want:
+            raise SystemExit("owner decision {} confirmed the classification of {} on other evidence (its premise is "
+                             "now {}); ask the owner again".format(DECIDED_2026_10_19, gid, now))
+    # 3: the alignment, on the evidence groups' sheets and the stairs between them
     for gid, dec in sorted(OWNER_ALIGN.items()):
         now = premise(alignment_evidence(recs_out, dec["evidence_groups"]))
         if gid not in dec["evidence_groups"] or dec["anchor"] not in dec["evidence_groups"] or now != dec["premise"]:
@@ -2276,7 +2344,7 @@ def build(content: Path, allow_dirty: bool = False):
         if not local_tiles[gid] and gid not in OWNER_NO_FOOTPRINT:
             raise SystemExit("placed group {} has no footprint (none of its maps holds an object); ask the owner "
                              "whether to keep it placed (OWNER_NO_FOOTPRINT)".format(gid))
-    for gid, (want, _evidence) in sorted(OWNER_ORIENTATIONS.items()):
+    for gid, (want, _evidence, _premise) in sorted(OWNER_ORIENTATIONS.items()):
         got = (placements.get(gid) or {}).get("orientation")
         if got != want:
             raise SystemExit("owner decision {} confirmed '{}' for {}, which is {}; ask the owner again".format(
@@ -2327,14 +2395,15 @@ def build(content: Path, allow_dirty: bool = False):
                                           for gid, d in sorted(OWNER_ALIGN.items())],
                      "owner_no_footprint": [{"group": gid, "decided": DECIDED_2026_10_19, "decision": why}
                                             for gid, why in sorted(OWNER_NO_FOOTPRINT.items())],
-                     "owner_orientations": [{"group": gid, "orientation": o, "evidence": list(ev),
+                     "owner_orientations": [{"group": gid, "orientation": o, "evidence": list(ev), "premise": pr,
                                              "decided": DECIDED_2026_10_19, "decision": ORIENTATION_DECISION}
-                                            for gid, (o, ev) in sorted(OWNER_ORIENTATIONS.items())],
+                                            for gid, (o, ev, pr) in sorted(OWNER_ORIENTATIONS.items())],
                      "owner_classifications": [{"group": gid, "classification": c, "reason": r, "premise": ev,
                                                 "decided": DECIDED_2026_10_19, "decision": CLASSIFICATION_DECISION}
                                                for gid, (c, r, ev) in sorted(OWNER_CLASSIFICATIONS.items())],
                      "owner_relayering_judgement_calls": {
                          "decided": DECIDED_2026_10_19, "decision": RELAYERING_DECISION, "calls": confirmed_calls,
+                         "premise": OWNER_RELAYERING_PREMISE,
                          "placement_changes_from_v1": [{"group": "/shattered_islands/" + g, "v1": list(a), "v2": list(b)}
                                                        for g, a, b in OWNER_PLACEMENT_CHANGES_FROM_V1]},
                      "seam_stair_archetypes": dict(SEAM_STAIR_ARCHETYPES, decided=DECIDED_2026_10_19,

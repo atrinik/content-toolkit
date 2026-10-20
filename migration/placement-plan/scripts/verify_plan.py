@@ -126,8 +126,8 @@ Exits:
     span), unless a blocked site lists it; a blocked site has no void chain
   * every exit the owner keeps a portal (settings.owner_portals: one exit
     object by source map, line, tile and archetype) is at a blocked site whose
-    record is the one the decision was made on (its premise) and becomes a
-    portal; a blocked site carries that owner_decision exactly when all of its
+    record, with the records of its exits, is the one the decision was made on
+    (its premise) and becomes a portal; a blocked site carries that owner_decision exactly when all of its
     exits are kept portals by it
 Relayering (re-derived from the overworld rows and tile heights):
   * regions: 8-connected tiles of one layer with the same q = H // layer
@@ -143,8 +143,11 @@ Relayering (re-derived from the overworld rows and tile heights):
     moved maps and the before/after layer deltas of exits
 Owner confirmations (settings.owner_*): every decision is dated, and the plan
 is still what the owner confirmed, on the same evidence: the confirmed
-groups' orientations with their evidence, their classifications with the
-premise of their evidence, the relayering judgement calls and the placement
+groups' orientations with their evidence and the premise of the group's
+content (maps, exit records, script references), their classifications with
+the premise of their evidence and content, the relayering judgement calls with
+the premise of every record behind them (regions, units, caves, split tiles,
+seams, new stairs, steep steps, contacts, one-way stairwells), and the placement
 changes from version 1 the lowered caves cause (each ending at its group's
 offsets); every confirmation the groups carry has its settings entry. A
 premise is the SHA-256 of the evidence record's canonical JSON.
@@ -261,7 +264,42 @@ def cheb(a, b):
 def premise(evidence) -> str:
     """Fingerprint of the evidence an owner decision was made on: SHA-256 of its canonical JSON
     (build_plan.premise)."""
-    return hashlib.sha256(json.dumps(evidence, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    canon = json.loads(json.dumps(evidence))
+    return hashlib.sha256(json.dumps(canon, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+# What each premise covers (build_plan's EXIT_CONTENT_FIELDS, GROUP_MAP_FIELDS and *_evidence functions).
+EXIT_CONTENT_FIELDS = ("source_map", "line", "source_tile", "target_map", "target_tile", "arch", "form", "vertical",
+                       "vertical_inferred_from")
+GROUP_MAP_FIELDS = ("path", "name", "region", "width", "height", "local_offset", "tile_links", "occupied_tiles")
+GROUP_EXIT_LISTS = ("entrances_from_overworld", "exits_to_overworld", "entrances_from_other_groups",
+                    "exits_to_other_groups")
+
+
+def group_evidence(rec: dict) -> dict:
+    """A group's maps, the content fields of every exit record it holds, and its script references."""
+    exits = {}
+    for key in GROUP_EXIT_LISTS:
+        for e in rec.get(key, []):
+            exits[(e["source_map"], e["line"])] = {f: e.get(f) for f in EXIT_CONTENT_FIELDS}
+    return {"maps": [{k: m.get(k) for k in GROUP_MAP_FIELDS} for m in rec["maps"]],
+            "exits": [exits[k] for k in sorted(exits)],
+            "scripts": rec.get("script_and_dialog_references", []), "redirects": rec.get("script_redirects", [])}
+
+
+def portal_evidence(site: dict, records: dict) -> dict:
+    """A blocked site record and the full record of each of its exits."""
+    return {"site": {k: v for k, v in site.items() if k != "owner_decision"},
+            "exits": [records.get((x["source_map"], x["line"])) for x in site["exits"]]}
+
+
+def relayering_evidence(rl: dict, stairwells: list) -> dict:
+    """The relayering judgement calls, every record behind them and the one-way relayering stairwells."""
+    out = {k: rl[k] for k in ("judgement_calls", "regions", "kept_regions", "units_moved", "caves", "split_tiles",
+                              "seams", "new_stairs", "steep_steps", "new_contacts")}
+    out["one_way_stairwells"] = [{k: sw.get(k) for k in STAIRWELL_PREMISE_FIELDS} for sw in stairwells
+                                 if sw.get("kind") == "relayering" and sw.get("direction") != "both"]
+    return out
 
 
 # The fields of each member map an owner alignment's premise covers, in group order (build_plan.ALIGN_LAYOUT_FIELDS),
@@ -1419,7 +1457,7 @@ def _verify(plan: dict) -> dict:
             ds = [decided_portals.get(k) for k in ks]
             want = None
             if any(ds):
-                now = premise({k_: v for k_, v in b.items() if k_ != "owner_decision"})
+                now = premise(portal_evidence(b, records))
                 if not all(ds) or len({(d["decided"], d["decision"]) for d in ds}) != 1 or \
                         any(d["premise"] != now for d in ds):
                     errors.append("blocked {} stairwell site {} -> {} is kept a portal for only some of its exits or "
@@ -1818,12 +1856,14 @@ def _verify(plan: dict) -> dict:
              lambda d, g: (g.get("placement") or {}).get("status") == "proposed"
              and g["placement"].get("orientation") == d.get("orientation") and isinstance(d.get("evidence"), list)
              and g["placement"].get("orientation_evidence") == d["evidence"] + [
-                 "owner decision {}: {}".format(d["decided"], d["decision"])]),
+                 "owner decision {}: {}".format(d["decided"], d["decision"])]
+             and premise(group_evidence(g)) == d.get("premise")),
             # the derived classification on the same evidence (its premise), then the confirmation
             ("classification", st["owner_classifications"], CLASSIFICATION_MARK,
              lambda d, g: [g["classification"], g["reason"]] == [d.get("classification"), d.get("reason")]
              and g["evidence"][-1:] == ["owner decision {}: {} confirmed (a version 1 judgement call)".format(
-                 d["decided"], d.get("reason"))] and premise(g["evidence"][:-1]) == d.get("premise"))):
+                 d["decided"], d.get("reason"))]
+             and premise({"evidence": g["evidence"][:-1], "group": group_evidence(g)}) == d.get("premise"))):
         seen_ = set()
         for d in entries:
             g = by_id.get(d.get("group")) if isinstance(d, dict) else None
@@ -1852,8 +1892,10 @@ def _verify(plan: dict) -> dict:
         if not g["placement"].get("occupied_tiles_by_layer") and g["id"] not in kept_placed:
             errors.append("placed group {} has no footprint and no owner decision to keep it placed".format(g["id"]))
     rj = st["owner_relayering_judgement_calls"]
-    if not dated(rj) or rj.get("calls") != rl["judgement_calls"]:
-        errors.append("the relayering judgement calls differ from the ones the owner confirmed")
+    if not dated(rj) or rj.get("calls") != rl["judgement_calls"] or \
+            premise(relayering_evidence(rl, plan["stairwells"])) != rj.get("premise"):
+        errors.append("the relayering judgement calls differ from the ones the owner confirmed (or the records they "
+                      "summarise do)")
     # each confirmed change ends where its group is placed now (its version 1 offsets are not in the plan)
     if rj.get("placement_changes_from_v1") != [{"group": x["group"], "v1": x["v1"], "v2": x["v2"]}
                                                for x in plan["placement_changes_from_v1"]] or any(

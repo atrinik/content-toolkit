@@ -1009,6 +1009,18 @@ class OwnerDecisions(VerifierTest):
         p = self.plan()
         group(p, "/shattered_islands/everlink/everlink")["evidence"][1] = "1 exit object(s) from the overworld lead here"
         self.assertCaught(p, "owner classification decision {'group': '/shattered_islands/everlink/everlink'")
+        # the garden's hole retargeted: the same evidence strings, other content
+        p = self.plan()
+        garden = "/shattered_islands/berri_lur/temple_loki/desert_plane/unusual_garden"
+        hole = group(p, garden)["exits_to_overworld"][0]
+        for _g, _lst, e in copies(p, (hole["source_map"], hole["line"])):
+            e["target_tile"] = [e["target_tile"][0] + 1, e["target_tile"][1]]
+        self.assertCaught(p, "owner classification decision {{'group': '{}'".format(garden))
+        # a confirmed orientation on other content: another map name (the keyword's source)
+        p = self.plan()
+        cave = "/shattered_islands/eld_woods_island/cave_morlarg"
+        group(p, cave)["maps"][0]["name"] = "A Tower"
+        self.assertCaught(p, "owner orientation decision {{'group': '{}'".format(cave))
         # a confirmation the plan carries needs its settings entry
         p = self.plan()
         p["settings"]["owner_orientations"].pop(0)
@@ -1027,6 +1039,12 @@ class OwnerDecisions(VerifierTest):
         p = self.plan()
         p["relayering"]["judgement_calls"][0]["text"] += " (changed)"
         self.assertCaught(p, "the relayering judgement calls differ from the ones the owner confirmed")
+        # the same call texts over other records: a cave's recorded reasoning (not re-derived elsewhere)
+        p = self.plan()
+        p["relayering"]["caves"][0]["why"] += " (changed)"
+        res = verify_plan.verify(p)
+        self.assertEqual(res["errors"], ["the relayering judgement calls differ from the ones the owner confirmed (or "
+                                         "the records they summarise do)"])
         p = self.plan()
         p["settings"]["owner_relayering_judgement_calls"]["calls"].pop()
         self.assertCaught(p, "the relayering judgement calls differ from the ones the owner confirmed")
@@ -1159,7 +1177,7 @@ class OwnerDecisionRules(unittest.TestCase):
                 "exits": [{"source_map": m, "line": ln, "source_tile": list(t), "arch": a} for m, ln, t, a in exits]}
 
     def decision(self, site):
-        return {"premise": build_plan.premise(site), "decision": "kept"}
+        return {"premise": build_plan.premise(build_plan.portal_evidence(site, {})), "decision": "kept"}
 
     def test_stairwell_appearance(self):
         app = build_plan.stairwell_appearance
@@ -1177,7 +1195,7 @@ class OwnerDecisionRules(unittest.TestCase):
 
     def test_portal_decisions_mark_their_sites(self):
         sites = [self.site(self.HOLE), self.site(("/m", 9, (5, 5), "ladder_down"))]
-        build_plan.apply_owner_portals(sites, {self.HOLE: self.decision(self.site(self.HOLE))})
+        build_plan.apply_owner_portals(sites, {self.HOLE: self.decision(self.site(self.HOLE))}, {})
         self.assertEqual(sites[0]["owner_decision"], {"decided": "2026-10-19", "decision": "kept"})
         self.assertNotIn("owner_decision", sites[1])
 
@@ -1190,7 +1208,11 @@ class OwnerDecisionRules(unittest.TestCase):
                               # the same exit at a site whose record changed (here its bottom end)
                               ([self.site(self.HOLE, bottom=(0, 0, -4))], "or for another site record")):
             with self.subTest(needle=needle), self.assertRaisesRegex(SystemExit, needle):
-                build_plan.apply_owner_portals(sites, decisions)
+                build_plan.apply_owner_portals(sites, decisions, {})
+        # the same site whose exit now leads elsewhere (its record changed)
+        with self.assertRaisesRegex(SystemExit, "or for another site record"):
+            build_plan.apply_owner_portals([self.site(self.HOLE)], decisions,
+                                           {("/m", 7): {"target_map": "/elsewhere"}})
 
     def test_the_confirmed_judgement_calls(self):
         confirmed = (("k", "U1", "t"), ("j", None, "u"))
@@ -1215,8 +1237,18 @@ class OwnerDecisionRules(unittest.TestCase):
         recs = {g["id"]: g for g in plan["groups"]}
         gids = st["owner_alignments"][0]["evidence_groups"]
         self.assertEqual(verify_plan.alignment_evidence(recs, gids), build_plan.alignment_evidence(recs, gids))
-        self.assertEqual({d["group"]: (d["orientation"], tuple(d["evidence"])) for d in st["owner_orientations"]},
-                         build_plan.OWNER_ORIENTATIONS)
+        # the verifier's copies of the evidence functions agree with the generator's
+        records = {(e["source_map"], e["line"]): e for g in plan["groups"] for k in build_plan.EXIT_LISTS
+                   for e in g.get(k, [])}
+        for gid in list(build_plan.OWNER_CLASSIFICATIONS) + list(build_plan.OWNER_ORIENTATIONS):
+            self.assertEqual(verify_plan.group_evidence(recs[gid]), build_plan.group_evidence(recs[gid]))
+        site = plan["stairwell_sites_blocked"][0]
+        self.assertEqual(verify_plan.portal_evidence(site, records), build_plan.portal_evidence(site, records))
+        self.assertEqual(verify_plan.relayering_evidence(plan["relayering"], plan["stairwells"]),
+                         build_plan.relayering_evidence(plan["relayering"], plan["stairwells"]))
+        self.assertEqual({d["group"]: (d["orientation"], tuple(d["evidence"]), d["premise"])
+                          for d in st["owner_orientations"]}, build_plan.OWNER_ORIENTATIONS)
+        self.assertEqual(st["owner_relayering_judgement_calls"]["premise"], build_plan.OWNER_RELAYERING_PREMISE)
         self.assertEqual({d["group"]: (d["classification"], d["reason"], d["premise"])
                           for d in st["owner_classifications"]}, build_plan.OWNER_CLASSIFICATIONS)
         self.assertEqual({d["group"]: d["decision"] for d in st["owner_no_footprint"]}, build_plan.OWNER_NO_FOOTPRINT)
