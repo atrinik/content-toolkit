@@ -150,6 +150,17 @@ OWNER_ALIGN = {
         "fa277a5b5aeacdefda6d4c9ca8a3b5d6b7f1e1ff1c63d981c8e3684e1ad71e5b"),
 }
 ALIGN_LAYOUT_FIELDS = ("path", "width", "height", "local_offset", "tile_links")  # per member map, in group order
+# Decision 7 (2026-10-19, the owner's answer to the question this plan raised):
+# these placed groups stay placed although no member map holds an object, so
+# they occupy no tile. By the owner's reasoning the decision stays valid when
+# content is added: the footprint then appears when the plan is regenerated,
+# and the spot is fixed (decision 3), so a collision makes the generator refuse.
+OWNER_NO_FOOTPRINT = {
+    ROCKFORGE + "rockforge_c":
+        "keep the Rockforge mines placed with no footprint: their 25 maps are empty headers, a footprint appears "
+        "automatically when content is added and the plan is regenerated, and the spot is fixed, so a later "
+        "collision makes the generator refuse",
+}
 # Decision 4: the orientation derived for these groups is confirmed, with the
 # evidence it came from: a name keyword, no exit with a direction.
 KEYWORD_BELOW = ("name keyword (below)",)
@@ -2234,6 +2245,11 @@ def build(content: Path, allow_dirty: bool = False):
         raise SystemExit("owner decision {} confirmed the placement changes from version 1 {}, but this run makes "
                          "{}; ask the owner again".format(DECIDED_2026_10_19, list(OWNER_PLACEMENT_CHANGES_FROM_V1),
                                                           got_changes))
+    # Owner decision 7 (2026-10-19) keeps groups placed that may have no footprint: they must be placed
+    for gid in sorted(OWNER_NO_FOOTPRINT):
+        if gid not in S.placed:
+            raise SystemExit("owner decision {} keeps {} placed without a footprint, but it is not placed; ask the "
+                             "owner again".format(DECIDED_2026_10_19, gid))
     for gid, (want, _evidence) in sorted(OWNER_ORIENTATIONS.items()):
         got = (placements.get(gid) or {}).get("orientation")
         if got != want:
@@ -2282,6 +2298,8 @@ def build(content: Path, allow_dirty: bool = False):
                      "owner_alignments": [{"group": gid, "anchor": anchor, "layer_delta": dl, "premise": layout,
                                            "decided": DECIDED_2026_10_19, "why": why}
                                           for gid, (anchor, dl, why, layout) in sorted(OWNER_ALIGN.items())],
+                     "owner_no_footprint": [{"group": gid, "decided": DECIDED_2026_10_19, "decision": why}
+                                            for gid, why in sorted(OWNER_NO_FOOTPRINT.items())],
                      "owner_orientations": [{"group": gid, "orientation": o, "evidence": list(ev),
                                              "decided": DECIDED_2026_10_19, "decision": ORIENTATION_DECISION}
                                             for gid, (o, ev) in sorted(OWNER_ORIENTATIONS.items())],
@@ -2344,7 +2362,8 @@ def build(content: Path, allow_dirty: bool = False):
                                "decisions with their dates; a blocked stairwell site carries owner_decision when the "
                                "owner keeps its exits portals (settings.owner_portals), and a placement with "
                                "alignment_reason is the owner's fixed spot under its anchor (settings.owner_"
-                               "alignments); confirmations (orientations, classifications, relayering judgement "
+                               "alignments), kept even without a footprint (settings.owner_no_footprint); "
+                               "confirmations (orientations, classifications, relayering judgement "
                                "calls) equal what the plan derives; each decision is bound to the evidence it was "
                                "made on (the evidence itself, or its premise: the SHA-256 of the evidence record's "
                                "canonical JSON) and no longer applies when that evidence changes",

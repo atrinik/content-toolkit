@@ -790,6 +790,19 @@ class FailedPlacement(VerifierTest):
         p["settings"]["max_shift_tiles"] = -1
         self.assertCaught(p, "past the search limits")
 
+    def test_kept_placed_without_a_footprint(self):
+        p = self.plan()
+        self.assertEqual(group(p, MINES)["placement"]["occupied_tiles_by_layer"], {})
+        self.assertEqual([d["group"] for d in p["settings"]["owner_no_footprint"]], [MINES])
+        for change in (lambda d: d.update(group="/shattered_islands/everlink/everlink"),  # not placed
+                       lambda d: d.update(decided="later")):
+            p = self.plan()
+            change(p["settings"]["owner_no_footprint"][0])
+            self.assertCaught(p, "to keep a group placed without a footprint does not hold in the plan")
+        p = self.plan()
+        p["settings"]["owner_no_footprint"].append(dict(p["settings"]["owner_no_footprint"][0]))
+        self.assertCaught(p, "to keep a group placed without a footprint does not hold in the plan")
+
     def test_an_alignment_of_a_group_with_exits(self):
         p = self.plan()
         deck = "/shattered_islands/deserted_tutorial_island/ship_lower_deck"
@@ -1096,24 +1109,20 @@ class Report(VerifierTest):
         p = self.plan()
         text = self.write(p)
         self.assertIn("### Decided 2026-10-19", text)
-        # the one decision that came up since: the Rockforge mines' maps are empty, so they occupy no tile
-        self.assertIn("Open owner decisions: 1.", text)
-        self.assertIn("1 owner decision is open", text)
-        self.assertIn("1. **New: placed group without a footprint, #26 `strakewood_island/rockforge/rockforge_c`**",
-                      text)
-        # an undecided blocked site and a stairwell without stair art are open decisions again
+        self.assertIn("7. **#26 `rockforge_c` stays placed without a footprint**", text)
+        self.assertIn("Open owner decisions: none.", text)
+        self.assertIn("## Open owner decisions\n\nNone.", text)
+        # without the owner's answers, the empty mines, an undecided blocked site and a stairwell without stair art
+        # are open decisions again
+        p["settings"]["owner_no_footprint"] = []
         p["stairwell_sites_blocked"][0].pop("owner_decision")
         next(sw for sw in p["stairwells"] if sw["id"] == "SW6")["intermediate_appearance"] = None
         text = self.write(p)
         self.assertIn("1. **Blocked stairwell at #28 `zechna_temple`**", text)
         self.assertIn("2. **Stair archetype for stairwells without stairs**: SW6 (#17 `dark_cave`: invis_exit)", text)
+        self.assertIn("3. **New: placed group without a footprint, #26 `strakewood_island/rockforge/rockforge_c`**",
+                      text)
         self.assertIn("3 owner decisions are open", text)
-        # with a footprint for the mines, no decision is open
-        p = self.plan()
-        group(p, MINES)["placement"]["occupied_tiles_by_layer"] = {"-7": 1}
-        text = self.write(p)
-        self.assertIn("Open owner decisions: none.", text)
-        self.assertIn("## Open owner decisions\n\nNone.", text)
 
 
 class OwnerDecisionRules(unittest.TestCase):
@@ -1182,6 +1191,7 @@ class OwnerDecisionRules(unittest.TestCase):
                          build_plan.OWNER_ORIENTATIONS)
         self.assertEqual({d["group"]: (d["classification"], d["reason"], d["premise"])
                           for d in st["owner_classifications"]}, build_plan.OWNER_CLASSIFICATIONS)
+        self.assertEqual({d["group"]: d["decision"] for d in st["owner_no_footprint"]}, build_plan.OWNER_NO_FOOTPRINT)
         self.assertEqual(verify_plan.ALIGN_LAYOUT_FIELDS, build_plan.ALIGN_LAYOUT_FIELDS)
         self.assertEqual(verify_plan.premise({"b": [1, "x"], "a": None}), build_plan.premise({"a": None, "b": [1, "x"]}))
         self.assertEqual(st["owner_relayering_judgement_calls"]["calls"], build_plan.check_judgement_calls(

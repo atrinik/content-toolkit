@@ -138,6 +138,13 @@
     "why": "owner decision 2026-10-19: the Rockforge mines ('Rockforge: Mines') are placed on the layer directly under rockforge_b at the same x/y (rockforge_a/_b/_c share the same 5x5 sheet naming 0101..ab05, and the rockforge_a<->rockforge_b stairs connect identical local coordinates)"
    }
   ],
+  "owner_no_footprint": [
+   {
+    "group": "/shattered_islands/strakewood_island/rockforge/rockforge_c",
+    "decided": "2026-10-19",
+    "decision": "keep the Rockforge mines placed with no footprint: their 25 maps are empty headers, a footprint appears automatically when content is added and the plan is regenerated, and the spot is fixed, so a later collision makes the generator refuse"
+   }
+  ],
   "owner_orientations": [
    {
     "group": "/shattered_islands/eld_woods_island/cave_morlarg",
@@ -395,7 +402,7 @@
   "wired_exits": "an exit with form 'wired' led nowhere in legacy; it now targets the content on the layer above or below (see its 'wired' evidence)",
   "exits_kept_as_decoration": "dangling exits the owner keeps as decoration (no exit): not wired, with the landing they would have had",
   "stairwell_appearance": "a stairwell's intermediate tiles show the down archetype of the first stair family among its exit archetypes (down-going exits first); failing that, the owner's fallback for the first exit archetype settings.stairwell_appearance_fallbacks lists (decision 2026-10-19)",
-  "owner_decisions": "settings.owner_* and the seam stair and appearance settings record the owner's decisions with their dates; a blocked stairwell site carries owner_decision when the owner keeps its exits portals (settings.owner_portals), and a placement with alignment_reason is the owner's fixed spot under its anchor (settings.owner_alignments); confirmations (orientations, classifications, relayering judgement calls) equal what the plan derives; each decision is bound to the evidence it was made on (the evidence itself, or its premise: the SHA-256 of the evidence record's canonical JSON) and no longer applies when that evidence changes",
+  "owner_decisions": "settings.owner_* and the seam stair and appearance settings record the owner's decisions with their dates; a blocked stairwell site carries owner_decision when the owner keeps its exits portals (settings.owner_portals), and a placement with alignment_reason is the owner's fixed spot under its anchor (settings.owner_alignments), kept even without a footprint (settings.owner_no_footprint); confirmations (orientations, classifications, relayering judgement calls) equal what the plan derives; each decision is bound to the evidence it was made on (the evidence itself, or its premise: the SHA-256 of the evidence record's canonical JSON) and no longer applies when that evidence changes",
   "exit_inventory": "every exit object read from the content (inventory exits excluded), keyed by source_map and line: the content fields of its exit record with its legacy form and resolved target (none for an exit that leads nowhere), plus the facts its data problems come from; the exit records and data problems are checked against it"
  },
  "summary": {

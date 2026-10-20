@@ -121,8 +121,10 @@ def write_report(plan, out: Path):
     w("Version 2 applies the owner's decisions of 2026-10-18 on top of version 1 (PR #44): the relayering is "
       "applied after its conflicts are fixed, every stairwell is drawn only on the player's layer, sloped "
       "stairwells replace near-aligned portals, and the dangling exits are wired. The owner's answers of "
-      "2026-10-19 to the six questions it left open are applied too ([Decided 2026-10-19](#decided-2026-10-19)). "
+      "2026-10-19 to the six questions it left open{} are applied too "
+      "([Decided 2026-10-19](#decided-2026-10-19)). "
       "Every map that moves, every new object and every judgement call is listed for review; {}.".format(
+          ", and to the one this version raised," if plan["settings"]["owner_no_footprint"] else "",
           "no owner decision is open ([Open owner decisions](#open-owner-decisions))" if not open_dec else
           "{} owner decision{} open ([Open owner decisions](#open-owner-decisions))".format(
               len(open_dec), " is" if len(open_dec) == 1 else "s are")))
@@ -986,10 +988,12 @@ def decided_summary(plan, lab):
     if fb:
         out.append("stair art for stairwells without stairs: {}".format("; ".join(
             "{} show{} `{}`".format(and_list(ids), "s" if len(ids) == 1 else "", a) for a, ids in sorted(fb.items()))))
+    no_fp = {d["group"] for d in st["owner_no_footprint"]}
     for a in st["owner_alignments"]:
         p = byid[a["group"]].get("placement") or {}
-        out.append("#{} `{}` is placed on layer {} under `{}`".format(lab.get(a["group"], "?"), base(a["group"]),
-                                                                     p.get("layer_offset"), base(a["anchor"])))
+        out.append("#{} `{}` is placed on layer {} under `{}`{}".format(
+            lab.get(a["group"], "?"), base(a["group"]), p.get("layer_offset"), base(a["anchor"]),
+            ", without a footprint while its maps are empty" if a["group"] in no_fp else ""))
     out.append("'below' confirmed for {} groups, version 1's classification of {} groups and the {} relayering "
                "judgement calls".format(len(st["owner_orientations"]), len(st["owner_classifications"]),
                                         len(st["owner_relayering_judgement_calls"]["calls"])))
@@ -1002,10 +1006,12 @@ def write_decided_2026_10_19(plan, w, lab):
     byid = {g["id"]: g for g in plan["groups"]}
     w("### Decided 2026-10-19")
     w("")
-    w("The owner's answers to the six questions version 2 left open. Decisions 1-3 change the plan; 4-6 confirm "
-      "what the rules derived. Each one is an input of `build_plan.py` and is recorded with its date in the JSON "
-      "settings. The generator refuses to publish when a decision no longer matches what it applies to, so the "
-      "owner is asked again, and `verify_plan.py` checks each one in the JSON.")
+    w("The owner's answers to the six questions version 2 left open{}. Decisions 1-3 change the plan; 4-6 confirm "
+      "what the rules derived. Each one is an input of `build_plan.py`, recorded with its date in the JSON settings "
+      "and bound to the evidence it was made on (the evidence itself, or its premise: the SHA-256 of the evidence "
+      "record's canonical JSON). The generator refuses to publish when that evidence changes, so the owner is asked "
+      "again, and `verify_plan.py` checks each binding in the JSON.".format(
+          ", and decision 7, the answer to the question this version raised" if st["owner_no_footprint"] else ""))
     w("")
     items = []
     for b in decided_sites(plan):
@@ -1043,7 +1049,9 @@ def write_decided_2026_10_19(plan, w, lab):
                          "under" if a["layer_delta"] < 0 else "over", lab.get(a["anchor"], "?"), base(a["anchor"]),
                          p.get("x_offset"), p.get("y_offset"), p.get("layer_offset"))
                      + ("" if p.get("occupied_tiles_by_layer") else " None of its {} maps holds an object yet, so it "
-                        "occupies no tile ([Open owner decisions](#open-owner-decisions)).".format(g["map_count"])))
+                        "occupies no tile ({}).".format(
+                            g["map_count"], "decision 7" if g["id"] in {d["group"] for d in st["owner_no_footprint"]}
+                            else "[Open owner decisions](#open-owner-decisions)")))
     orient = sorted(st["owner_orientations"], key=lambda d: lab.get(d["group"], 0))
     items.append("**{} is confirmed** (`settings.owner_orientations`) for the groups entered only through neutral "
                  "exits, whose orientation came from a name keyword: {}.".format(
@@ -1069,6 +1077,18 @@ def write_decided_2026_10_19(plan, w, lab):
                      and_list(["`{}` ({} -> {})".format(base(x["group"]), x["v1"][2], x["v2"][2])
                                for x in rj["placement_changes_from_v1"]]) or "no placement",
                      len(rl["new_stairs"]), ssa["low"], ssa["high"], and_list(storeys) or "none"))
+    for d in st["owner_no_footprint"]:
+        g = byid[d["group"]]
+        p = g.get("placement") or {}
+        empty = sum(1 for m in g["maps"] if not m["occupied_tiles"])
+        items.append("**#{} `{}` stays placed without a footprint** (`settings.owner_no_footprint`, the answer to the "
+                     "question this version raised): {} of its {} maps hold no object, so its placement on layer {} "
+                     "occupies {}. The owner's reasons: {}.".format(
+                         lab.get(g["id"], "?"), base(g["id"]), empty, g["map_count"],
+                         layers_of(p.get("plane_bounding_boxes") or {}),
+                         "no tile" if not p.get("occupied_tiles_by_layer") else "{} tiles".format(
+                             sum(p["occupied_tiles_by_layer"].values())),
+                         d["decision"].split(": ", 1)[-1]))
     for i, d in enumerate(items, 1):
         w("{}. {}".format(i, d))
     w("")
@@ -1099,9 +1119,10 @@ def open_decisions(plan, lab):
     for g in plan["groups"]:
         if (g.get("placement") or {}).get("status") == "tentative":
             dec.append("**Tentative `{}`** (#{}): {}".format(short(g["id"]), lab[g["id"]], g["evidence"][-1]))
+    no_fp = {d["group"] for d in st["owner_no_footprint"]}
     for g in sorted(plan["groups"], key=lambda g: lab.get(g["id"], 0)):
         p = g.get("placement") or {}
-        if p.get("status") in ("proposed", "tentative") and not p["occupied_tiles_by_layer"]:
+        if p.get("status") in ("proposed", "tentative") and not p["occupied_tiles_by_layer"] and g["id"] not in no_fp:
             dec.append("**New: placed group without a footprint, #{} `{}`**: none of its {} maps holds an object "
                        "(each is a map header with tile links), so its placement on layer {} occupies no tile and "
                        "reserves nothing there; the gap rule holds trivially. Keep it placed without a footprint "
@@ -1135,7 +1156,9 @@ def write_open_decisions(plan, w, lab):
         w("{}. {}".format(i, d))
     if not dec:
         w("None. The six decisions version 2 left open were answered on 2026-10-19 (see "
-          "[Decided 2026-10-19](#decided-2026-10-19)), and no new one came up.")
+          "[Decided 2026-10-19](#decided-2026-10-19)), {}.".format(
+              "and so was the one this version raised (decision 7)" if plan["settings"]["owner_no_footprint"]
+              else "and no new one came up"))
     else:
         w("")
         w("The six decisions version 2 left open were answered on 2026-10-19 (see "
@@ -1144,8 +1167,9 @@ def write_open_decisions(plan, w, lab):
     w("Resolved by the 2026-10-18 decisions: the layer-height relayering (applied), stairwells in view of "
       "unrelated areas (hidden in the engine), sloped staircases (built where free), the dangling stairs (wired) "
       "and the Greyton jail ladders (kept as decoration). Resolved by the 2026-10-19 decisions: Zechna's first hole "
-      "(kept a portal), the stair art of the stairwells without stairs (chosen), the Rockforge mines (placed), and "
-      "the orientations and judgement calls of version 1 and of the relayering (confirmed).")
+      "(kept a portal), the stair art of the stairwells without stairs (chosen), the Rockforge mines (placed{}), "
+      "and the orientations and judgement calls of version 1 and of the relayering (confirmed).".format(
+          ", without a footprint while their maps are empty" if plan["settings"]["owner_no_footprint"] else ""))
     w("")
 
 

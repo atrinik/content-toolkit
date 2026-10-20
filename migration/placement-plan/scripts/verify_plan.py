@@ -1811,6 +1811,17 @@ def _verify(plan: dict) -> dict:
             (g.get("placement") or {}).get("orientation_evidence") or [] if what == "orientation" else g["evidence"]))}
         for gid in sorted(marked - seen_):
             errors.append("{} carries an owner {} confirmation without its settings entry".format(gid, what))
+    # groups the owner keeps placed though they may have no footprint (they stay valid when content arrives:
+    # the footprint then follows from the rows and the gap rule above applies)
+    kept_placed = set()
+    for d in st["owner_no_footprint"]:
+        g = by_id.get(d.get("group")) if isinstance(d, dict) else None
+        if g is None or not dated(d) or d["group"] in kept_placed or \
+                (g.get("placement") or {}).get("status") != "proposed":
+            errors.append("owner decision {} to keep a group placed without a footprint does not hold in the "
+                          "plan".format(d))
+        else:
+            kept_placed.add(d["group"])
     rj = st["owner_relayering_judgement_calls"]
     if not dated(rj) or rj.get("calls") != rl["judgement_calls"]:
         errors.append("the relayering judgement calls differ from the ones the owner confirmed")
