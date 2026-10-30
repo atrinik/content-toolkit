@@ -10,7 +10,9 @@ not a runtime cutover or a claim of Classic visual fidelity.
 
 ## Input, output and commands
 
-Linux local checked filesystems are supported. Provision three fresh, distinct,
+Linux persistent local ext4, XFS, Btrfs and ZFS filesystems are supported.
+Volatile tmpfs (including a tmpfs `/tmp`), overlay, remote and unknown filesystems
+are refused even if the filesystem reports a successful fsync. Provision three fresh, distinct,
 non-nested directories with mode 0700, outside the canonical input tree: a World
 root, immutable adapter-state root, and later a new export root. Paths must be
 absolute and canonical without symlinks. The provisioner owns that separation;
@@ -77,6 +79,13 @@ The result is reparsed and reimported, and unchanged byte ranges are checked.
 No-op export is byte-identical, including unknown fields, comments, messages,
 line endings and nested inventory. Nothing regenerates the whole Classic map.
 
+Private-root admission binds a retained read-only directory FD to its Linux
+mount ID and device using bounded kernel mount evidence. The persistent, writable
+filesystem policy is rechecked through that FD and no-follow descendant opens
+at publication; a retargeted opening path cannot redirect those probes. This
+composes with the World feature/ACL checks, which alone also admit volatile
+filesystems. Root creation/separation remains the explicit caller's responsibility.
+
 Private-root publication holds retained directory handles and an exclusive
 cooperative lock. It refuses unchecked filesystems, wrong owner/mode, ACL/label
 problems, links, traversal and occupied stage/final names. Each fresh file is
@@ -103,7 +112,8 @@ insertion require a separately reviewed adapter extension.
 
 Caps: 8 MiB source/file, 65,536 records, Classic nesting 16, 128² map cells,
 256 archetypes/resources and diagnostics, 4 MiB manifest, 32 MiB generated or
-loaded source workspace. Filesystem enumeration has 4,096 entry, 16-level and
+loaded source workspace. JSON output uses a bounded writer that refuses oversized
+escaped text before growing its output buffer beyond the limit. Filesystem enumeration has 4,096 entry, 16-level and
 64 MiB total bounds. World parser limits are explicit. Tests use newly authored
 MIT fixtures with mixed newlines, unknown fields, nested inventory, messages,
 default/repeated coordinates, hostile edits, stale/tampered authority, and

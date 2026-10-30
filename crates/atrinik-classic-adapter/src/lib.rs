@@ -102,7 +102,7 @@ pub struct ImportBundle {
 }
 impl ImportBundle {
     pub fn manifest_bytes(&self) -> Result<Vec<u8>> {
-        encode(&self.manifest)
+        encode_bounded(&self.manifest, 4 * 1024 * 1024)
     }
     #[must_use]
     pub fn overlay(&self) -> Overlay {
@@ -329,10 +329,50 @@ pub fn safe_path(path: &str) -> Result<()> {
     Ok(())
 }
 fn encode(value: &impl Serialize) -> Result<Vec<u8>> {
-    let mut b = serde_json::to_vec_pretty(value).map_err(convert)?;
-    b.push(b'\n');
-    Ok(b)
+    encode_bounded(value, MAX_BYTES)
 }
+
+fn encode_bounded(value: &impl Serialize, maximum: usize) -> Result<Vec<u8>> {
+    use std::io::Write as _;
+    struct Bounded {
+        bytes: Vec<u8>,
+        maximum: usize,
+    }
+    impl std::io::Write for Bounded {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            let length = self
+                .bytes
+                .len()
+                .checked_add(bytes.len())
+                .filter(|length| *length <= self.maximum)
+                .ok_or_else(|| std::io::Error::other("generated JSON byte limit exceeded"))?;
+            if length > self.bytes.capacity() {
+                let capacity = self
+                    .bytes
+                    .capacity()
+                    .saturating_mul(2)
+                    .max(length)
+                    .min(self.maximum);
+                self.bytes
+                    .try_reserve_exact(capacity - self.bytes.len())
+                    .map_err(std::io::Error::other)?;
+            }
+            self.bytes.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut output = Bounded {
+        bytes: Vec::new(),
+        maximum,
+    };
+    serde_json::to_writer_pretty(&mut output, value).map_err(convert)?;
+    output.write_all(b"\n").map_err(convert)?;
+    Ok(output.bytes)
+}
+
 fn insert(
     files: &mut BTreeMap<String, Vec<u8>>,
     path: impl Into<String>,
@@ -428,10 +468,7 @@ pub fn import_map(source: &Document, identity: ImportIdentity) -> Result<ImportB
         mappings,
         unsupported: unsupported.into_iter().collect(),
     };
-    let manifest_bytes = encode(&manifest)?;
-    if manifest_bytes.len() > 4 * 1024 * 1024 {
-        return Err(error("import manifest exceeds 4 MiB"));
-    }
+    encode_bounded(&manifest, 4 * 1024 * 1024)?;
     let mut total = 0usize;
     for bytes in world_files.values().chain(supplemental_files.values()) {
         if bytes.len() > MAX_BYTES {

@@ -4,7 +4,10 @@
 //! Bounded Linux publication into an already provisioned private root.
 //!
 //! This composes the released World's rooted primitives. The root must be
-//! provisioned by the caller, outside authored input, before opening. Advisory
+//! provisioned by the caller on persistent local ext4/XFS/Btrfs/ZFS, outside
+//! authored input, before opening. Volatile/overlay/unknown mounts refuse
+//! durability even if fsync succeeds. A retained read-only FD binds bounded
+//! Linux mount evidence at opening and publication. Advisory
 //! locks exclude cooperating writers; hostile processes with the same user ID
 //! are outside this prototype's isolation guarantee. Opening-path identity
 //! checks are deployment evidence, not a race-free child-root constructor.
@@ -14,6 +17,9 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt,
+    fs::File,
+    io::Read as _,
+    os::fd::AsRawFd as _,
     path::{Path, PathBuf},
 };
 use tilewright_source::{Access, AccessError, Mounts, SourceDirectory, SourceLock, SourceRoot};
@@ -94,6 +100,7 @@ pub struct PrivateRoot {
     access: Access,
     canonical: PathBuf,
     identity: (u64, u64),
+    persistence_authority: File,
     started: bool,
     blocked: bool,
     published_files: usize,
@@ -126,6 +133,20 @@ pub fn checked_private_root(path: &Path) -> Result<PrivateRoot, StorageError> {
             ));
         }
         let identity = (before.dev(), before.ino());
+        // Read-only filesystem authority, retained beside the World handles.
+        // Canonical opening-path identity is checked before and after both
+        // opens. Hostile same-UID/privileged root swapping remains excluded.
+        let persistence_authority = File::from(
+            rustix::fs::open(path, directory_read_flags(), rustix::fs::Mode::empty())
+                .map_err(failure)?,
+        );
+        let authority_metadata = persistence_authority.metadata().map_err(failure)?;
+        if (authority_metadata.dev(), authority_metadata.ino()) != identity {
+            return Err(StorageError::refused(
+                "root changed while opening persistence authority",
+            ));
+        }
+        persistent_directory(&persistence_authority)?;
         let root = SourceRoot::new(path);
         let directory = root
             .directory("", false)
@@ -145,6 +166,7 @@ pub fn checked_private_root(path: &Path) -> Result<PrivateRoot, StorageError> {
             access,
             canonical,
             identity,
+            persistence_authority,
             started: false,
             blocked: false,
             published_files: 0,
@@ -169,6 +191,109 @@ fn check_private(directory: &SourceDirectory, access: &Access) -> Result<(), Sto
         return Err(StorageError::refused(format!(
             "unchecked filesystem: {reason}"
         )));
+    }
+    Ok(())
+}
+
+// World checks filesystem features/ACL behavior, but intentionally accepts
+// tmpfs. Its successful fsync is not evidence of persistence across reboot.
+// Admit only these persistent local filesystems, bound to the actual open FD.
+fn directory_read_flags() -> rustix::fs::OFlags {
+    rustix::fs::OFlags::RDONLY
+        | rustix::fs::OFlags::DIRECTORY
+        | rustix::fs::OFlags::NOFOLLOW
+        | rustix::fs::OFlags::CLOEXEC
+}
+fn proc_text(path: &Path, maximum: usize) -> Result<String, StorageError> {
+    let mut bytes = Vec::new();
+    File::open(path)
+        .map_err(failure)?
+        .take(maximum as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(failure)?;
+    if bytes.len() > maximum {
+        return Err(StorageError::refused("filesystem evidence exceeds bound"));
+    }
+    String::from_utf8(bytes).map_err(failure)
+}
+fn persistent_directory(directory: &File) -> Result<(), StorageError> {
+    let fdinfo = proc_text(
+        Path::new(&format!("/proc/self/fdinfo/{}", directory.as_raw_fd())),
+        4096,
+    )?;
+    let ids: Vec<_> = fdinfo
+        .lines()
+        .filter_map(|line| line.strip_prefix("mnt_id:"))
+        .collect();
+    if ids.len() != 1 {
+        return Err(StorageError::refused(
+            "directory mount ID unavailable or ambiguous",
+        ));
+    }
+    let mount_id = ids[0].trim().parse::<u64>().map_err(failure)?;
+    let stat = rustix::fs::fstat(directory).map_err(failure)?;
+    let device = (
+        rustix::fs::major(stat.st_dev),
+        rustix::fs::minor(stat.st_dev),
+    );
+    persistent_mount(
+        &proc_text(Path::new("/proc/self/mountinfo"), 1024 * 1024)?,
+        mount_id,
+        device,
+    )
+}
+fn persistent_beneath(root: &File, relative: &str) -> Result<(), StorageError> {
+    let mut directory = root.try_clone().map_err(failure)?;
+    if !relative.is_empty() {
+        for part in components(relative)? {
+            directory = File::from(
+                rustix::fs::openat(
+                    &directory,
+                    part,
+                    directory_read_flags(),
+                    rustix::fs::Mode::empty(),
+                )
+                .map_err(failure)?,
+            );
+        }
+    }
+    persistent_directory(&directory)
+}
+fn persistent_mount(text: &str, mount_id: u64, device: (u32, u32)) -> Result<(), StorageError> {
+    let mut matches = 0;
+    for (index, line) in text.lines().enumerate() {
+        if index >= 16_384 || line.len() > 8192 {
+            return Err(StorageError::refused(
+                "mount evidence entries exceed bounds",
+            ));
+        }
+        let fields: Vec<_> = line.split_whitespace().collect();
+        if fields.first().and_then(|id| id.parse::<u64>().ok()) != Some(mount_id) {
+            continue;
+        }
+        matches += 1;
+        let separator = fields
+            .iter()
+            .position(|field| *field == "-")
+            .ok_or_else(|| StorageError::refused("malformed mount evidence"))?;
+        if separator < 6 || fields.len() != separator + 4 {
+            return Err(StorageError::refused("malformed mount evidence fields"));
+        }
+        let recorded_device = format!("{}:{}", device.0, device.1);
+        if fields[2] != recorded_device
+            || !matches!(fields[separator + 1], "ext4" | "xfs" | "btrfs" | "zfs")
+            || !fields[5].split(',').any(|flag| flag == "rw")
+            || !fields[separator + 3].split(',').any(|flag| flag == "rw")
+        {
+            return Err(StorageError::refused(
+                "durable output requires a writable persistent local ext4/xfs/btrfs/zfs filesystem; volatile, overlay, remote and unknown filesystems are refused",
+            ));
+        }
+    }
+    if matches != 1 {
+        return Err(StorageError::refused(
+            "directory mount evidence missing or ambiguous",
+        ));
     }
     Ok(())
 }
@@ -482,6 +607,7 @@ impl PrivateRoot {
     }
 
     fn prepare_directory(&self, path: &str) -> Result<SourceDirectory, StorageError> {
+        persistent_directory(&self.persistence_authority)?;
         let access = self.directory.own_access().map_err(failure)?;
         check_private(&self.directory, &access)?;
         if access != self.access {
@@ -491,7 +617,9 @@ impl PrivateRoot {
         if !path.is_empty() {
             for part in components(path)? {
                 let current = join(&parent, part);
+                persistent_beneath(&self.persistence_authority, &parent)?;
                 let made = self.root.make_directory(&current).map_err(failure)?;
+                persistent_beneath(&self.persistence_authority, &current)?;
                 let directory = self
                     .root
                     .directory(&current, false)
@@ -524,6 +652,7 @@ impl PrivateRoot {
             }
         }
         // Also recheck root permissions before every publication.
+        persistent_directory(&self.persistence_authority)?;
         let access = self.directory.own_access().map_err(failure)?;
         check_private(&self.directory, &access)?;
         if access != self.access {
@@ -706,6 +835,41 @@ mod tests {
         };
         assert!(status.success(), "could not provision test ACL");
         assert!(checked_private_root(&fixture.0).is_err());
+    }
+
+    #[test]
+    fn volatile_mount_refused_before_any_publication() {
+        let path = Path::new("/dev/shm").join(format!(
+            "atrinik-adapter-volatile-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::DirBuilder::new().mode(0o700).create(&path).unwrap();
+        let fixture = Fixture(path);
+        let error = checked_private_root(&fixture.0)
+            .err()
+            .expect("tmpfs must refuse durability");
+        assert!(error.message.contains("persistent local"), "{error}");
+        assert!(fs::read_dir(&fixture.0).unwrap().next().is_none());
+    }
+
+    #[test]
+    fn persistence_evidence_binds_mount_id_device_and_read_write_policy() {
+        let valid = "71 1 8:2 / /home rw,nosuid - ext4 /dev/test rw\n";
+        persistent_mount(valid, 71, (8, 2)).unwrap();
+        for invalid in [
+            valid.replace("ext4", "tmpfs"),
+            valid.replace("ext4", "overlay"),
+            valid.replace("ext4", "nfs"),
+            valid.replace("rw,nosuid", "ro,nosuid"),
+            valid.replace("/dev/test rw", "/dev/test ro"),
+            format!("{valid}{valid}"),
+            "71 malformed\n".to_owned(),
+        ] {
+            assert!(persistent_mount(&invalid, 71, (8, 2)).is_err());
+        }
+        assert!(persistent_mount(valid, 72, (8, 2)).is_err());
+        assert!(persistent_mount(valid, 71, (8, 3)).is_err());
     }
 
     #[test]

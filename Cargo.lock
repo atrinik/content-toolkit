@@ -24,6 +24,7 @@ version = "0.1.2"
 dependencies = [
  "atrinik-source",
  "atrinik-transaction",
+ "rustix",
  "serde",
  "serde_json",
  "sha2",

@@ -53,8 +53,14 @@ packages each such coordinate twice on its own, preserving production dependency
 checksums in the full canonical `Cargo.lock`, compares every member except its
 own VCS revision to the original, and verifies the original published bytes in
 the compatibility graph. Only new coordinates and the explicitly nonpublishable
-`atrinik-content`, `atrinik-content-mcp` and `atrinik-classic-adapter` packages
-share a new-package overlay.
+New public candidates share Cargo's new-package registry overlay. The
+nonpublished `atrinik-content`, `atrinik-content-mcp` and
+`atrinik-classic-adapter` source assets are packaged separately with explicit
+local overrides for selected source assets and new public candidates only.
+Already published libraries are never overridden. This supports a source-only
+application depending on a nonpublished adapter without inserting unused
+patches into public archive lockfiles. The complete extracted archive graph
+is still independently built and verified before any source assets are retained.
 Both applications remain source assets and never become registry manifest rows.
 Maintenance releases verify their current public-library and nonpublished source-package graph without consulting
 main registry ownership, then retain only the application archives.

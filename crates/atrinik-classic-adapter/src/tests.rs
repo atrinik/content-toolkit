@@ -232,3 +232,11 @@ fn deterministic_fresh_authored_assets_have_exact_atx1_contract() {
         }
     }
 }
+
+#[test]
+fn encoded_output_budget_includes_escaping_and_final_newline() {
+    assert_eq!(encode_bounded(&"a", 4).unwrap(), b"\"a\"\n");
+    assert!(encode_bounded(&"a", 3).is_err());
+    assert!(encode_bounded(&"\n".repeat(1024), 1024).is_err());
+    assert!(encode_bounded(&vec!["entry"; 100], 64).is_err());
+}

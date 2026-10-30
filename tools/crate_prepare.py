@@ -237,8 +237,10 @@ def source_only_packages(config, names):
     return result
 
 
-def package_twice(config, names, current, target, dry_run):
+def package_twice(config, names, current, target, dry_run, source_overrides=None):
     R.require(names, 'empty package selection')
+    R.require(not source_overrides or not set(names) & {row['name'] for row in config['crates']},
+              'source overrides cannot apply to public archives')
     sets = []
     for number in (1, 2):
         destination = target / str(number)
@@ -246,6 +248,15 @@ def package_twice(config, names, current, target, dry_run):
                    '--registry', 'crates-io', '--target-dir', str(destination)]
         for name in names:
             command += ['--package', name]
+        # Only nonpublishable source-package calls receive these overrides.
+        # Public archives must never acquire patch.unused entries: those
+        # change their reproducible Cargo.lock even when the patch is unused.
+        for name, relative in sorted((source_overrides or {}).items()):
+            R.require(R.NAME.fullmatch(name), 'invalid source-package override name')
+            path = (ROOT / relative).resolve()
+            R.require(path.is_relative_to(ROOT.resolve()) and path.is_dir(),
+                      'source-package override must stay inside the source root')
+            command += ['--config', 'patch.crates-io.' + name + '.path=' + json.dumps(str(path))]
         if dry_run:
             command += ['--allow-dirty', '--offline']
         subprocess.run(command, cwd=ROOT, env=clean_environment(), check=True, timeout=1200)
@@ -282,11 +293,20 @@ def stage_packages(config, current, previous, revision, destination, dry_run=Fal
                   'owned crate version has changed package contents')
         rows[name], data[name] = original_row, original_bytes
     selected = [crate['name'] for crate in config['crates'] if crate['name'] not in originals]
-    selected += list(source_packages)
     if selected:
-        data.update(package_twice(config, selected,
+        data.update(package_twice(config, selected, current, destination / 'new', dry_run))
+    if source_packages:
+        # Cargo's temporary registry excludes publish=false packages. Package
+        # source assets separately so an application can depend on another
+        # nonpublishable member, without contaminating public archive locks.
+        # Old published libraries are deliberately NOT patched: their retained
+        # registry checksums and independent reproduction remain authoritative.
+        overrides = {crate['name']: crate['path'] for crate in config['crates']
+                     if crate['name'] not in originals}
+        overrides.update({name: row['path'] for name, row in source_packages.items()})
+        data.update(package_twice(config, list(source_packages),
             dict(current, **{name: row['version'] for name, row in source_packages.items()}),
-            destination / 'new', dry_run))
+            destination / 'source', dry_run, source_overrides=overrides))
     for crate in config['crates']:
         name = crate['name']
         if name not in originals:
