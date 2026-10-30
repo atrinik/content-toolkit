@@ -10,6 +10,8 @@ publish = false
 version.workspace = true
 
 [dependencies]
+atrinik-classic-adapter.workspace = true
+tilewright-source.workspace = true
 atrinik-artifact.workspace = true
 atrinik-catalog.workspace = true
 atrinik-diagnostics.workspace = true

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Toolkit integration of published libraries with both source-only applications."""
+"""Toolkit integration of published libraries with source-only applications and adapter."""
 import io
 import os
 from pathlib import Path
@@ -17,7 +17,7 @@ from tools import crate_release as R
 
 REVISION = 'a' * 40
 OLD_REVISION = 'b' * 40
-APPLICATIONS = ('atrinik-content', 'atrinik-content-mcp')
+APPLICATIONS = ('atrinik-content', 'atrinik-content-mcp', 'atrinik-classic-adapter')
 # Follow the workspace version so reviewed version bumps keep this fixture valid.
 VERSION = P.versions(R.policy())['atrinik-artifact']
 
@@ -96,23 +96,23 @@ class ToolkitPackageGraphTests(unittest.TestCase):
         names = [row['name'] for row in R.policy()['crates']]
         manifest, retained, selections = self.prepare(names)
         self.assertEqual(manifest['crates'], [])
-        self.assertEqual(len(retained), 2)
+        self.assertEqual(len(retained), len(APPLICATIONS))
         self.assertEqual(selections[:-2], [[name] for name in names for _ in range(2)])
         self.assertEqual(selections[-2:], [list(APPLICATIONS)] * 2)
 
     def test_mixed_graph_excludes_published_library_from_new_app_overlay(self):
         manifest, retained, selections = self.prepare(['atrinik-diagnostics'])
         self.assertEqual(len(manifest['crates']), 6)
-        self.assertEqual(len(retained), 8)
+        self.assertEqual(len(retained), 6 + len(APPLICATIONS))
         self.assertEqual(selections[:2], [['atrinik-diagnostics']] * 2)
         self.assertNotIn('atrinik-diagnostics', selections[2])
         self.assertEqual(selections[2], selections[3])
         self.assertEqual(set(selections[2]), {row['name'] for row in R.policy()['crates']} - {'atrinik-diagnostics'} | set(APPLICATIONS))
 
-    def test_maintenance_verifies_all_nine_then_retains_only_both_apps(self):
+    def test_maintenance_verifies_all_packages_then_retains_only_source_packages(self):
         manifest, retained, selections = self.prepare([row['name'] for row in R.policy()['crates']], True)
         self.assertEqual(manifest['crates'], [])
-        self.assertEqual(len(retained), 2)
+        self.assertEqual(len(retained), len(APPLICATIONS))
         self.assertEqual(len(selections), 2)
         self.assertEqual(set(selections[0]), {row['name'] for row in R.policy()['crates']} | set(APPLICATIONS))
 

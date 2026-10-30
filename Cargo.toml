@@ -2,6 +2,7 @@
 members = [
   "crates/atrinik-artifact",
   "crates/atrinik-catalog",
+  "crates/atrinik-classic-adapter",
   "crates/atrinik-content",
   "crates/atrinik-content-mcp",
   "crates/atrinik-diagnostics",
@@ -21,6 +22,9 @@ rust-version = "1.97.1"
 version = "0.1.1"
 
 [workspace.dependencies]
+atrinik-classic-adapter = { path = "crates/atrinik-classic-adapter", version = "=0.1.1" }
+tilewright-source = "=0.1.0"
+tilewright-jsonc = "=0.1.0"
 atrinik-content-mcp = { path = "crates/atrinik-content-mcp", version = "=0.1.1" }
 atrinik-artifact = { path = "crates/atrinik-artifact", version = "=0.1.1" }
 atrinik-catalog = { path = "crates/atrinik-catalog", version = "=0.1.1" }

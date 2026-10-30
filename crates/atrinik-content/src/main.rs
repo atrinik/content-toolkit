@@ -19,6 +19,8 @@ use std::{
 use atrinik_source::{Document, Limits, SourceId};
 
 #[cfg(target_os = "linux")]
+mod classic_cli;
+#[cfg(target_os = "linux")]
 mod transaction_cli;
 
 fn main() {
@@ -36,6 +38,12 @@ fn run(arguments: Vec<std::ffi::OsString>) -> Result<(), Box<dyn Error>> {
     let Some(command) = arguments.first().and_then(|value| value.to_str()) else {
         return Err(usage().into());
     };
+    if command == "classic" {
+        #[cfg(target_os = "linux")]
+        return classic_cli::run(&arguments[1..]);
+        #[cfg(not(target_os = "linux"))]
+        return Err("Classic prototype requires Linux".into());
+    }
     if command == "transaction" {
         #[cfg(target_os = "linux")]
         return transaction_cli::run(&arguments[1..]);

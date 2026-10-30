@@ -93,3 +93,13 @@ Rose change, verified GitHub identity/signature evidence, no embedded or
 derived third-party material, an unchanged `content@1.x` copy, and an exact
 byte-identical destination. The grant permits their copies here under MIT; it
 does not change their historical content-repository terms.
+
+## Classic schematic adapter
+
+`crates/atrinik-classic-adapter` and its synthetic fixtures/geometric ATX1
+generator are newly authored MIT work. Classic interpretation uses this
+repository's existing canonical records and transaction APIs, without copying
+GPL Python tooling. Tilewright source/JSONC are consumed from released MIT
+0.1.0 registry crates. External GPL maps remain outside distributable source
+and retain exact bytes/notices in separately provisioned adapter state. No
+original Classic art is bundled.

@@ -55,7 +55,7 @@ own VCS revision to the original, and verifies the original published bytes in
 the compatibility graph. Only new coordinates and the explicitly nonpublishable
 `atrinik-content` and `atrinik-content-mcp` packages share a new-package overlay.
 Both applications remain source assets and never become registry manifest rows.
-Maintenance releases verify their current nine-package graph without consulting
+Maintenance releases verify their current public-library and nonpublished source-package graph without consulting
 main registry ownership, then retain only the application archives.
 
 Library dependencies publish in topological order after their exact versions and
@@ -138,3 +138,7 @@ registry token in environment variables or workflow secrets.
 Use the helper's `--help` for read-only verification and reconciliation interfaces.
 Retain the exact source release coordinates and successful checksum evidence for
 bootstrap and recovery. Never recover by rebuilding or replacing release assets.
+
+The Classic adapter is explicitly `publish = false`. It is included only in the
+source-package graph needed to build the CLI; it is not a registry coordinate
+or an addition to `policy/crate-release.json`.

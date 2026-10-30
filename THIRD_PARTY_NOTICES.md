@@ -29,3 +29,11 @@ Unicode-3.0). Release bundles retain the complete dependency license/copyright n
 including the Unicode data permission notice, in `third-party-licenses/`. Its
 manifest binds each copied notice digest to the exact locked package release;
 the SBOM records the complete license expressions.
+
+## Tilewright World dependencies
+
+The nonpublished Classic adapter uses `tilewright-source` and
+`tilewright-jsonc` 0.1.0, Copyright 2026 Seraphina Studios, under the MIT
+License. Exact dependency license files remain in the generated release
+third-party license inventory. External Classic maps/art are not included
+in toolkit fixtures or release source.
