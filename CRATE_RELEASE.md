@@ -3,7 +3,7 @@
 The seven reusable libraries listed in `policy/crate-release.json` publish to
 crates.io: artifact, catalog, diagnostics, schema, source, testkit and transaction.
 Each manifest explicitly restricts publication to `crates-io`. The `atrinik-content`
-CLI and `atrinik-content-mcp` application set `publish = false`; their binaries,
+CLI, `atrinik-content-mcp` application and Classic adapter set `publish = false`; their binaries,
 crate archives remain individual GitHub release artifacts. Schemas, fixtures,
 policy and third-party licenses are retained in a deterministic
 `content-assets-VERSION.tar.gz` asset. Every downloadable file is included in the
@@ -53,7 +53,8 @@ packages each such coordinate twice on its own, preserving production dependency
 checksums in the full canonical `Cargo.lock`, compares every member except its
 own VCS revision to the original, and verifies the original published bytes in
 the compatibility graph. Only new coordinates and the explicitly nonpublishable
-`atrinik-content` and `atrinik-content-mcp` packages share a new-package overlay.
+`atrinik-content`, `atrinik-content-mcp` and `atrinik-classic-adapter` packages
+share a new-package overlay.
 Both applications remain source assets and never become registry manifest rows.
 Maintenance releases verify their current public-library and nonpublished source-package graph without consulting
 main registry ownership, then retain only the application archives.

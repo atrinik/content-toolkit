@@ -92,7 +92,7 @@ class ToolkitPackageGraphTests(unittest.TestCase):
                     self.assertNotIn(f'{name}-{VERSION}.crate', retained)
             return manifest, retained, selections
 
-    def test_known_libraries_are_original_bytes_and_both_apps_remain_source_assets(self):
+    def test_known_libraries_are_original_bytes_and_nonpublished_packages_remain_source_assets(self):
         names = [row['name'] for row in R.policy()['crates']]
         manifest, retained, selections = self.prepare(names)
         self.assertEqual(manifest['crates'], [])

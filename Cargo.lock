@@ -4,14 +4,14 @@ version = 4
 
 [[package]]
 name = "atrinik-artifact"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "sha2",
 ]
 
 [[package]]
 name = "atrinik-catalog"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "atrinik-diagnostics",
  "atrinik-source",
@@ -20,7 +20,7 @@ dependencies = [
 
 [[package]]
 name = "atrinik-classic-adapter"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "atrinik-source",
  "atrinik-transaction",
@@ -33,7 +33,7 @@ dependencies = [
 
 [[package]]
 name = "atrinik-content"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "atrinik-artifact",
  "atrinik-catalog",
@@ -50,7 +50,7 @@ dependencies = [
 
 [[package]]
 name = "atrinik-content-mcp"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "atrinik-catalog",
  "atrinik-diagnostics",
@@ -65,11 +65,11 @@ dependencies = [
 
 [[package]]
 name = "atrinik-diagnostics"
-version = "0.1.1"
+version = "0.1.2"
 
 [[package]]
 name = "atrinik-schema"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "atrinik-diagnostics",
  "atrinik-source",
@@ -77,7 +77,7 @@ dependencies = [
 
 [[package]]
 name = "atrinik-source"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "atrinik-diagnostics",
  "sha2",
@@ -85,14 +85,14 @@ dependencies = [
 
 [[package]]
 name = "atrinik-testkit"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "atrinik-source",
 ]
 
 [[package]]
 name = "atrinik-transaction"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "atrinik-catalog",
  "atrinik-diagnostics",
