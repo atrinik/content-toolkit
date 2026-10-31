@@ -576,15 +576,36 @@ def release_identity(config, release):
     require(branch['protected'] is True, 'main is not protected')
 
 
-def verify_checks(config, revision):
+def source_check_deferral(config, revision):
+    """Return a fixed deferral reason; unreadable or malformed evidence raises."""
     check_runs = api(config, f'commits/{revision}/check-runs?per_page=100&filter=latest')
-    require(check_runs['total_count'] <= 100, 'source check inventory exceeds bound')
+    require(type(check_runs['total_count']) is int and 0 <= check_runs['total_count'] <= 100,
+            'source check inventory exceeds bound')
+    require(isinstance(check_runs['check_runs'], list)
+            and len(check_runs['check_runs']) == check_runs['total_count'], 'incomplete source check inventory')
+    for check in check_runs['check_runs']:
+        require(isinstance(check, dict) and isinstance(check.get('name'), str)
+                and isinstance(check.get('head_sha'), str) and SHA.fullmatch(check['head_sha'])
+                and isinstance(check.get('app'), dict) and isinstance(check['app'].get('slug'), str)
+                and type(check.get('id')) is int and check['id'] > 0
+                and check.get('status') in ('queued', 'in_progress', 'completed', 'waiting', 'requested', 'pending')
+                and 'conclusion' in check and check['conclusion'] in
+                (None, 'success', 'failure', 'neutral', 'cancelled', 'skipped', 'timed_out', 'action_required', 'stale', 'startup_failure'),
+                'malformed source check')
     for name in config['required_checks']:
         matching = [check for check in check_runs['check_runs'] if check['name'] == name
                     and check['head_sha'] == revision and check['app']['slug'] == 'github-actions']
-        require(matching, 'required source check absent')
+        if not matching:
+            return 'required source check absent'
         latest = max(matching, key=lambda check: check['id'])
-        require(latest['status'] == 'completed' and latest['conclusion'] == 'success', 'required source check not successful')
+        if latest['status'] != 'completed' or latest['conclusion'] != 'success':
+            return 'required source check not successful'
+    return None
+
+
+def verify_checks(config, revision):
+    reason = source_check_deferral(config, revision)
+    require(reason is None, reason)
 
 
 def release_evidence(config, release_id, revision, manifest_sha256):
@@ -730,6 +751,30 @@ def dispatch(config, release, manifest, manifest_sha256):
         require(response.status == 204, 'dispatch response unresolved')
 
 
+def reconcile(config):
+    seen, deferred = set(), 0
+    # Finish catalog validation before any dispatch, including duplicate lineage.
+    for release, manifest, row, manifest_sha256 in catalog(config).values():
+        require(type(release['id']) is int and 0 < release['id'] < 2 ** 63, 'invalid source release ID')
+        if release['id'] in seen:
+            continue
+        seen.add(release['id'])
+        if not any(registry_state(item) != 'present' for item in manifest['crates']):
+            continue
+        reason = source_check_deferral(config, manifest['revision'])
+        if reason is not None:
+            deferred += 1
+            print(json.dumps({'operation': 'reconcile', 'status': 'deferred',
+                              'source_release_id': release['id'], 'source_revision': manifest['revision'],
+                              'reason': reason}))
+            continue
+        # This filter cannot authorize publication. The publisher revalidates
+        # the complete release evidence, including these checks, before upload.
+        dispatch(config, release, manifest, manifest_sha256)
+        return {'status': 'dispatched', 'deferred_releases': deferred}
+    return {'status': 'deferred' if deferred else 'complete', 'deferred_releases': deferred}
+
+
 def finalize(config, source_tag, directory):
     """Inert pre-tag check of same-run artifacts, before semantic-release writes."""
     require(re.fullmatch(r'v[0-9]+\.[0-9]+\.[0-9]+', source_tag or ''), 'final source tag')
@@ -853,16 +898,8 @@ def main():
         if manifest['crates']:
             dispatch(config, release, manifest, digest(raw))
     else:
-        seen = set()
-        for release, manifest, row, manifest_sha256 in catalog(config).values():
-            if release['id'] in seen:
-                continue
-            seen.add(release['id'])
-            if any(registry_state(item) != 'present' for item in manifest['crates']):
-                # Each dispatch is an explicit side effect; no publication credential here.
-                dispatch(config, release, manifest, manifest_sha256)
-                # One release per run keeps failure/retry and concurrency bounded.
-                break
+        print(json.dumps({'operation': args.operation, **reconcile(config)}))
+        return
     print(json.dumps({'operation': args.operation, 'status': 'complete'}))
 
 

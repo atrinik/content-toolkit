@@ -90,6 +90,97 @@ class ApiEndpointTests(unittest.TestCase):
             get.assert_called_once_with('https://api.github.com/repos/atrinik/example/releases/123')
 
 
+class ReconcileTests(unittest.TestCase):
+    def setUp(self):
+        self.entry, _ = row()
+        self.old = {'id': 1, 'tag_name': 'v1.0.0', 'immutable': True,
+                    'draft': False, 'prerelease': False, 'assets': [{'name': R.MANIFEST}]}
+        self.manifest = {'schema_version': 1, 'repository': CONFIG['repository'],
+                         'repository_id': CONFIG['repository_id'], 'revision': REVISION,
+                         'source_tag': 'v1.0.0', 'crates': [self.entry]}
+        self.new = dict(self.old, id=2, tag_name='v2.0.0')
+        self.new_manifest = dict(self.manifest, revision='b' * 40, source_tag='v2.0.0')
+        self.inventory = {('example', '0.1.0'): (self.old, self.manifest, self.entry, 'c' * 64),
+                          ('example', '0.2.0'): (self.new, self.new_manifest, self.entry, 'd' * 64)}
+        self.check = {'name': 'Example validation', 'head_sha': REVISION,
+                      'app': {'slug': 'github-actions'}, 'id': 1,
+                      'status': 'completed', 'conclusion': 'success'}
+
+    def checks(self, checks):
+        return {'total_count': len(checks), 'check_runs': checks}
+
+    def test_ineligible_old_source_does_not_starve_another_eligible_graph(self):
+        for checks, reason in [([], 'required source check absent'),
+                ([dict(self.check, status='in_progress', conclusion=None)], 'required source check not successful'),
+                ([dict(self.check, conclusion='failure')], 'required source check not successful'),
+                ([dict(self.check, head_sha='c' * 40)], 'required source check absent'),
+                ([dict(self.check, app={'slug': 'other-app'})], 'required source check absent'),
+                ([self.check, dict(self.check, id=2, conclusion='cancelled')], 'required source check not successful')]:
+            with self.subTest(checks=checks), ExitStack() as stack:
+                stack.enter_context(patch.object(R, 'catalog', return_value=self.inventory))
+                stack.enter_context(patch.object(R, 'registry_state', return_value='absent'))
+                api = stack.enter_context(patch.object(R, 'api', side_effect=[self.checks(checks),
+                    self.checks([dict(self.check, head_sha='b' * 40)])]))
+                dispatch = stack.enter_context(patch.object(R, 'dispatch'))
+                output = stack.enter_context(patch('sys.stdout', new_callable=io.StringIO))
+                self.assertEqual(R.reconcile(CONFIG), {'status': 'dispatched', 'deferred_releases': 1})
+                dispatch.assert_called_once_with(CONFIG, self.new, self.new_manifest, 'd' * 64)
+                self.assertEqual([call.args[1] for call in api.call_args_list], [
+                    f'commits/{revision}/check-runs?per_page=100&filter=latest' for revision in (REVISION, 'b' * 40)])
+                self.assertEqual(json.loads(output.getvalue()), {'operation': 'reconcile', 'status': 'deferred',
+                    'source_release_id': 1, 'source_revision': REVISION, 'reason': reason})
+
+    def test_deferred_release_is_rechecked_and_only_one_graph_is_dispatched(self):
+        with patch.object(R, 'catalog', return_value=self.inventory), \
+             patch.object(R, 'registry_state', return_value='absent'), \
+             patch.object(R, 'api', side_effect=[self.checks([]), self.checks([]), self.checks([self.check])]) as api, \
+             patch.object(R, 'dispatch') as dispatch, patch('sys.stdout', new_callable=io.StringIO):
+            self.assertEqual(R.reconcile(CONFIG), {'status': 'deferred', 'deferred_releases': 2})
+            dispatch.assert_not_called()
+            self.assertEqual(R.reconcile(CONFIG), {'status': 'dispatched', 'deferred_releases': 0})
+            dispatch.assert_called_once_with(CONFIG, self.old, self.manifest, 'c' * 64)
+            self.assertEqual(api.call_count, 3)
+
+    def test_present_graphs_need_no_dispatch_or_source_check(self):
+        with patch.object(R, 'catalog', return_value=self.inventory), \
+             patch.object(R, 'registry_state', return_value='present'), \
+             patch.object(R, 'api') as api, patch.object(R, 'dispatch') as dispatch:
+            self.assertEqual(R.reconcile(CONFIG), {'status': 'complete', 'deferred_releases': 0})
+            api.assert_not_called()
+            dispatch.assert_not_called()
+
+    def test_api_failure_or_malformed_inventory_is_not_a_deferral(self):
+        for response in [OSError('unavailable'), {}, {'total_count': 101, 'check_runs': []},
+                         {'total_count': 1, 'check_runs': []}, {'total_count': 1, 'check_runs': [{}]}]:
+            with self.subTest(response=response), ExitStack() as stack:
+                stack.enter_context(patch.object(R, 'catalog', return_value=self.inventory))
+                stack.enter_context(patch.object(R, 'registry_state', return_value='absent'))
+                stack.enter_context(patch.object(R, 'api', **({'side_effect': response}
+                    if isinstance(response, Exception) else {'return_value': response})))
+                dispatch = stack.enter_context(patch.object(R, 'dispatch'))
+                output = stack.enter_context(patch('sys.stdout', new_callable=io.StringIO))
+                with self.assertRaises((OSError, ValueError, KeyError)):
+                    R.reconcile(CONFIG)
+                dispatch.assert_not_called()
+                self.assertEqual(output.getvalue(), '')
+
+    def test_registry_conflict_remains_fatal(self):
+        with patch.object(R, 'catalog', return_value=self.inventory), \
+             patch.object(R, 'registry_state', side_effect=ValueError('registry checksum/yank conflict')), \
+             patch.object(R, 'dispatch') as dispatch, self.assertRaisesRegex(ValueError, 'registry checksum'):
+            R.reconcile(CONFIG)
+        dispatch.assert_not_called()
+
+    def test_duplicate_catalog_lineage_is_rejected_before_filtering(self):
+        with patch.object(R, 'api', return_value=[self.old, self.new]), \
+             patch.object(R, 'asset_bytes', side_effect=[R.canonical(self.manifest), R.canonical(self.new_manifest)]), \
+             patch.object(R, 'source_check_deferral') as eligibility, \
+             patch.object(R, 'dispatch') as dispatch, self.assertRaisesRegex(ValueError, 'duplicate crate source lineage'):
+            R.reconcile(CONFIG)
+        eligibility.assert_not_called()
+        dispatch.assert_not_called()
+
+
 class MetadataTests(unittest.TestCase):
     def test_full_dependency_mapping(self):
         value = R.metadata(files(), 'example', '0.1.0')
