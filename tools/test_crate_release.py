@@ -165,10 +165,13 @@ class ReconcileTests(unittest.TestCase):
                 self.assertEqual(output.getvalue(), '')
 
     def test_registry_conflict_remains_fatal(self):
+        self.manifest['crates'].append(dict(self.entry, name='other'))
         with patch.object(R, 'catalog', return_value=self.inventory), \
-             patch.object(R, 'registry_state', side_effect=ValueError('registry checksum/yank conflict')), \
+             patch.object(R, 'registry_state', side_effect=['absent', ValueError('registry checksum/yank conflict')]), \
+             patch.object(R, 'source_check_deferral') as eligibility, \
              patch.object(R, 'dispatch') as dispatch, self.assertRaisesRegex(ValueError, 'registry checksum'):
             R.reconcile(CONFIG)
+        eligibility.assert_not_called()
         dispatch.assert_not_called()
 
     def test_duplicate_catalog_lineage_is_rejected_before_filtering(self):

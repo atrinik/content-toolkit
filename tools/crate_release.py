@@ -759,7 +759,8 @@ def reconcile(config):
         if release['id'] in seen:
             continue
         seen.add(release['id'])
-        if not any(registry_state(item) != 'present' for item in manifest['crates']):
+        states = [registry_state(item) for item in manifest['crates']]
+        if all(state == 'present' for state in states):
             continue
         reason = source_check_deferral(config, manifest['revision'])
         if reason is not None:
