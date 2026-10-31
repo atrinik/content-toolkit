@@ -57,12 +57,13 @@ test -s "${output}/mcp-schemas/input.schema.json"
 test -s "${output}/mcp-schemas/output.schema.json"
 test -s "${output}/third-party-licenses/manifest.json"
 
-# Package the public candidate set with both source-only application crates.
+# Package the public candidate set with source-only applications and the nonpublished adapter.
 # Shared preparation preserves published dependency checksums and verifies the
 # complete extracted graph before omitting already owned public coordinates.
 crate_prepare_arguments=(prepare --source-tag "v${version}"
   --output "${output}/crates" --archives "${output}/crates"
-  --source-package atrinik-content --source-package atrinik-content-mcp)
+  --source-package atrinik-content --source-package atrinik-content-mcp
+  --source-package atrinik-classic-adapter)
 if [[ $# -lt 2 ]]; then
   crate_prepare_arguments+=(--dry-run)
 fi

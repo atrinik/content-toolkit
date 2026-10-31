@@ -17,6 +17,7 @@ crates=(
   atrinik-diagnostics
   atrinik-source
   atrinik-catalog
+  atrinik-classic-adapter
   atrinik-schema
   atrinik-transaction
   atrinik-content

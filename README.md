@@ -53,6 +53,13 @@ Clippy-as-errors, unit/doc/property/adversarial tests, dependency/license and
 vulnerability checks, provenance validation, public fixture/CLI conformance,
 release builds, and a release dry run.
 
+## Classic map prototype
+
+The nonpublished [Classic schematic adapter](docs/CLASSIC_PROTOTYPE.md) imports
+external maps into released Tilewright World files and exports only verified
+coordinate changes through the existing lossless transaction engine. Generic
+preview and history remain in Tilewright; Classic source stays authoritative.
+
 ## Stable catalog and diagnostics
 
 `atrinik-catalog` exposes the shared headless catalog API used by CI, CLI, and

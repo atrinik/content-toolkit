@@ -2,6 +2,7 @@
 members = [
   "crates/atrinik-artifact",
   "crates/atrinik-catalog",
+  "crates/atrinik-classic-adapter",
   "crates/atrinik-content",
   "crates/atrinik-content-mcp",
   "crates/atrinik-diagnostics",
@@ -18,17 +19,20 @@ edition = "2024"
 license = "MIT"
 repository = "https://github.com/atrinik/content-toolkit"
 rust-version = "1.97.1"
-version = "0.1.1"
+version = "0.1.2"
 
 [workspace.dependencies]
-atrinik-content-mcp = { path = "crates/atrinik-content-mcp", version = "=0.1.1" }
-atrinik-artifact = { path = "crates/atrinik-artifact", version = "=0.1.1" }
-atrinik-catalog = { path = "crates/atrinik-catalog", version = "=0.1.1" }
-atrinik-diagnostics = { path = "crates/atrinik-diagnostics", version = "=0.1.1" }
-atrinik-schema = { path = "crates/atrinik-schema", version = "=0.1.1" }
-atrinik-source = { path = "crates/atrinik-source", version = "=0.1.1" }
-atrinik-testkit = { path = "crates/atrinik-testkit", version = "=0.1.1" }
-atrinik-transaction = { path = "crates/atrinik-transaction", version = "=0.1.1" }
+atrinik-classic-adapter = { path = "crates/atrinik-classic-adapter", version = "=0.1.2" }
+tilewright-source = "=0.1.0"
+tilewright-jsonc = "=0.1.0"
+atrinik-content-mcp = { path = "crates/atrinik-content-mcp", version = "=0.1.2" }
+atrinik-artifact = { path = "crates/atrinik-artifact", version = "=0.1.2" }
+atrinik-catalog = { path = "crates/atrinik-catalog", version = "=0.1.2" }
+atrinik-diagnostics = { path = "crates/atrinik-diagnostics", version = "=0.1.2" }
+atrinik-schema = { path = "crates/atrinik-schema", version = "=0.1.2" }
+atrinik-source = { path = "crates/atrinik-source", version = "=0.1.2" }
+atrinik-testkit = { path = "crates/atrinik-testkit", version = "=0.1.2" }
+atrinik-transaction = { path = "crates/atrinik-transaction", version = "=0.1.2" }
 sha2 = "0.11.0"
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.154"

@@ -3,7 +3,7 @@
 The seven reusable libraries listed in `policy/crate-release.json` publish to
 crates.io: artifact, catalog, diagnostics, schema, source, testkit and transaction.
 Each manifest explicitly restricts publication to `crates-io`. The `atrinik-content`
-CLI and `atrinik-content-mcp` application set `publish = false`; their binaries,
+CLI, `atrinik-content-mcp` application and Classic adapter set `publish = false`; their binaries,
 crate archives remain individual GitHub release artifacts. Schemas, fixtures,
 policy and third-party licenses are retained in a deterministic
 `content-assets-VERSION.tar.gz` asset. Every downloadable file is included in the
@@ -53,9 +53,16 @@ packages each such coordinate twice on its own, preserving production dependency
 checksums in the full canonical `Cargo.lock`, compares every member except its
 own VCS revision to the original, and verifies the original published bytes in
 the compatibility graph. Only new coordinates and the explicitly nonpublishable
-`atrinik-content` and `atrinik-content-mcp` packages share a new-package overlay.
+New public candidates share Cargo's new-package registry overlay. The
+nonpublished `atrinik-content`, `atrinik-content-mcp` and
+`atrinik-classic-adapter` source assets are packaged separately with explicit
+local overrides for selected source assets and new public candidates only.
+Already published libraries are never overridden. This supports a source-only
+application depending on a nonpublished adapter without inserting unused
+patches into public archive lockfiles. The complete extracted archive graph
+is still independently built and verified before any source assets are retained.
 Both applications remain source assets and never become registry manifest rows.
-Maintenance releases verify their current nine-package graph without consulting
+Maintenance releases verify their current public-library and nonpublished source-package graph without consulting
 main registry ownership, then retain only the application archives.
 
 Library dependencies publish in topological order after their exact versions and
@@ -138,3 +145,7 @@ registry token in environment variables or workflow secrets.
 Use the helper's `--help` for read-only verification and reconciliation interfaces.
 Retain the exact source release coordinates and successful checksum evidence for
 bootstrap and recovery. Never recover by rebuilding or replacing release assets.
+
+The Classic adapter is explicitly `publish = false`. It is included only in the
+source-package graph needed to build the CLI; it is not a registry coordinate
+or an addition to `policy/crate-release.json`.

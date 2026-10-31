@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Toolkit integration of published libraries with both source-only applications."""
+"""Toolkit integration of published libraries with source-only applications and adapter."""
 import io
 import os
 from pathlib import Path
@@ -17,7 +17,7 @@ from tools import crate_release as R
 
 REVISION = 'a' * 40
 OLD_REVISION = 'b' * 40
-APPLICATIONS = ('atrinik-content', 'atrinik-content-mcp')
+APPLICATIONS = ('atrinik-content', 'atrinik-content-mcp', 'atrinik-classic-adapter')
 # Follow the workspace version so reviewed version bumps keep this fixture valid.
 VERSION = P.versions(R.policy())['atrinik-artifact']
 
@@ -54,11 +54,20 @@ class ToolkitPackageGraphTests(unittest.TestCase):
                 previous[(name, VERSION)] = ({'id': 1}, {'revision': OLD_REVISION}, row, 'c' * 64)
         extras = {name: {'name': name, 'version': VERSION, 'path': 'crates/' + name}
                   for name in APPLICATIONS}
-        selections, graphs = [], []
+        selections, graphs, override_sets = [], [], []
         def command(argv, **_):
             if argv[0] == 'cargo':
                 names = [argv[index + 1] for index, value in enumerate(argv) if value == '--package']
                 selections.append(names)
+                overrides = [argv[index + 1] for index, value in enumerate(argv) if value == '--config']
+                override_sets.append(overrides)
+                if any(name in public for name in names):
+                    self.assertEqual(overrides, [], 'public archives must never receive source overrides')
+                else:
+                    for old in old_names if not maintenance else []:
+                        self.assertFalse(any('patch.crates-io.' + old + '.path=' in value for value in overrides))
+                    for name in APPLICATIONS:
+                        self.assertTrue(any('patch.crates-io.' + name + '.path=' in value for value in overrides))
                 directory = Path(argv[argv.index('--target-dir') + 1]) / 'package'
                 directory.mkdir(parents=True)
                 for name in names:
@@ -92,29 +101,31 @@ class ToolkitPackageGraphTests(unittest.TestCase):
                     self.assertNotIn(f'{name}-{VERSION}.crate', retained)
             return manifest, retained, selections
 
-    def test_known_libraries_are_original_bytes_and_both_apps_remain_source_assets(self):
+    def test_known_libraries_are_original_bytes_and_nonpublished_packages_remain_source_assets(self):
         names = [row['name'] for row in R.policy()['crates']]
         manifest, retained, selections = self.prepare(names)
         self.assertEqual(manifest['crates'], [])
-        self.assertEqual(len(retained), 2)
+        self.assertEqual(len(retained), len(APPLICATIONS))
         self.assertEqual(selections[:-2], [[name] for name in names for _ in range(2)])
         self.assertEqual(selections[-2:], [list(APPLICATIONS)] * 2)
 
     def test_mixed_graph_excludes_published_library_from_new_app_overlay(self):
         manifest, retained, selections = self.prepare(['atrinik-diagnostics'])
         self.assertEqual(len(manifest['crates']), 6)
-        self.assertEqual(len(retained), 8)
+        self.assertEqual(len(retained), 6 + len(APPLICATIONS))
         self.assertEqual(selections[:2], [['atrinik-diagnostics']] * 2)
         self.assertNotIn('atrinik-diagnostics', selections[2])
         self.assertEqual(selections[2], selections[3])
-        self.assertEqual(set(selections[2]), {row['name'] for row in R.policy()['crates']} - {'atrinik-diagnostics'} | set(APPLICATIONS))
+        self.assertEqual(set(selections[2]), {row['name'] for row in R.policy()['crates']} - {'atrinik-diagnostics'})
+        self.assertEqual(selections[4:], [list(APPLICATIONS)] * 2)
 
-    def test_maintenance_verifies_all_nine_then_retains_only_both_apps(self):
+    def test_maintenance_verifies_all_packages_then_retains_only_source_packages(self):
         manifest, retained, selections = self.prepare([row['name'] for row in R.policy()['crates']], True)
         self.assertEqual(manifest['crates'], [])
-        self.assertEqual(len(retained), 2)
-        self.assertEqual(len(selections), 2)
-        self.assertEqual(set(selections[0]), {row['name'] for row in R.policy()['crates']} | set(APPLICATIONS))
+        self.assertEqual(len(retained), len(APPLICATIONS))
+        self.assertEqual(len(selections), 4)
+        self.assertEqual(set(selections[0]), {row['name'] for row in R.policy()['crates']})
+        self.assertEqual(selections[2:], [list(APPLICATIONS)] * 2)
 
 
 if __name__ == '__main__':

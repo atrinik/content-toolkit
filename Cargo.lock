@@ -4,14 +4,14 @@ version = 4
 
 [[package]]
 name = "atrinik-artifact"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "sha2",
 ]
 
 [[package]]
 name = "atrinik-catalog"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "atrinik-diagnostics",
  "atrinik-source",
@@ -19,11 +19,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "atrinik-classic-adapter"
+version = "0.1.2"
+dependencies = [
+ "atrinik-source",
+ "atrinik-transaction",
+ "rustix",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tilewright-jsonc",
+ "tilewright-source",
+]
+
+[[package]]
 name = "atrinik-content"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "atrinik-artifact",
  "atrinik-catalog",
+ "atrinik-classic-adapter",
  "atrinik-diagnostics",
  "atrinik-schema",
  "atrinik-source",
@@ -31,11 +46,12 @@ dependencies = [
  "rustix",
  "serde",
  "serde_json",
+ "tilewright-source",
 ]
 
 [[package]]
 name = "atrinik-content-mcp"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "atrinik-catalog",
  "atrinik-diagnostics",
@@ -50,11 +66,11 @@ dependencies = [
 
 [[package]]
 name = "atrinik-diagnostics"
-version = "0.1.1"
+version = "0.1.2"
 
 [[package]]
 name = "atrinik-schema"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "atrinik-diagnostics",
  "atrinik-source",
@@ -62,7 +78,7 @@ dependencies = [
 
 [[package]]
 name = "atrinik-source"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "atrinik-diagnostics",
  "sha2",
@@ -70,14 +86,14 @@ dependencies = [
 
 [[package]]
 name = "atrinik-testkit"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "atrinik-source",
 ]
 
 [[package]]
 name = "atrinik-transaction"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "atrinik-catalog",
  "atrinik-diagnostics",
@@ -282,6 +298,23 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "tilewright-jsonc"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "26b1c7445318f03bdee03abdcd531fef5f61e588820ec8bf15d5811ec3a6f9d8"
+
+[[package]]
+name = "tilewright-source"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a47f847918a77b0a41d3bd6c1be46efaa0cb3072e23235eb39eb33e817969c44"
+dependencies = [
+ "rustix",
+ "sha2",
+ "tilewright-jsonc",
 ]
 
 [[package]]

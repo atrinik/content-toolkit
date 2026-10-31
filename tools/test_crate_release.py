@@ -691,6 +691,7 @@ class StablePackageTests(unittest.TestCase):
         calls = []
         with tempfile.TemporaryDirectory() as temporary, patch.object(R, 'asset_bytes', return_value=old_bytes), \
              patch.object(R, 'registry_state', return_value='present'), \
+             patch.object(P.Path, 'is_dir', return_value=True), \
              patch.object(P.subprocess, 'run', side_effect=self.commands(data, calls)):
             rows, staged = P.stage_packages(config, {'example': '0.1.0', 'fresh': '0.1.0'},
                 {('example', '0.1.0'): lineage}, REVISION, Path(temporary), source_packages=extras)
@@ -698,14 +699,20 @@ class StablePackageTests(unittest.TestCase):
             self.assertEqual(staged['example'], old_bytes)
             self.assertEqual(set(calls[-1]), {'example-0.1.0.crate', 'fresh-0.1.0.crate', 'cli-0.1.0.crate'})
             self.assertEqual([arg for arg in calls[0] if arg in data], ['example'])
-            self.assertEqual([arg for arg in calls[2] if arg in data], ['fresh', 'cli'])
-            self.assertEqual(len(calls), 5)
+            self.assertEqual([arg for arg in calls[2] if arg in data], ['fresh'])
+            self.assertEqual([arg for arg in calls[4] if arg in data], ['cli'])
+            self.assertNotIn('--config', calls[0])
+            self.assertNotIn('--config', calls[2])
+            self.assertIn('--config', calls[4])
+            self.assertFalse(any('patch.crates-io.example.path=' in arg for arg in calls[4]))
+            self.assertEqual(len(calls), 7)
 
     def test_maintenance_retains_cli_without_looking_up_main_ownership(self):
         calls = []; data = {'example': make_archive(), 'cli': self.named_archive('cli', publish=False)}
         with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
             stack.enter_context(patch.dict(os.environ, {'ATRINIK_RELEASE_BRANCH': '1.0.x'}, clear=True))
             stack.enter_context(patch.object(P, 'versions', return_value={'example': '0.1.0'}))
+            stack.enter_context(patch.object(P.Path, 'is_dir', return_value=True))
             stack.enter_context(patch.object(P, 'source_only_packages', return_value={
                 'cli': {'name': 'cli', 'version': '0.1.0', 'path': 'crates/cli'}}))
             known = stack.enter_context(patch.object(P, 'known'))
@@ -808,6 +815,22 @@ class StablePackageTests(unittest.TestCase):
                  patch.object(P.subprocess, 'run', side_effect=command):
                 with self.assertRaisesRegex(ValueError, 'reproduction mismatch|staged archive changed'):
                     P.stage_packages(CONFIG, {'example': '0.1.0'}, {}, REVISION, Path(temporary))
+
+    def test_source_override_never_changes_public_archive_packaging(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.object(P.subprocess, 'run') as run, \
+             self.assertRaisesRegex(ValueError, 'source overrides cannot apply to public archives'):
+            P.package_twice(CONFIG, ['example'], {'example': '0.1.0'}, Path(temporary), True,
+                            source_overrides={'cli': 'crates/atrinik-content'})
+        run.assert_not_called()
+
+    def test_source_override_must_be_bounded_to_existing_source_directory(self):
+        for name, relative in [('cli', '../outside'), ('cli', 'missing-source-directory'),
+                               ('--bad', 'crates/atrinik-content')]:
+            with self.subTest(name=name, relative=relative), tempfile.TemporaryDirectory() as temporary, \
+                 patch.object(P.subprocess, 'run') as run, self.assertRaises(ValueError):
+                P.package_twice(CONFIG, ['cli'], {'cli': '0.1.0'}, Path(temporary), True,
+                                source_overrides={name: relative})
+            run.assert_not_called()
 
     def test_source_only_selection_must_be_explicit_nonpublishable_workspace_member(self):
         metadata = {'workspace_members': ['cli-id'], 'packages': [
