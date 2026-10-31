@@ -84,6 +84,19 @@ The publisher uses the `crates-io-release` environment and a short-lived crates.
 OIDC credential. Hourly reconciliation repairs a missed dispatch or interrupted
 publication from immutable GitHub release assets. A draft, prerelease, moved tag,
 changed asset or mismatched source revision cannot authorize publication.
+Before redispatch, reconciliation requires successful required GitHub Actions
+checks on that graph's exact source revision, using the publisher's check
+selection rules. Absent, pending or unsuccessful checks defer that release and
+allow other eligible graphs to be considered, with at most one dispatch per run.
+Each deferred release is reported as JSON with its source ID, revision and a
+fixed reason; the final status distinguishes deferral from completed scanning or
+dispatch. These are scheduling results, not evidence of successful publication.
+Deferral writes no persistent state and is reevaluated on every reconciliation.
+Check API failures, incomplete or oversized inventories, lineage conflicts and
+registry conflicts still fail closed. All catalog lineage is validated before
+dispatch, and the publisher independently repeats its full evidence checks.
+Reconciliation cannot repair failed historical validation or authorize recovery
+of an immutable release or a reserved coordinate.
 
 ## Durable publication intent
 

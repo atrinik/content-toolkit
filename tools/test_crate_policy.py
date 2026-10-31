@@ -67,7 +67,7 @@ class PolicyTests(unittest.TestCase):
                     return {'total_count': len(config['required_checks']), 'check_runs': [
                         {'id': index, 'name': name, 'head_sha': revision, 'app': {'slug': 'github-actions'},
                          'status': 'completed', 'conclusion': 'success'}
-                        for index, name in enumerate(config['required_checks'])]}
+                        for index, name in enumerate(config['required_checks'], start=1)]}
                 self.fail('unexpected API query: ' + suffix)
             def asset(_config, _release, name, *_args):
                 return (directory / name).read_bytes()
