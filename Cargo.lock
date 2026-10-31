@@ -4,14 +4,14 @@ version = 4
 
 [[package]]
 name = "atrinik-artifact"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "sha2",
 ]
 
 [[package]]
 name = "atrinik-catalog"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "atrinik-diagnostics",
  "atrinik-source",
@@ -20,7 +20,7 @@ dependencies = [
 
 [[package]]
 name = "atrinik-classic-adapter"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "atrinik-source",
  "atrinik-transaction",
@@ -34,7 +34,7 @@ dependencies = [
 
 [[package]]
 name = "atrinik-content"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "atrinik-artifact",
  "atrinik-catalog",
@@ -51,7 +51,7 @@ dependencies = [
 
 [[package]]
 name = "atrinik-content-mcp"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "atrinik-catalog",
  "atrinik-diagnostics",
@@ -66,11 +66,11 @@ dependencies = [
 
 [[package]]
 name = "atrinik-diagnostics"
-version = "0.1.2"
+version = "0.1.3"
 
 [[package]]
 name = "atrinik-schema"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "atrinik-diagnostics",
  "atrinik-source",
@@ -78,7 +78,7 @@ dependencies = [
 
 [[package]]
 name = "atrinik-source"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "atrinik-diagnostics",
  "sha2",
@@ -86,14 +86,14 @@ dependencies = [
 
 [[package]]
 name = "atrinik-testkit"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "atrinik-source",
 ]
 
 [[package]]
 name = "atrinik-transaction"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "atrinik-catalog",
  "atrinik-diagnostics",
@@ -224,9 +224,9 @@ dependencies = [
 
 [[package]]
 name = "rustix"
-version = "1.1.5"
+version = "1.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "891efababe418670775f199f0d233d84843c227a0949a883ce15b37c78d6629d"
+checksum = "e5e76742e5294153d4dde1207dbec5bdd81eef6fabdc0d2118babadabfd858aa"
 dependencies = [
  "bitflags",
  "errno",
