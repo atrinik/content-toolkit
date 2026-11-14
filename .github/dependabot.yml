@@ -13,6 +13,8 @@ updates:
       rust:
         patterns:
           - "*"
+    assignees:
+      - zoeyrose
   - package-ecosystem: github-actions
     directory: /
     schedule:
@@ -21,3 +23,5 @@ updates:
       github-actions:
         patterns:
           - "*"
+    assignees:
+      - zoeyrose
