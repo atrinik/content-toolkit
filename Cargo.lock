@@ -302,15 +302,15 @@ dependencies = [
 
 [[package]]
 name = "tilewright-jsonc"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "26b1c7445318f03bdee03abdcd531fef5f61e588820ec8bf15d5811ec3a6f9d8"
+checksum = "e09599cb595e74725264da134dd440b701f0db7a87ade655f3c17a7eb31d1dd7"
 
 [[package]]
 name = "tilewright-source"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a47f847918a77b0a41d3bd6c1be46efaa0cb3072e23235eb39eb33e817969c44"
+checksum = "a0ec9a0a1e3be7e905a15a5c6edfe20ef1afbd1c891f4b5498abd73d2cec67e9"
 dependencies = [
  "rustix",
  "sha2",

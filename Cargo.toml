@@ -23,8 +23,8 @@ version = "0.1.3"
 
 [workspace.dependencies]
 atrinik-classic-adapter = { path = "crates/atrinik-classic-adapter", version = "=0.1.3" }
-tilewright-source = "=0.1.0"
-tilewright-jsonc = "=0.1.0"
+tilewright-source = "=0.2.0"
+tilewright-jsonc = "=0.2.0"
 atrinik-content-mcp = { path = "crates/atrinik-content-mcp", version = "=0.1.3" }
 atrinik-artifact = { path = "crates/atrinik-artifact", version = "=0.1.3" }
 atrinik-catalog = { path = "crates/atrinik-catalog", version = "=0.1.3" }
