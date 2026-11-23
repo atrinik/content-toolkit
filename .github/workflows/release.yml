@@ -47,6 +47,9 @@ jobs:
         run: NODE_PATH="${RUNNER_TEMP}/crate-analysis/node_modules" node scripts/release/test-source-version.mjs
       - name: Plan the actual source version without write credentials
         id: plan
+        env:
+          # Read-only release catalog lookups; get() sends it only to api.github.com.
+          GH_READ_TOKEN: ${{ github.token }}
         run: |
           NODE_PATH="${RUNNER_TEMP}/crate-analysis/node_modules" \
             node scripts/release/source-version.mjs > "${RUNNER_TEMP}/source-plan.json"

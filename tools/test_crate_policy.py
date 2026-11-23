@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Repository contract tests for the intentionally small public crate family."""
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -87,6 +88,26 @@ class PolicyTests(unittest.TestCase):
         self.assertIn("crate_release.py dispatch", execution["successCmd"])
         assets = next(p[1]["assets"] for p in release["plugins"] if isinstance(p, list) and p[0] == "@semantic-release/github")
         self.assertIn({"path": "build/release/*"}, assets)
+
+    def test_source_version_plan_reads_release_catalog_with_read_only_token(self):
+        # On main the plan step lists releases through api.github.com. Without a
+        # token it shares the runner IP's unauthenticated limit and can fail.
+        workflow = (ROOT / ".github/workflows/release.yml").read_text()
+        header, jobs = workflow.split("\njobs:\n", 1)
+        self.assertIn("\npermissions:\n  contents: read\n\n", header)
+        package = jobs.split("\n  attest:\n", 1)[0]
+        self.assertTrue(package.startswith("  package:\n"))
+        self.assertNotIn("\n    permissions:", package)
+        marker = "      - name: Plan the actual source version without write credentials\n"
+        self.assertEqual(package.count(marker), 1)
+        plan = package.split(marker, 1)[1].split("\n      - ", 1)[0]
+        self.assertIn("node scripts/release/source-version.mjs", plan)
+        self.assertIn("        env:\n", plan)
+        self.assertIn("\n          GH_READ_TOKEN: ${{ github.token }}\n", plan)
+        # Only the plan step holds the token; packaging and compilation stay credential-free.
+        self.assertEqual(package.count("${{ github.token }}"), 1)
+        self.assertNotIn("secrets.", package)
+        self.assertIsNone(re.search(r"\b(GH_TOKEN|GITHUB_TOKEN|GH_INTENT_TOKEN|CARGO_REGISTRY_TOKEN)\b", package))
 
 
 if __name__ == "__main__":
