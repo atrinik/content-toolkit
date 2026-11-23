@@ -81,8 +81,8 @@
   building. Already owned libraries are reproduced individually against
   production registry checksums and their original bytes enter the exact graph;
   only new libraries and explicit nonpublishable applications share an overlay. Only the inert signing job has source OIDC/attestation authority;
-  compilation stays credential-free; only the source job's planning and
-  preparation catalog reads use its read-only token. Preserve uncertain intents for explicit
+  compiler processes inherit no credentials; the source job passes its read-only
+  token only to its planning and preparation catalog reads. Preserve uncertain intents for explicit
   owner recovery. See
   [the release contract](CRATE_RELEASE.md). Every handoff states exact validation
   and unavailable integration; runtime topology is not applicable to toolkit work.

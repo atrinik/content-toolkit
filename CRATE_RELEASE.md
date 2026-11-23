@@ -33,8 +33,10 @@ commit analyzer and the existing release rules. Only its planning and preparatio
 steps receive the job's read-only Actions token (`contents: read`) as
 `GH_READ_TOKEN`, so their release catalog reads authenticate to `api.github.com`
 instead of sharing the runner's anonymous rate limit. `tools/package-release.sh`
-removes it from its own environment before running any tool and passes it only to
-`crate_prepare.py prepare`, which strips it from Cargo and verifier processes. It packages
+unexports it before running any tool and passes it only to `crate_prepare.py prepare`,
+whose Cargo and verifier processes run with a cleaned environment. No compiler,
+build script or packaging tool inherits it; this limits accidental exposure and
+is not a sandbox. Apart from that catalog read, `tools/package-release.sh` packages
 and compiles the complete compatibility set without credentials, then prepares
 `crate-release.json` before checksums and GitHub publication. Source preparation
 uses runner temporary storage outside the checkout; validation and packaging

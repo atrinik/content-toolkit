@@ -2,6 +2,7 @@
 """Negative tests for the portable exact-archive publication boundary."""
 from __future__ import annotations
 
+import ast
 import copy
 from contextlib import ExitStack
 import gzip
@@ -724,6 +725,25 @@ class BoundaryTests(unittest.TestCase):
             R.registry_source_branch()
         with patch.dict(os.environ, {'GH_READ_TOKEN': 'read-only-secret'}, clear=True):
             self.assertNotIn('GH_READ_TOKEN', P.clean_environment())
+
+    def test_preparation_subprocesses_other_than_git_drop_the_read_token(self):
+        # The source job hands prepare() GH_READ_TOKEN for catalog reads; only
+        # clean_environment() keeps it from Cargo, build scripts and the verifier.
+        source = Path(P.__file__).read_text()
+        self.assertNotRegex(source, r'\bos\.(system|popen|exec|spawn|posix_spawn)|\bpty\.'
+                            r'|from subprocess import|import subprocess as')
+        calls = [node for node in ast.walk(ast.parse(source)) if isinstance(node, ast.Call)
+                 and isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name)
+                 and node.func.value.id == 'subprocess']
+        self.assertEqual(len(calls), 5)
+        for call in calls:
+            command = call.args[0] if call.args else None
+            if (isinstance(command, ast.List) and isinstance(command.elts[0], ast.Constant)
+                    and command.elts[0].value == 'git'):
+                continue
+            env = [keyword.value for keyword in call.keywords if keyword.arg == 'env']
+            self.assertTrue(env and isinstance(env[0], ast.Call) and isinstance(env[0].func, ast.Name)
+                            and env[0].func.id == 'clean_environment', ast.unparse(call))
 
     def test_required_checks_exact_revision_name_app_and_latest_success(self):
         check = {'name': 'Example validation', 'head_sha': REVISION, 'app': {'slug': 'github-actions'},

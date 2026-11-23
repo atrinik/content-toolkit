@@ -4,9 +4,10 @@ set -euo pipefail
 # Keep Python imports from changing the source revision before package checks.
 export PYTHONDONTWRITEBYTECODE=1
 
-# The release catalog read is the only consumer of the read-only job token.
-# Keep it out of Cargo, build scripts, syft and every other tool below.
-catalog_read_token=${GH_READ_TOKEN-}
+# Only crate_prepare.py's release catalog read uses the read-only job token, so
+# no other command below inherits it (this limits accidental exposure; it is
+# not a barrier against hostile code running as this user). Never export it.
+declare +x catalog_read_token=${GH_READ_TOKEN-}
 unset GH_READ_TOKEN
 
 repository=$(git rev-parse --show-toplevel)
