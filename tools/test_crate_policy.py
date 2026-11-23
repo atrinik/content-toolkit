@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Repository contract tests for the intentionally small public crate family."""
 import json
-import re
 import subprocess
 import sys
 import tempfile
@@ -89,26 +88,42 @@ class PolicyTests(unittest.TestCase):
         assets = next(p[1]["assets"] for p in release["plugins"] if isinstance(p, list) and p[0] == "@semantic-release/github")
         self.assertIn({"path": "build/release/*"}, assets)
 
-    def test_source_version_plan_reads_release_catalog_with_read_only_token(self):
-        # On main the plan step lists releases through api.github.com. Without a
-        # token it shares the runner IP's unauthenticated limit and can fail.
+    def test_release_catalog_reads_use_only_the_read_only_job_token(self):
+        # On main, planning and preparation list releases through api.github.com.
+        # Without a token they share the runner IP's anonymous limit and can fail.
         workflow = (ROOT / ".github/workflows/release.yml").read_text()
         header, jobs = workflow.split("\njobs:\n", 1)
         self.assertIn("\npermissions:\n  contents: read\n\n", header)
         package = jobs.split("\n  attest:\n", 1)[0]
         self.assertTrue(package.startswith("  package:\n"))
-        self.assertNotIn("\n    permissions:", package)
-        marker = "      - name: Plan the actual source version without write credentials\n"
-        self.assertEqual(package.count(marker), 1)
-        plan = package.split(marker, 1)[1].split("\n      - ", 1)[0]
-        self.assertIn("node scripts/release/source-version.mjs", plan)
-        self.assertIn("        env:\n", plan)
-        self.assertIn("\n          GH_READ_TOKEN: ${{ github.token }}\n", plan)
-        # Only the plan step holds the token; packaging and compilation stay credential-free.
-        self.assertEqual(package.count("${{ github.token }}"), 1)
-        self.assertNotIn("secrets.", package)
-        self.assertIsNone(re.search(r"\b(GH_TOKEN|GITHUB_TOKEN|GH_INTENT_TOKEN|CARGO_REGISTRY_TOKEN)\b", package))
-
+        self.assertNotIn("permissions", package)
+        steps = [step.partition("\n") for step in package.split("\n      - ")[1:]]
+        token = "\n          GH_READ_TOKEN: ${{ github.token }}\n"
+        carrying = [(name, body) for name, _, body in steps if token in body + "\n"]
+        self.assertEqual([name for name, _ in carrying], [
+            "name: Plan the actual source version without write credentials",
+            "name: Prepare every immutable source and crate asset",
+        ])
+        self.assertIn("node scripts/release/source-version.mjs", carrying[0][1])
+        self.assertIn("run: tools/package-release.sh ", carrying[1][1])
+        # Count every spelling, so no other step, job env, secret, context dump
+        # or GITHUB_ENV export hands the credential to another step.
+        expressions = "".join(package.lower().split())
+        self.assertEqual(expressions.count("github.token"), 2)
+        self.assertEqual(package.count("GH_READ_TOKEN"), 2)
+        for fragment in ("github[", "tojson(github", "secrets", "github_env", "gh_token",
+                         "github_token", "gh_intent_token", "cargo_registr"):
+            self.assertNotIn(fragment, expressions)
+        # package-release.sh compiles and runs tools; only crate_prepare.py sees the token.
+        script = (ROOT / "tools/package-release.sh").read_text()
+        prefix, separator, _ = script.partition("\nunset GH_READ_TOKEN\n")
+        self.assertTrue(separator)
+        self.assertEqual([line for line in prefix.splitlines() if line and not line.startswith("#")], [
+            "set -euo pipefail", "export PYTHONDONTWRITEBYTECODE=1", "catalog_read_token=${GH_READ_TOKEN-}",
+        ])
+        self.assertEqual(script.count("GH_READ_TOKEN"), 3)
+        self.assertEqual(script.count("catalog_read_token"), 2)
+        self.assertEqual(script.count("\nGH_READ_TOKEN=${catalog_read_token} python3 tools/crate_prepare.py "), 1)
 
 if __name__ == "__main__":
     unittest.main()

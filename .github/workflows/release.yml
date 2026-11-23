@@ -68,6 +68,8 @@ jobs:
         if: steps.plan.outputs.version != ''
         env:
           SOURCE_VERSION: ${{ steps.plan.outputs.version }}
+          # package-release.sh passes it only to crate_prepare.py's catalog read.
+          GH_READ_TOKEN: ${{ github.token }}
         run: tools/package-release.sh "${RUNNER_TEMP}/source-release" "${SOURCE_VERSION}"
       - name: Retain the complete verified release payload
         if: steps.plan.outputs.version != ''

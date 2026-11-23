@@ -4,6 +4,11 @@ set -euo pipefail
 # Keep Python imports from changing the source revision before package checks.
 export PYTHONDONTWRITEBYTECODE=1
 
+# The release catalog read is the only consumer of the read-only job token.
+# Keep it out of Cargo, build scripts, syft and every other tool below.
+catalog_read_token=${GH_READ_TOKEN-}
+unset GH_READ_TOKEN
+
 repository=$(git rev-parse --show-toplevel)
 cd "${repository}"
 
@@ -67,7 +72,7 @@ crate_prepare_arguments=(prepare --source-tag "v${version}"
 if [[ $# -lt 2 ]]; then
   crate_prepare_arguments+=(--dry-run)
 fi
-python3 tools/crate_prepare.py "${crate_prepare_arguments[@]}"
+GH_READ_TOKEN=${catalog_read_token} python3 tools/crate_prepare.py "${crate_prepare_arguments[@]}"
 mv "${output}/crates/crate-release.json" "${output}/crate-release.json"
 # GitHub release assets form a flat inventory. Preserve authored runtime data
 # together in one deterministic archive and publish each crate as an exact file.
