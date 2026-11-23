@@ -110,6 +110,11 @@ class PolicyTests(unittest.TestCase):
         # Without a token they share the runner IP's anonymous limit and can fail.
         workflow = (ROOT / ".github/workflows/release.yml").read_text()
         self.assertEqual(workflow_permissions(workflow), ["contents: read"])
+        # Fixed top-level keys: no workflow-level env, defaults or second block
+        # anywhere in the file can apply to the package job.
+        self.assertEqual([line for line in workflow.splitlines()
+                          if line and not line[0].isspace() and not line.startswith("#")],
+                         ["name: Semantic Release", "on:", "permissions:", "concurrency:", "jobs:"])
         start, end = workflow.find("\n  package:\n"), workflow.find("\n  attest:\n")
         self.assertTrue(0 < start < end)
         package = workflow[start:end]
@@ -124,8 +129,10 @@ class PolicyTests(unittest.TestCase):
         self.assertIn("node scripts/release/source-version.mjs", carrying[0][1])
         self.assertIn("run: tools/package-release.sh ", carrying[1][1])
         # Count every spelling up to the end of the job, workflow header included,
-        # so no other step, env, anchor, secret, context dump or GITHUB_ENV export
-        # hands the credential to another step.
+        # and forbid YAML anchors, aliases and merge keys there, so no other step,
+        # env, secret, context dump or GITHUB_ENV export hands the credential on.
+        # This guards against accidental regressions; any workflow edit is reviewed.
+        self.assertNotRegex(workflow[:end], r"(?m)(?:[:\-?]|^)\s+[&*][^\s]+|<<\s*:")
         expressions = "".join(workflow[:end].lower().split())
         self.assertEqual(expressions.count("github.token"), 2)
         self.assertEqual(workflow[:end].count("GH_READ_TOKEN"), 2)
