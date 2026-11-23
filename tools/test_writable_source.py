@@ -45,7 +45,7 @@ class WritableSourceTests(unittest.TestCase):
             self.assertEqual(result.returncode, 73, result.stdout + result.stderr)
             counts = [int(value) for value in re.findall(r'Ran (\d+) tests?', result.stderr)]
             self.assertTrue(any(count >= 37 for count in counts), result.stderr)
-            self.assertIn('Ran 4 tests', result.stderr)
+            self.assertIn('Ran 5 tests', result.stderr)
             self.assertEqual(git('status', '--porcelain'), b'')
             self.assertEqual(list(root.rglob('*.pyc')), [])
             # Stop immediately after the real clean-source check. No Cargo,

@@ -19,6 +19,23 @@ PUBLIC = {
 }
 
 
+def workflow_permissions(text):
+    """Entries of the one top-level permissions block; YAML blank lines don't end it."""
+    # splitlines() also splits on CR, NEL, U+2028 and U+2029, which YAML may treat
+    # as line breaks, so no separator can hide a further scope.
+    lines = text.splitlines()
+    heads = [index for index, line in enumerate(lines) if line.startswith("permissions")]
+    if len(heads) != 1 or lines[heads[0]] != "permissions:":
+        return None
+    entries = []
+    for line in lines[heads[0] + 1:]:
+        if line and not line[0].isspace() and not line.startswith("#"):
+            break
+        if line.strip() and not line.strip().startswith("#"):
+            entries.append(line.strip())
+    return entries
+
+
 class PolicyTests(unittest.TestCase):
     def test_allowlist_matches_only_reusable_library_manifests(self):
         policy = json.loads((ROOT / "policy/crate-release.json").read_text())
@@ -88,6 +105,50 @@ class PolicyTests(unittest.TestCase):
         assets = next(p[1]["assets"] for p in release["plugins"] if isinstance(p, list) and p[0] == "@semantic-release/github")
         self.assertIn({"path": "build/release/*"}, assets)
 
+    def test_release_catalog_reads_use_only_the_read_only_job_token(self):
+        # On main, planning and preparation list releases through api.github.com.
+        # Without a token they share the runner IP's anonymous limit and can fail.
+        workflow = (ROOT / ".github/workflows/release.yml").read_text()
+        self.assertEqual(workflow_permissions(workflow), ["contents: read"])
+        # Fixed top-level keys: no workflow-level env, defaults or second block
+        # anywhere in the file can apply to the package job.
+        self.assertEqual([line for line in workflow.splitlines()
+                          if line and not line[0].isspace() and not line.startswith("#")],
+                         ["name: Semantic Release", "on:", "permissions:", "concurrency:", "jobs:"])
+        start, end = workflow.find("\n  package:\n"), workflow.find("\n  attest:\n")
+        self.assertTrue(0 < start < end)
+        package = workflow[start:end]
+        self.assertNotIn("permissions", package)
+        steps = [step.partition("\n") for step in package.split("\n      - ")[1:]]
+        token = "\n          GH_READ_TOKEN: ${{ github.token }}\n"
+        carrying = [(name, body) for name, _, body in steps if token in body + "\n"]
+        self.assertEqual([name for name, _ in carrying], [
+            "name: Plan the actual source version without write credentials",
+            "name: Prepare every immutable source and crate asset",
+        ])
+        self.assertIn("node scripts/release/source-version.mjs", carrying[0][1])
+        self.assertIn("run: tools/package-release.sh ", carrying[1][1])
+        # Count every spelling up to the end of the job, workflow header included,
+        # and forbid YAML anchors, aliases and merge keys there, so no other step,
+        # env, secret, context dump or GITHUB_ENV export hands the credential on.
+        # This guards against accidental regressions; any workflow edit is reviewed.
+        self.assertNotRegex(workflow[:end], r"(?m)(?:[:\-?]|^)\s+[&*][^\s]+|<<\s*:")
+        expressions = "".join(workflow[:end].lower().split())
+        self.assertEqual(expressions.count("github.token"), 2)
+        self.assertEqual(workflow[:end].count("GH_READ_TOKEN"), 2)
+        for fragment in ("github[", "tojson(github", "secrets", "github_env", "gh_token",
+                         "github_token", "gh_intent_token", "cargo_registr"):
+            self.assertNotIn(fragment, expressions)
+        # package-release.sh compiles and runs tools; only crate_prepare.py sees the token.
+        script = (ROOT / "tools/package-release.sh").read_text()
+        prefix, separator, _ = script.partition("\nunset GH_READ_TOKEN\n")
+        self.assertTrue(separator)
+        self.assertEqual([line for line in prefix.splitlines() if line and not line.startswith("#")], [
+            "set -euo pipefail", "export PYTHONDONTWRITEBYTECODE=1", "declare +x catalog_read_token=${GH_READ_TOKEN-}",
+        ])
+        self.assertEqual(script.count("GH_READ_TOKEN"), 3)
+        self.assertEqual(script.count("catalog_read_token"), 2)
+        self.assertEqual(script.count("\nGH_READ_TOKEN=${catalog_read_token} python3 tools/crate_prepare.py "), 1)
 
 if __name__ == "__main__":
     unittest.main()
