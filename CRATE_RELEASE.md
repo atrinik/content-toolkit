@@ -29,10 +29,12 @@ latest release that owns each crate version; an unchanged version with changed
 contents fails before semantic-release creates or publishes a GitHub release.
 
 The read-only source-package job calculates the source version with the pinned
-commit analyzer and the existing release rules. Only that planning step receives
-the job's read-only Actions token as `GH_READ_TOKEN`, so its release catalog reads
-authenticate to `api.github.com` instead of sharing the runner's unauthenticated
-rate limit. `tools/package-release.sh` packages
+commit analyzer and the existing release rules. Only its planning and preparation
+steps receive the job's read-only Actions token (`contents: read`) as
+`GH_READ_TOKEN`, so their release catalog reads authenticate to `api.github.com`
+instead of sharing the runner's anonymous rate limit. `tools/package-release.sh`
+removes it from its own environment before running any tool and passes it only to
+`crate_prepare.py prepare`, which strips it from Cargo and verifier processes. It packages
 and compiles the complete compatibility set without credentials, then prepares
 `crate-release.json` before checksums and GitHub publication. Source preparation
 uses runner temporary storage outside the checkout; validation and packaging
